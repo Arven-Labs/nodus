@@ -8,8 +8,9 @@ Mais recente no topo.
 - **Feito**: Cargo workspace (`nodus-core`, `nodus-cli`), `nodus --version` e `--help` com `clap`, `.github/workflows/ci.yml` (modelo `padrao/workflows/ci-rust.yml`), `.gitignore` com `target/`, `GUIDELINES.md`.
 - **CI (resultado real, PR #6)**: commit 1 (só testes) falhou no clippy por `cannot find value VERSION` (erro de compilação, não asserção); commit 2 passou: 4 testes ok, clippy limpo, `guard` verde, Rust 1.100.0 no runner.
 - **Desvio do plano**: não criei `rust-toolchain.toml`. Com `channel = "stable"` não fixaria nada, e o kin também não tem. Fixar a versão fica como decisão futura.
-- **Não verificado**: o CI roda sem `--locked` e não há `Cargo.lock` no repo; o build não é reproduzível até o lock entrar. Nada de lógica do MVP foi escrita. O check `Rust (clippy and tests)` ainda não é obrigatório no ruleset.
-- **Fica**: `Cargo.lock` (gerar uma vez), exigir o check no ruleset depois do merge, P-09 a P-12, P-02, P-03, P-07, P-08.
+- **Cargo.lock**: gerado pelo dono com `cargo generate-lockfile` (Rust 1.98.1 local; 21 pacotes, só a árvore do `clap` e os dois crates). O CI passou a usar `--locked`.
+- **Não verificado**: nada de lógica do MVP foi escrita; não fiz a etapa de quebrar um teste de propósito. O check `Rust (clippy and tests)` ainda não é obrigatório no ruleset. O lock foi resolvido com Rust 1.98.1 e o CI usa 1.100.0.
+- **Fica**: exigir o check no ruleset depois do merge, P-09 a P-12, P-02, P-03, P-07, P-08.
 
 ### 2026-11-12 — Sessão 5 (P-06: libs e licenças)
 
