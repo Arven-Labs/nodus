@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-12 — Sessão 4 (P-04: monorepo)
+
+- **Pedido**: resolver a P-04 (monorepo vs múltiplos repos).
+- **Decisão**: monorepo com Cargo workspace, como o `kin` (ADR 0006). Plano aprovado pelo dono antes de escrever.
+- **Feito**: ADR 0006; P-04 resolvida; `OVERVIEW.md` com a estrutura prevista. Nenhuma pasta nem `Cargo.toml` criados.
+- **CI**: PRs #2 e #3 mesclados, `guard` verde na `main` nos dois; `guard` do PR desta sessão a conferir.
+- **Não verificado**: nada de código; a decisão depende do contrato CLI/agente mudar mais rápido que o ritmo de releases, o que é previsão, não medição.
+- **Fica**: P-06 (libs e licenças), P-07, P-08, P-02, P-03.
+
 ### 2026-11-12 — Sessão 3 (P-05: SECURITY.md)
 
 - **Pedido**: ligar as proteções do repo; depois escrever o modelo de ameaças (P-05).

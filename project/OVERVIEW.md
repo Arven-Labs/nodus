@@ -6,6 +6,9 @@ Plataforma open source e extensível para conhecer, configurar, padronizar, moni
 ## Stack
 Provisória (ADR 0005): Rust para a CLI e o agente local do MVP; estado local embutido a confirmar. Tauri, Core e PostgreSQL adiados. MVP = CLI + agente no Arch, sem GUI (ADR 0004; ver `MVP.md`, `ROADMAP.md`).
 
+## Estrutura do repo
+Monorepo com Cargo workspace (`crates/*`), como o `kin` (ADR 0006). Nada criado ainda.
+
 ## Licença
 MIT (ADR 0002).
 
