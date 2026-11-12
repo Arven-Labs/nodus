@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[profile.dev]
+# Só tabelas de linha e sem cache incremental: mantém o target/ pequeno (ADR 0009 do workspace).
+debug = "line-tables-only"
+incremental = false
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Arven-Labs/nodus"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[workspace.dependencies]
+# Dependências externas entram aqui e são herdadas pelos crates (cada uma com aprovação do dono, ADR 0007).
+clap = { version = "4", features = ["derive"] }
+nodus-core = { path = "crates/nodus-core" }

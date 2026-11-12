@@ -1,6 +1,6 @@
 # nodus: Estado do Projeto
 
-> Última atualização: 2026-11-12 (P-06 resolvida: `LIBS.md` e ADR 0007; entregas da Fase 0 feitas)
+> Última atualização: 2026-11-12 (Fase 1, marco 1: esqueleto do workspace, CI Rust e `GUIDELINES.md`)
 
 ## Como usar este arquivo
 
@@ -12,6 +12,7 @@
 | Fases do projeto | `ROADMAP.md` |
 | Modelo de ameaças e permissões | `SECURITY.md` |
 | Bibliotecas e licenças do MVP | `LIBS.md` |
+| Regras de código | `GUIDELINES.md` |
 | Decisões em aberto | `PENDING.md` |
 | Decisões tomadas e seus motivos | `adr/` |
 | Log de sessões de trabalho (mais recente no topo) | `SESSIONS.md` |

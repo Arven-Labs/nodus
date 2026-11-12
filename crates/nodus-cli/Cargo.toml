@@ -1,0 +1,18 @@
+[package]
+name = "nodus-cli"
+description = "CLI do nodus."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "nodus"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace = true
+nodus-core.workspace = true

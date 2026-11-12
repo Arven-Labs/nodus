@@ -7,10 +7,10 @@ Plataforma open source e extensível para conhecer, configurar, padronizar, moni
 Rust confirmado para o MVP (ADRs 0005 e 0007): CLI e agente local, com `clap`, `serde`/`toml`, `rusqlite`, `sysinfo`. pacman e Flatpak por processo externo (`alpm` é GPL-3.0). Git em aberto (P-09). Detalhes em `LIBS.md`. Tauri, Core e PostgreSQL adiados. MVP = CLI + agente no Arch, sem GUI (ADR 0004; ver `MVP.md`, `ROADMAP.md`).
 
 ## Estrutura do repo
-Monorepo com Cargo workspace (`crates/*`), como o `kin` (ADR 0006). Nada criado ainda.
+Monorepo com Cargo workspace (`crates/*`), como o `kin` (ADR 0006): `nodus-core` (domínio) e `nodus-cli` (binário `nodus`). Regras de código em `GUIDELINES.md`.
 
 ## Licença
 MIT (ADR 0002).
 
 ## Status
-Fase 0 com todas as entregas feitas (só docs e ADRs, sem código; ADR 0003). Fase 1 ainda não iniciada.
+Fase 0 com todas as entregas feitas (ADR 0003), aguardando o fechamento formal pelo dono. Fase 1 iniciada: esqueleto do workspace com `nodus --version` e CI Rust; sem lógica do MVP ainda.
