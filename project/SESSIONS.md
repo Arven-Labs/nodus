@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-12 — Sessão 5 (P-06: libs e licenças)
+
+- **Pedido**: resolver a P-06 e fechar a Fase 0.
+- **Feito**: `LIBS.md` (levantamento no crates.io) e ADR 0007. Achado: `alpm` é GPL-3.0, incompatível com linkar num binário MIT; pacman e Flatpak passam a ser processos externos. Rust confirmado. P-06 resolvida; novas P-09 a P-12.
+- **CI**: PR #4 da sessão 4 mesclado, `guard` verde na `main`; `guard` do PR desta sessão a conferir.
+- **Não verificado**: só metadados; sem leitura de código, `cargo audit` ou teste das libs. A fronteira de licença "processo vs link" não é parecer jurídico. `alpm-types` e `gix` não foram testados.
+- **Fica**: P-09 a P-12 (Fase 1), P-02, P-03, P-07, P-08. O fechamento formal da Fase 0 depende de o dono aprovar.
+
 ### 2026-11-12 — Sessão 4 (P-04: monorepo)
 
 - **Pedido**: resolver a P-04 (monorepo vs múltiplos repos).

@@ -1,6 +1,6 @@
 # nodus: Estado do Projeto
 
-> Última atualização: 2026-11-12 (P-04 resolvida: monorepo, ADR 0006)
+> Última atualização: 2026-11-12 (P-06 resolvida: `LIBS.md` e ADR 0007; entregas da Fase 0 feitas)
 
 ## Como usar este arquivo
 
@@ -11,6 +11,7 @@
 | Escopo do MVP (Fase 1) | `MVP.md` |
 | Fases do projeto | `ROADMAP.md` |
 | Modelo de ameaças e permissões | `SECURITY.md` |
+| Bibliotecas e licenças do MVP | `LIBS.md` |
 | Decisões em aberto | `PENDING.md` |
 | Decisões tomadas e seus motivos | `adr/` |
 | Log de sessões de trabalho (mais recente no topo) | `SESSIONS.md` |
