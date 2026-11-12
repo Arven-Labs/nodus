@@ -4,10 +4,10 @@
 Plataforma open source e extensível para conhecer, configurar, padronizar, monitorar e administrar computadores, servidores, VPS, ambientes de desenvolvimento e aplicações. Quatro frentes: gestão de dispositivos, de ambientes, de infraestrutura e saúde de projetos, e de frotas e organizações. Princípios: local-first, self-hostable, multiplataforma, modular, API-first, seguro por padrão, vendor-neutral. A IA é integração opcional, nunca requisito. Detalhes no `SPEC.md` (que ainda usa o nome provisório "Universal").
 
 ## Stack
-Não decidida. Fica para a Fase 0.
+Provisória (ADR 0005): Rust para a CLI e o agente local do MVP; estado local embutido a confirmar. Tauri, Core e PostgreSQL adiados. MVP = CLI + agente no Arch, sem GUI (ADR 0004; ver `MVP.md`, `ROADMAP.md`).
 
 ## Licença
 MIT (ADR 0002).
 
 ## Status
-Pré-projeto: só governança (ruleset, `guard`, template de PR) e a spec inicial. Nenhuma fase iniciada.
+Fase 0 em andamento (só docs e ADRs, sem código; ADR 0003). Fase 1 ainda não iniciada.
