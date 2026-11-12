@@ -1,6 +1,6 @@
 # nodus: Estado do Projeto
 
-> Última atualização: 2026-11-12 (P-05 resolvida: `SECURITY.md` do MVP local)
+> Última atualização: 2026-11-12 (P-04 resolvida: monorepo, ADR 0006)
 
 ## Como usar este arquivo
 
