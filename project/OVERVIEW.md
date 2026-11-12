@@ -4,7 +4,7 @@
 Plataforma open source e extensível para conhecer, configurar, padronizar, monitorar e administrar computadores, servidores, VPS, ambientes de desenvolvimento e aplicações. Quatro frentes: gestão de dispositivos, de ambientes, de infraestrutura e saúde de projetos, e de frotas e organizações. Princípios: local-first, self-hostable, multiplataforma, modular, API-first, seguro por padrão, vendor-neutral. A IA é integração opcional, nunca requisito. Detalhes no `SPEC.md` (que ainda usa o nome provisório "Universal").
 
 ## Stack
-Provisória (ADR 0005): Rust para a CLI e o agente local do MVP; estado local embutido a confirmar. Tauri, Core e PostgreSQL adiados. MVP = CLI + agente no Arch, sem GUI (ADR 0004; ver `MVP.md`, `ROADMAP.md`).
+Rust confirmado para o MVP (ADRs 0005 e 0007): CLI e agente local, com `clap`, `serde`/`toml`, `rusqlite`, `sysinfo`. pacman e Flatpak por processo externo (`alpm` é GPL-3.0). Git em aberto (P-09). Detalhes em `LIBS.md`. Tauri, Core e PostgreSQL adiados. MVP = CLI + agente no Arch, sem GUI (ADR 0004; ver `MVP.md`, `ROADMAP.md`).
 
 ## Estrutura do repo
 Monorepo com Cargo workspace (`crates/*`), como o `kin` (ADR 0006). Nada criado ainda.
@@ -13,4 +13,4 @@ Monorepo com Cargo workspace (`crates/*`), como o `kin` (ADR 0006). Nada criado 
 MIT (ADR 0002).
 
 ## Status
-Fase 0 em andamento (só docs e ADRs, sem código; ADR 0003). Fase 1 ainda não iniciada.
+Fase 0 com todas as entregas feitas (só docs e ADRs, sem código; ADR 0003). Fase 1 ainda não iniciada.
