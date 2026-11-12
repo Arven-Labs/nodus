@@ -7,3 +7,6 @@
 *.key
 *.pem
 *.age
+
+# Build do Cargo (build só no CI, ADR 0009)
+target/
