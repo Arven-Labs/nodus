@@ -1,6 +1,6 @@
 # nodus: Estado do Projeto
 
-> Última atualização: 2026-11-12 (P-01 resolvida: Fase 0 só docs, MVP CLI sem GUI)
+> Última atualização: 2026-11-12 (P-05 resolvida: `SECURITY.md` do MVP local)
 
 ## Como usar este arquivo
 
@@ -10,6 +10,7 @@
 | Visão geral, stack e status | `OVERVIEW.md` |
 | Escopo do MVP (Fase 1) | `MVP.md` |
 | Fases do projeto | `ROADMAP.md` |
+| Modelo de ameaças e permissões | `SECURITY.md` |
 | Decisões em aberto | `PENDING.md` |
 | Decisões tomadas e seus motivos | `adr/` |
 | Log de sessões de trabalho (mais recente no topo) | `SESSIONS.md` |
