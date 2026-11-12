@@ -1,3 +1,10 @@
+use clap::Parser;
+
+/// Plataforma aberta para padronizar e administrar ambientes de computadores.
+#[derive(Parser, Debug)]
+#[command(name = "nodus", version = nodus_core::VERSION)]
+pub struct Cli {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
