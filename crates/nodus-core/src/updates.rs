@@ -119,7 +119,7 @@ fn run_or_empty(
 /// Levanta as atualizações pendentes. `checkupdates` é a fonte principal; sem ele, cai para `pacman -Qu`.
 pub fn collect_updates(runner: &dyn CommandRunner) -> Result<Updates, InventoryError> {
     // `checkupdates` sai com 2 quando não há atualização (lido no script, ADR 0008); `pacman -Qu` sai com 1.
-    let (pacman_source, pacman_output) = match run_or_empty(runner, "checkupdates", &[], 3) {
+    let (pacman_source, pacman_output) = match run_or_empty(runner, "checkupdates", &[], 2) {
         Ok(output) => (PacmanSource::Checkupdates, output),
         Err(RunnerError::NotFound { .. }) => (
             PacmanSource::PacmanQu,
