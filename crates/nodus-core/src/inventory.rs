@@ -18,8 +18,26 @@ pub struct SystemInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Disk {
+    pub name: String,
+    pub mount_point: String,
+    pub file_system: String,
+    pub total_bytes: u64,
+}
+
+/// Hardware lido por um adaptador (o core não toca a máquina).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HardwareInfo {
+    pub cpu_model: String,
+    pub cpu_threads: usize,
+    pub memory_total_bytes: u64,
+    pub disks: Vec<Disk>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Inventory {
     pub system: SystemInfo,
+    pub hardware: HardwareInfo,
     pub packages: Vec<Package>,
 }
 
@@ -102,6 +120,7 @@ pub fn collect(
     runner: &dyn CommandRunner,
     os_release: &str,
     kernel: &str,
+    hardware: HardwareInfo,
 ) -> Result<Inventory, InventoryError> {
     let os = parse_os_release(os_release)?;
     let packages = parse_pacman_q(&runner.run("pacman", &["-Q"])?)?;
@@ -111,6 +130,7 @@ pub fn collect(
             os_version: os.version,
             kernel: kernel.trim().to_string(),
         },
+        hardware,
         packages,
     })
 }

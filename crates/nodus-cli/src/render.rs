@@ -12,11 +12,34 @@ pub fn render_text(inventory: &Inventory) -> String {
         None => writeln!(out, "Sistema: {}", system.os_name),
     };
     let _ = writeln!(out, "Kernel: {}", system.kernel);
+    let hardware = &inventory.hardware;
+    let _ = writeln!(
+        out,
+        "CPU: {} ({} threads)",
+        hardware.cpu_model, hardware.cpu_threads
+    );
+    let _ = writeln!(out, "Memória: {}", gib(hardware.memory_total_bytes));
+    let _ = writeln!(out, "Discos ({}):", hardware.disks.len());
+    for disk in &hardware.disks {
+        let _ = writeln!(
+            out,
+            "  {} {} {} {}",
+            disk.mount_point,
+            disk.name,
+            disk.file_system,
+            gib(disk.total_bytes)
+        );
+    }
     let _ = writeln!(out, "Pacotes ({}):", inventory.packages.len());
     for package in &inventory.packages {
         let _ = writeln!(out, "  {} {}", package.name, package.version);
     }
     out
+}
+
+/// Bytes em GiB (base 1024) com uma casa decimal.
+fn gib(bytes: u64) -> String {
+    format!("{:.1} GiB", bytes as f64 / (1u64 << 30) as f64)
 }
 
 #[cfg(test)]
