@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 /// Plataforma aberta para padronizar e administrar ambientes de computadores.
 #[derive(Parser, Debug)]
@@ -18,6 +19,17 @@ pub enum Command {
     },
     /// Lista atualizações pendentes de pacman e Flatpak (somente leitura, usa a rede).
     Updates {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
+    Repos {
+        /// Pasta cujos filhos diretos são examinados.
+        dir: PathBuf,
+        /// Faz `fetch` do `origin` antes de ler o estado (usa a rede).
+        #[arg(long)]
+        fetch: bool,
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
@@ -98,7 +110,11 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "repos", "/ws", "--fetch", "--json"]).unwrap();
         assert!(matches!(
             cli.command,
-            Command::Repos { fetch: true, json: true, .. }
+            Command::Repos {
+                fetch: true,
+                json: true,
+                ..
+            }
         ));
     }
 

@@ -1,6 +1,7 @@
 //! Formatação do inventário para o terminal.
 
 use nodus_core::inventory::Inventory;
+use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
@@ -94,6 +95,59 @@ pub fn render_updates(updates: &Updates) -> String {
     out
 }
 
+pub fn render_repos(repos: &[RepoStatus]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Repositórios ({}):", repos.len());
+    for repo in repos {
+        let _ = write!(out, "  {}", repo.name);
+        if let Some(erro) = &repo.error {
+            let _ = writeln!(out, " ERRO: {erro}");
+            continue;
+        }
+        match (&repo.branch, &repo.commit) {
+            (Some(branch), _) => {
+                let _ = write!(out, " {branch}");
+            }
+            (None, Some(_)) => {
+                let _ = write!(out, " (HEAD solto)");
+            }
+            (None, None) => {
+                let _ = write!(out, " (sem commits)");
+            }
+        }
+        if let Some(commit) = &repo.commit {
+            let _ = write!(out, " {commit}");
+        }
+        match &repo.upstream {
+            None => {
+                let _ = write!(out, " sem upstream");
+            }
+            Some(upstream) if repo.upstream_gone => {
+                let _ = write!(out, " {upstream} (sumiu)");
+            }
+            Some(upstream) => {
+                let _ = write!(out, " {upstream}");
+                if let (Some(ahead), Some(behind)) = (repo.ahead, repo.behind) {
+                    let _ = write!(out, " (à frente {ahead}, atrás {behind})");
+                }
+            }
+        }
+        match &repo.origin_url {
+            Some(url) => {
+                let _ = write!(out, " {url}");
+            }
+            None => {
+                let _ = write!(out, " sem origin");
+            }
+        }
+        if let Some(FetchResult::Failed(motivo)) = &repo.fetch {
+            let _ = write!(out, " [fetch falhou: {motivo}]");
+        }
+        let _ = writeln!(out);
+    }
+    out
+}
+
 /// Bytes em GiB (base 1024) com uma casa decimal.
 fn gib(bytes: u64) -> String {
     format!("{:.1} GiB", bytes as f64 / (1u64 << 30) as f64)
@@ -103,7 +157,6 @@ fn gib(bytes: u64) -> String {
 mod tests {
     use super::*;
     use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
-    use nodus_core::repos::{FetchResult, RepoStatus};
     use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
 
     fn inventario(os_version: Option<&str>) -> Inventory {

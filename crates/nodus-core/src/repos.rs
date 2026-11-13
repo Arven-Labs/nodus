@@ -1,3 +1,271 @@
+//! Estado de repositórios Git lido só de refs, com `git` isolado (ADR 0009, SECURITY.md §6).
+//!
+//! Nunca `git status`: um filtro `clean` hostil o executa mesmo com o isolamento. Aqui só se usa
+//! `for-each-ref`, `rev-parse`, `config --local --get` e, a pedido, `fetch` do `origin`.
+
+use crate::inventory::ParseError;
+use crate::runner::{CommandRunner, RunnerError};
+use serde::Serialize;
+
+/// Variáveis de ambiente do isolamento (ADR 0009).
+const ISOLATION_ENV: [&str; 4] = [
+    "GIT_CONFIG_NOSYSTEM=1",
+    "GIT_CONFIG_GLOBAL=/dev/null",
+    "GIT_ALLOW_PROTOCOL=file:https:ssh",
+    "GIT_TERMINAL_PROMPT=0",
+];
+
+/// Pares `-c chave=valor` que anulam chaves de config que executam programas (ADR 0009).
+const ISOLATION_CONFIG: [&str; 6] = [
+    "core.fsmonitor=false",
+    "core.hooksPath=/dev/null",
+    "core.sshCommand=ssh",
+    "core.gitProxy=",
+    "credential.helper=",
+    "protocol.ext.allow=never",
+];
+
+/// Formato de `for-each-ref`: atual, nome, commit curto, upstream e situação (`ahead 1, behind 2`).
+const BRANCH_FORMAT: &str = "--format=%(HEAD)%09%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%(upstream:track,nobracket)";
+
+/// Uma branch local como o `for-each-ref` a descreve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchLine {
+    pub current: bool,
+    pub name: String,
+    pub commit: String,
+    pub upstream: Option<String>,
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
+    /// O upstream configurado não existe mais no remoto.
+    pub gone: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FetchResult {
+    Done,
+    Failed(String),
+}
+
+/// Estado de um repositório. Falha num repositório vira `error`, nunca derruba os outros.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RepoStatus {
+    pub name: String,
+    pub path: String,
+    /// `None` com HEAD solto ou repositório sem commits.
+    pub branch: Option<String>,
+    pub commit: Option<String>,
+    pub upstream: Option<String>,
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
+    pub upstream_gone: bool,
+    pub origin_url: Option<String>,
+    /// `None` quando o `fetch` não foi pedido.
+    pub fetch: Option<FetchResult>,
+    pub error: Option<String>,
+}
+
+impl RepoStatus {
+    fn vazio(name: &str, path: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            path: path.to_string(),
+            branch: None,
+            commit: None,
+            upstream: None,
+            ahead: None,
+            behind: None,
+            upstream_gone: false,
+            origin_url: None,
+            fetch: None,
+            error: None,
+        }
+    }
+
+    fn com_erro(name: &str, path: &str, erro: String) -> Self {
+        Self {
+            error: Some(erro),
+            ..Self::vazio(name, path)
+        }
+    }
+}
+
+/// Monta os argumentos de `env` para rodar `git` isolado dentro de `repo` (que deve ser absoluto).
+pub fn isolated_git_args(repo: &str, git_args: &[&str]) -> Vec<String> {
+    let mut args: Vec<String> = ISOLATION_ENV.iter().map(|v| v.to_string()).collect();
+    args.push("git".to_string());
+    for par in ISOLATION_CONFIG {
+        args.push("-c".to_string());
+        args.push(par.to_string());
+    }
+    args.push("-C".to_string());
+    args.push(repo.to_string());
+    args.extend(git_args.iter().map(|a| a.to_string()));
+    args
+}
+
+fn run_git(
+    runner: &dyn CommandRunner,
+    repo: &str,
+    git_args: &[&str],
+) -> Result<String, RunnerError> {
+    let args = isolated_git_args(repo, git_args);
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    runner.run("env", &refs)
+}
+
+/// Mensagem sem o nome do programa auxiliar (`env`): o usuário pensa em `git`.
+fn git_error(erro: &RunnerError) -> String {
+    match erro {
+        RunnerError::Failed { code, .. } => format!("git terminou com erro (código {code:?})"),
+        outro => outro.to_string(),
+    }
+}
+
+fn parse_track(track: &str, has_upstream: bool) -> Result<(Option<u32>, Option<u32>, bool), ()> {
+    if track.is_empty() {
+        return Ok(if has_upstream {
+            (Some(0), Some(0), false)
+        } else {
+            (None, None, false)
+        });
+    }
+    if !has_upstream {
+        return Err(());
+    }
+    if track == "gone" {
+        return Ok((None, None, true));
+    }
+    let (mut ahead, mut behind) = (0, 0);
+    for parte in track.split(", ") {
+        match parte.split_once(' ') {
+            Some(("ahead", n)) => ahead = n.parse().map_err(|_| ())?,
+            Some(("behind", n)) => behind = n.parse().map_err(|_| ())?,
+            _ => return Err(()),
+        }
+    }
+    Ok((Some(ahead), Some(behind), false))
+}
+
+/// Interpreta a saída de `for-each-ref` com `BRANCH_FORMAT`: 5 colunas separadas por tabulação.
+pub fn parse_branches(output: &str) -> Result<Vec<BranchLine>, ParseError> {
+    let mut branches = Vec::new();
+    for (index, line) in output.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let invalid = || ParseError::InvalidLine {
+            number: index + 1,
+            content: line.to_string(),
+        };
+        if line.chars().any(|c| c.is_control() && c != '\t') {
+            return Err(invalid());
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [head, name, commit, upstream, track] = fields[..] else {
+            return Err(invalid());
+        };
+        if !matches!(head, "*" | " ") || name.is_empty() || commit.is_empty() {
+            return Err(invalid());
+        }
+        let (ahead, behind, gone) =
+            parse_track(track, !upstream.is_empty()).map_err(|()| invalid())?;
+        branches.push(BranchLine {
+            current: head == "*",
+            name: name.to_string(),
+            commit: commit.to_string(),
+            upstream: (!upstream.is_empty()).then(|| upstream.to_string()),
+            ahead,
+            behind,
+            gone,
+        });
+    }
+    Ok(branches)
+}
+
+/// Lê o estado de um repositório (e, se pedido, faz `fetch` do `origin` antes). Nunca devolve erro:
+/// falhas ficam em `RepoStatus::error`. `path` precisa ser absoluto (nunca começa com `-`).
+pub fn inspect_repo(runner: &dyn CommandRunner, name: &str, path: &str, fetch: bool) -> RepoStatus {
+    if !path.starts_with('/') {
+        return RepoStatus::com_erro(name, path, "caminho não absoluto".to_string());
+    }
+    let erro = |e: &RunnerError| RepoStatus::com_erro(name, path, git_error(e));
+
+    let origin_url = match run_git(
+        runner,
+        path,
+        &["config", "--local", "--get", "remote.origin.url"],
+    ) {
+        Ok(saida) => {
+            let url = saida.trim();
+            if url.chars().any(char::is_control) {
+                return RepoStatus::com_erro(
+                    name,
+                    path,
+                    "URL do origin com caractere de controle".to_string(),
+                );
+            }
+            (!url.is_empty()).then(|| url.to_string())
+        }
+        Err(RunnerError::Failed { code: Some(1), .. }) => None,
+        Err(e) => return erro(&e),
+    };
+
+    let fetch_result = fetch.then(|| match origin_url {
+        None => FetchResult::Failed("sem remoto origin".to_string()),
+        Some(_) => match run_git(
+            runner,
+            path,
+            &[
+                "fetch",
+                "--no-recurse-submodules",
+                "--no-auto-maintenance",
+                "--upload-pack=git-upload-pack",
+                "origin",
+            ],
+        ) {
+            Ok(_) => FetchResult::Done,
+            Err(e) => FetchResult::Failed(git_error(&e)),
+        },
+    });
+
+    let branches = match run_git(runner, path, &["for-each-ref", BRANCH_FORMAT, "refs/heads"])
+        .map_err(|e| git_error(&e))
+        .and_then(|saida| parse_branches(&saida).map_err(|e| e.to_string()))
+    {
+        Ok(b) => b,
+        Err(e) => return RepoStatus::com_erro(name, path, e),
+    };
+
+    let mut status = RepoStatus::vazio(name, path);
+    status.origin_url = origin_url;
+    status.fetch = fetch_result;
+    match branches.iter().find(|b| b.current) {
+        Some(atual) => {
+            status.branch = Some(atual.name.clone());
+            status.commit = Some(atual.commit.clone());
+            status.upstream = atual.upstream.clone();
+            status.ahead = atual.ahead;
+            status.behind = atual.behind;
+            status.upstream_gone = atual.gone;
+        }
+        None => match run_git(runner, path, &["rev-parse", "--short", "HEAD"]) {
+            Ok(saida) => {
+                let commit = saida.trim();
+                if commit.chars().any(char::is_control) {
+                    return RepoStatus::com_erro(name, path, "commit inválido".to_string());
+                }
+                status.commit = (!commit.is_empty()).then(|| commit.to_string());
+            }
+            // Repositório sem commits: `rev-parse HEAD` falha, e isso não é erro.
+            Err(RunnerError::Failed { .. }) => {}
+            Err(e) => return erro(&e),
+        },
+    }
+    status
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,7 +314,10 @@ mod tests {
     fn subcomando(args: &[String]) -> String {
         const CONHECIDOS: [&str; 4] = ["for-each-ref", "rev-parse", "config", "fetch"];
         args.iter()
-            .find(|a| CONHECIDOS.contains(&a.as_str()) || ["status", "pull", "checkout", "merge", "reset"].contains(&a.as_str()))
+            .find(|a| {
+                CONHECIDOS.contains(&a.as_str())
+                    || ["status", "pull", "checkout", "merge", "reset"].contains(&a.as_str())
+            })
             .cloned()
             .unwrap_or_else(|| panic!("subcomando inesperado: {args:?}"))
     }
@@ -55,9 +326,7 @@ mod tests {
         fn run(&self, program: &str, args: &[&str]) -> Result<String, RunnerError> {
             let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
             let sub = subcomando(&args);
-            self.chamadas
-                .borrow_mut()
-                .push((program.to_string(), args));
+            self.chamadas.borrow_mut().push((program.to_string(), args));
             match sub.as_str() {
                 "for-each-ref" => self.for_each_ref.clone(),
                 "rev-parse" => self.rev_parse.clone(),
@@ -76,8 +345,7 @@ mod tests {
 
     #[test]
     fn branch_atual_a_frente_e_atras() {
-        let linhas =
-            parse_branches("*\tmain\t1a2b3c4\torigin/main\tahead 2, behind 1\n").unwrap();
+        let linhas = parse_branches("*\tmain\t1a2b3c4\torigin/main\tahead 2, behind 1\n").unwrap();
         assert_eq!(
             linhas,
             vec![BranchLine {
@@ -163,7 +431,10 @@ mod tests {
             "credential.helper=",
             "protocol.ext.allow=never",
         ] {
-            let i = linha.iter().position(|a| a == par).unwrap_or_else(|| panic!("falta {par}"));
+            let i = linha
+                .iter()
+                .position(|a| a == par)
+                .unwrap_or_else(|| panic!("falta {par}"));
             assert_eq!(linha[i - 1], "-c", "{par} precisa vir depois de -c");
         }
     }
@@ -172,11 +443,14 @@ mod tests {
     fn linha_isolada_variaveis_antes_do_git_e_repo_depois_do_c_maiusculo() {
         let linha = isolated_git_args("/home/u/ws/repo", &["rev-parse", "--short", "HEAD"]);
         let git = linha.iter().position(|a| a == "git").unwrap();
-        let var = linha.iter().position(|a| a == "GIT_CONFIG_GLOBAL=/dev/null").unwrap();
+        let var = linha
+            .iter()
+            .position(|a| a == "GIT_CONFIG_GLOBAL=/dev/null")
+            .unwrap();
         assert!(var < git, "variáveis de ambiente vêm antes de `git`");
         let c = linha.iter().position(|a| a == "-C").unwrap();
         assert_eq!(linha[c + 1], "/home/u/ws/repo");
-        assert_eq!(&linha[linha.len() - 3..], ["rev-parse", "--short", "HEAD"]);
+        assert_eq!(linha[linha.len() - 3..], ["rev-parse", "--short", "HEAD"]);
     }
 
     // --- inspect_repo: estado ---
@@ -190,7 +464,10 @@ mod tests {
         assert_eq!(s.commit.as_deref(), Some("1a2b3c4"));
         assert_eq!(s.upstream.as_deref(), Some("origin/main"));
         assert_eq!((s.ahead, s.behind), (Some(1), Some(0)));
-        assert_eq!(s.origin_url.as_deref(), Some("git@github.com:exemplo/repo.git"));
+        assert_eq!(
+            s.origin_url.as_deref(),
+            Some("git@github.com:exemplo/repo.git")
+        );
         assert_eq!(s.fetch, None);
         assert_eq!(s.error, None);
     }
@@ -303,7 +580,11 @@ mod tests {
         assert!(fetch < refs);
         let chamadas = r.chamadas.borrow();
         let args = &chamadas[fetch].1;
-        for flag in ["--no-recurse-submodules", "--no-auto-maintenance", "--upload-pack=git-upload-pack"] {
+        for flag in [
+            "--no-recurse-submodules",
+            "--no-auto-maintenance",
+            "--upload-pack=git-upload-pack",
+        ] {
             assert!(args.contains(&flag.to_string()), "falta {flag}");
         }
         assert_eq!(args.last().map(String::as_str), Some("origin"));
@@ -324,13 +605,19 @@ mod tests {
         let mut r = Falso::novo();
         r.config = Err(falhou("env", 1));
         let s = inspecionar(&r, true);
-        assert_eq!(s.fetch, Some(FetchResult::Failed("sem remoto origin".into())));
+        assert_eq!(
+            s.fetch,
+            Some(FetchResult::Failed("sem remoto origin".into()))
+        );
         assert!(!r.subcomandos().contains(&"fetch".to_string()));
     }
 
     #[test]
     fn serializa_fetch_em_snake_case() {
-        assert_eq!(serde_json::to_string(&FetchResult::Done).unwrap(), "\"done\"");
+        assert_eq!(
+            serde_json::to_string(&FetchResult::Done).unwrap(),
+            "\"done\""
+        );
         assert_eq!(
             serde_json::to_string(&FetchResult::Failed("x".into())).unwrap(),
             "{\"failed\":\"x\"}"

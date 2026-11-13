@@ -1,9 +1,55 @@
+//! Descoberta de repositórios Git: só filhos diretos de uma pasta, sem seguir symlink (T2).
+
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+/// Um repositório encontrado: nome da pasta e caminho real (absoluto).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoDir {
+    pub name: String,
+    pub path: PathBuf,
+}
+
+/// Lista os filhos diretos de `root` cuja pasta `.git` é uma **pasta real**. Ignora, em silêncio:
+/// symlinks (para o repo ou para o `.git`), `.git` que é arquivo (worktree/submódulo, aponta para
+/// fora) e nomes com caractere de controle ou fora de UTF-8 (não vão para o terminal). Ordem alfabética.
+pub fn find_repos(root: &Path) -> io::Result<Vec<RepoDir>> {
+    let root = fs::canonicalize(root)?;
+    if !root.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} não é uma pasta", root.display()),
+        ));
+    }
+    let mut repos = Vec::new();
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if name.chars().any(char::is_control) {
+            continue;
+        }
+        let path = entry.path();
+        let is_real_dir = |p: &Path| {
+            fs::symlink_metadata(p)
+                .map(|m| m.file_type().is_dir())
+                .unwrap_or(false)
+        };
+        if !is_real_dir(&path) || !is_real_dir(&path.join(".git")) {
+            continue;
+        }
+        repos.push(RepoDir { name, path });
+    }
+    repos.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(repos)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::os::unix::fs::symlink;
-    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static CONTADOR: AtomicUsize = AtomicUsize::new(0);
