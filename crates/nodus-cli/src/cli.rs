@@ -1,9 +1,22 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 /// Plataforma aberta para padronizar e administrar ambientes de computadores.
 #[derive(Parser, Debug)]
-#[command(name = "nodus", version = nodus_core::VERSION)]
-pub struct Cli {}
+#[command(name = "nodus", version = nodus_core::VERSION, arg_required_else_help = true)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Mostra o sistema e os pacotes instalados (somente leitura).
+    Inventory {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
+}
 
 #[cfg(test)]
 mod tests {

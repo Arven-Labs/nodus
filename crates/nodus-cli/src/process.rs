@@ -1,5 +1,29 @@
 //! Execução real de processos externos (implementa `CommandRunner` do core).
 
+use nodus_core::runner::{CommandRunner, RunnerError};
+use std::process::Command;
+
+pub struct RealRunner;
+
+impl CommandRunner for RealRunner {
+    fn run(&self, program: &str, args: &[&str]) -> Result<String, RunnerError> {
+        let output = Command::new(program)
+            .args(args)
+            .output()
+            .map_err(|e| RunnerError::Spawn {
+                program: program.to_string(),
+                reason: e.to_string(),
+            })?;
+        if !output.status.success() {
+            return Err(RunnerError::Failed {
+                program: program.to_string(),
+                code: output.status.code(),
+            });
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

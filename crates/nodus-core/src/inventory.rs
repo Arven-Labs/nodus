@@ -1,5 +1,120 @@
 //! Inventário do sistema e dos pacotes instalados (somente leitura).
 
+use crate::runner::{CommandRunner, RunnerError};
+use serde::Serialize;
+use thiserror::Error;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Package {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SystemInfo {
+    pub os_name: String,
+    pub os_version: Option<String>,
+    pub kernel: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Inventory {
+    pub system: SystemInfo,
+    pub packages: Vec<Package>,
+}
+
+/// Campos que usamos do `/etc/os-release`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OsInfo {
+    pub name: String,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ParseError {
+    #[error("campo obrigatório ausente: {0}")]
+    MissingField(&'static str),
+    #[error("linha {number} inválida: {content:?}")]
+    InvalidLine { number: usize, content: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum InventoryError {
+    #[error(transparent)]
+    Runner(#[from] RunnerError),
+    #[error(transparent)]
+    Parse(#[from] ParseError),
+}
+
+/// Lê `NAME` e `VERSION_ID` do conteúdo de um `os-release`. Valores entre aspas duplas ou sem aspas.
+pub fn parse_os_release(content: &str) -> Result<OsInfo, ParseError> {
+    let mut name = None;
+    let mut version = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim_matches('"').to_string();
+        match key {
+            "NAME" => name = Some(value),
+            "VERSION_ID" => version = Some(value),
+            _ => {}
+        }
+    }
+    Ok(OsInfo {
+        name: name.ok_or(ParseError::MissingField("NAME"))?,
+        version,
+    })
+}
+
+/// Interpreta a saída de `pacman -Q`: uma linha `nome versão` por pacote.
+pub fn parse_pacman_q(output: &str) -> Result<Vec<Package>, ParseError> {
+    let mut packages = Vec::new();
+    for (index, line) in output.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let invalid = || ParseError::InvalidLine {
+            number: index + 1,
+            content: line.trim().to_string(),
+        };
+        if line.chars().any(char::is_control) {
+            return Err(invalid());
+        }
+        let mut fields = line.split_whitespace();
+        match (fields.next(), fields.next(), fields.next()) {
+            (Some(name), Some(version), None) => packages.push(Package {
+                name: name.to_string(),
+                version: version.to_string(),
+            }),
+            _ => return Err(invalid()),
+        }
+    }
+    Ok(packages)
+}
+
+/// Monta o inventário. O conteúdo de `os-release` e do kernel vem de quem chama (o core não lê arquivos).
+pub fn collect(
+    runner: &dyn CommandRunner,
+    os_release: &str,
+    kernel: &str,
+) -> Result<Inventory, InventoryError> {
+    let os = parse_os_release(os_release)?;
+    let packages = parse_pacman_q(&runner.run("pacman", &["-Q"])?)?;
+    Ok(Inventory {
+        system: SystemInfo {
+            os_name: os.name,
+            os_version: os.version,
+            kernel: kernel.trim().to_string(),
+        },
+        packages,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
