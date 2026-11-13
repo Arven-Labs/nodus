@@ -147,24 +147,40 @@ mod tests {
     const PACMAN_Q: &str =
         "bash 5.2.037-2\nlinux 6.12.1.arch1-1\nlib32-glibc 2.40+r16+gaa533d58ff-2\n";
 
-    /// Runner falso: devolve uma resposta fixa e guarda como foi chamado.
+    const FLATPAK_APP: &str = include_str!("../tests/fixtures/flatpak_list_app.tsv");
+    const FLATPAK_COLUNAS: &str = "--columns=application,version,branch,origin,installation";
+
+    fn flatpak_ausente() -> RunnerError {
+        RunnerError::NotFound {
+            program: "flatpak".into(),
+        }
+    }
+
+    /// Runner falso: responde por programa e guarda como foi chamado. Sem Flatpak por padrão.
     struct Falso {
-        resposta: Result<String, RunnerError>,
+        pacman: Result<String, RunnerError>,
+        flatpak: Result<String, RunnerError>,
         chamadas: RefCell<Vec<(String, Vec<String>)>>,
     }
 
     impl Falso {
         fn ok(saida: &str) -> Self {
             Self {
-                resposta: Ok(saida.to_string()),
+                pacman: Ok(saida.to_string()),
+                flatpak: Err(flatpak_ausente()),
                 chamadas: RefCell::new(vec![]),
             }
         }
         fn erro(e: RunnerError) -> Self {
             Self {
-                resposta: Err(e),
+                pacman: Err(e),
+                flatpak: Err(flatpak_ausente()),
                 chamadas: RefCell::new(vec![]),
             }
+        }
+        fn com_flatpak(mut self, resposta: Result<String, RunnerError>) -> Self {
+            self.flatpak = resposta;
+            self
         }
     }
 
@@ -174,7 +190,21 @@ mod tests {
                 program.to_string(),
                 args.iter().map(|a| a.to_string()).collect(),
             ));
-            self.resposta.clone()
+            match program {
+                "pacman" => self.pacman.clone(),
+                "flatpak" => self.flatpak.clone(),
+                outro => panic!("programa inesperado no teste: {outro}"),
+            }
+        }
+    }
+
+    fn app(application: &str, version: Option<&str>) -> FlatpakApp {
+        FlatpakApp {
+            application: application.into(),
+            version: version.map(String::from),
+            branch: "stable".into(),
+            origin: "flathub".into(),
+            installation: "user".into(),
         }
     }
 
@@ -304,13 +334,89 @@ mod tests {
     // ---- collect ----
 
     #[test]
-    fn collect_chama_pacman_q_com_lista_de_argumentos() {
-        let runner = Falso::ok(PACMAN_Q);
+    fn collect_chama_pacman_e_flatpak_com_lista_de_argumentos() {
+        let runner = Falso::ok(PACMAN_Q).com_flatpak(Ok(FLATPAK_APP.to_string()));
         collect(&runner, OS_RELEASE_ARCH, "6.12.1-arch1-1\n", hardware()).unwrap();
         assert_eq!(
             *runner.chamadas.borrow(),
-            vec![("pacman".to_string(), vec!["-Q".to_string()])]
+            vec![
+                ("pacman".to_string(), vec!["-Q".to_string()]),
+                (
+                    "flatpak".to_string(),
+                    vec![
+                        "list".to_string(),
+                        "--app".to_string(),
+                        FLATPAK_COLUNAS.to_string()
+                    ]
+                ),
+            ]
         );
+    }
+
+    #[test]
+    fn collect_com_flatpak_lista_os_apps() {
+        let runner = Falso::ok("bash 5.2.037-2\n").com_flatpak(Ok(FLATPAK_APP.to_string()));
+        let inv = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap();
+        assert_eq!(
+            inv.flatpak_apps,
+            Some(vec![app("org.nongnu.lingot", Some("1.1.1"))])
+        );
+    }
+
+    #[test]
+    fn collect_flatpak_sem_apps_e_lista_vazia() {
+        let runner = Falso::ok("bash 5.2.037-2\n").com_flatpak(Ok(String::new()));
+        let inv = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap();
+        assert_eq!(inv.flatpak_apps, Some(vec![]));
+    }
+
+    #[test]
+    fn collect_flatpak_nao_instalado_e_none_e_nao_e_erro() {
+        let runner = Falso::ok("bash 5.2.037-2\n");
+        let inv = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap();
+        assert_eq!(inv.flatpak_apps, None);
+    }
+
+    #[test]
+    fn collect_flatpak_com_falha_real_e_erro() {
+        let falha = RunnerError::Failed {
+            program: "flatpak".into(),
+            code: Some(1),
+        };
+        let runner = Falso::ok("bash 5.2.037-2\n").com_flatpak(Err(falha.clone()));
+        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap_err();
+        assert_eq!(erro, InventoryError::Runner(falha));
+    }
+
+    #[test]
+    fn collect_flatpak_sem_permissao_nao_vira_nao_instalado() {
+        let falha = RunnerError::Spawn {
+            program: "flatpak".into(),
+            reason: "permission denied".into(),
+        };
+        let runner = Falso::ok("bash 5.2.037-2\n").com_flatpak(Err(falha.clone()));
+        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap_err();
+        assert_eq!(erro, InventoryError::Runner(falha));
+    }
+
+    #[test]
+    fn collect_propaga_erro_de_parsing_do_flatpak() {
+        let runner = Falso::ok("bash 5.2.037-2\n").com_flatpak(Ok("so-uma-coluna\n".to_string()));
+        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap_err();
+        assert!(matches!(
+            erro,
+            InventoryError::Parse(ParseError::InvalidLine { number: 1, .. })
+        ));
+    }
+
+    #[test]
+    fn collect_pacman_ausente_continua_sendo_erro() {
+        let ausente = RunnerError::NotFound {
+            program: "pacman".into(),
+        };
+        let runner = Falso::erro(ausente.clone());
+        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap_err();
+        assert_eq!(erro, InventoryError::Runner(ausente));
     }
 
     #[test]
@@ -327,6 +433,7 @@ mod tests {
                 },
                 hardware: hardware(),
                 packages: vec![pacote("bash", "5.2.037-2")],
+                flatpak_apps: None,
             }
         );
     }
@@ -374,6 +481,11 @@ mod tests {
             },
             hardware: hardware(),
             packages: vec![pacote("bash", "5.2.037-2")],
+            flatpak_apps: Some(vec![app("org.nongnu.lingot", Some("1.1.1")), {
+                let mut sem_versao = app("org.example.SemVersao", None);
+                sem_versao.installation = "system".into();
+                sem_versao
+            }]),
         };
         let json = serde_json::to_value(&inv).unwrap();
         assert_eq!(
@@ -388,8 +500,100 @@ mod tests {
                         { "name": "/dev/sda3", "mount_point": "/home", "file_system": "ext4", "total_bytes": 200000000000u64 }
                     ]
                 },
-                "packages": [ { "name": "bash", "version": "5.2.037-2" } ]
+                "packages": [ { "name": "bash", "version": "5.2.037-2" } ],
+                "flatpak_apps": [
+                    { "application": "org.nongnu.lingot", "version": "1.1.1", "branch": "stable", "origin": "flathub", "installation": "user" },
+                    { "application": "org.example.SemVersao", "version": null, "branch": "stable", "origin": "flathub", "installation": "system" }
+                ]
             })
         );
+    }
+
+    #[test]
+    fn json_flatpak_nao_instalado_e_null_e_sem_apps_e_lista_vazia() {
+        let mut inv = Inventory {
+            system: SystemInfo {
+                os_name: "Arch Linux".into(),
+                os_version: None,
+                kernel: "6.12.1-arch1-1".into(),
+            },
+            hardware: hardware(),
+            packages: vec![],
+            flatpak_apps: None,
+        };
+        let nao_instalado = serde_json::to_value(&inv).unwrap();
+        assert_eq!(nao_instalado["flatpak_apps"], serde_json::Value::Null);
+        inv.flatpak_apps = Some(vec![]);
+        let sem_apps = serde_json::to_value(&inv).unwrap();
+        assert_eq!(sem_apps["flatpak_apps"], serde_json::json!([]));
+    }
+
+    // ---- flatpak list ----
+
+    #[test]
+    fn flatpak_list_da_amostra_real() {
+        let apps = parse_flatpak_list(FLATPAK_APP).unwrap();
+        assert_eq!(apps, vec![app("org.nongnu.lingot", Some("1.1.1"))]);
+    }
+
+    #[test]
+    fn flatpak_list_vazio_e_lista_vazia() {
+        assert_eq!(parse_flatpak_list("").unwrap(), vec![]);
+    }
+
+    #[test]
+    fn flatpak_list_versao_vazia_vira_none_sem_deslocar_as_colunas() {
+        // Mesmo formato do campo vazio medido nos runtimes (ADR 0008): `id\t\tramo\torigem\tinstalação`.
+        let apps = parse_flatpak_list("org.example.App\t\tstable\tflathub\tsystem\n").unwrap();
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].version, None);
+        assert_eq!(apps[0].branch, "stable");
+        assert_eq!(apps[0].origin, "flathub");
+        assert_eq!(apps[0].installation, "system");
+    }
+
+    #[test]
+    fn flatpak_list_ignora_linhas_em_branco_e_aceita_crlf() {
+        let entrada =
+            "org.a.A\t1\tstable\tflathub\tuser\r\n\r\norg.b.B\t2\tstable\tflathub\tsystem\r\n";
+        let apps = parse_flatpak_list(entrada).unwrap();
+        let ids: Vec<&str> = apps.iter().map(|a| a.application.as_str()).collect();
+        assert_eq!(ids, vec!["org.a.A", "org.b.B"]);
+    }
+
+    #[test]
+    fn flatpak_list_com_quatro_colunas_e_erro() {
+        let erro = parse_flatpak_list("org.a.A\t1\tstable\tflathub\n").unwrap_err();
+        assert_eq!(
+            erro,
+            ParseError::InvalidLine {
+                number: 1,
+                content: "org.a.A\t1\tstable\tflathub".into()
+            }
+        );
+    }
+
+    #[test]
+    fn flatpak_list_com_seis_colunas_e_erro() {
+        let erro = parse_flatpak_list("org.a.A\t1\tstable\tflathub\tuser\textra\n").unwrap_err();
+        assert!(matches!(erro, ParseError::InvalidLine { number: 1, .. }));
+    }
+
+    #[test]
+    fn flatpak_list_com_id_ou_ramo_vazio_e_erro() {
+        assert!(parse_flatpak_list("\t1\tstable\tflathub\tuser\n").is_err());
+        assert!(parse_flatpak_list("org.a.A\t1\t\tflathub\tuser\n").is_err());
+    }
+
+    #[test]
+    fn flatpak_list_erro_informa_o_numero_da_linha() {
+        let erro = parse_flatpak_list("org.a.A\t1\tstable\tflathub\tuser\nlixo\n").unwrap_err();
+        assert!(matches!(erro, ParseError::InvalidLine { number: 2, .. }));
+    }
+
+    #[test]
+    fn flatpak_list_com_caractere_de_controle_e_erro_sem_panic() {
+        let erro = parse_flatpak_list("org.a.\u{1b}A\t1\tstable\tflathub\tuser\n").unwrap_err();
+        assert!(matches!(erro, ParseError::InvalidLine { number: 1, .. }));
     }
 }

@@ -45,7 +45,7 @@ fn gib(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nodus_core::inventory::{Disk, HardwareInfo, Inventory, Package, SystemInfo};
+    use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
 
     fn inventario(os_version: Option<&str>) -> Inventory {
         Inventory {
@@ -75,12 +75,19 @@ mod tests {
                     version: "6.12.1.arch1-1".into(),
                 },
             ],
+            flatpak_apps: Some(vec![FlatpakApp {
+                application: "org.nongnu.lingot".into(),
+                version: Some("1.1.1".into()),
+                branch: "stable".into(),
+                origin: "flathub".into(),
+                installation: "user".into(),
+            }]),
         }
     }
 
     #[test]
     fn texto_sem_versao_do_sistema() {
-        let esperado = "Sistema: Arch Linux\nKernel: 6.12.1-arch1-1\nCPU: AMD Ryzen 5 5600 (12 threads)\nMemória: 32.0 GiB\nDiscos (1):\n  /home /dev/sda3 ext4 186.3 GiB\nPacotes (2):\n  bash 5.2.037-2\n  linux 6.12.1.arch1-1\n";
+        let esperado = "Sistema: Arch Linux\nKernel: 6.12.1-arch1-1\nCPU: AMD Ryzen 5 5600 (12 threads)\nMemória: 32.0 GiB\nDiscos (1):\n  /home /dev/sda3 ext4 186.3 GiB\nPacotes (2):\n  bash 5.2.037-2\n  linux 6.12.1.arch1-1\nFlatpak (1):\n  org.nongnu.lingot 1.1.1 stable flathub user\n";
         assert_eq!(render_text(&inventario(None)), esperado);
     }
 
@@ -100,6 +107,33 @@ mod tests {
     fn texto_sem_pacotes() {
         let mut inv = inventario(None);
         inv.packages.clear();
-        assert!(render_text(&inv).ends_with("Pacotes (0):\n"));
+        assert!(render_text(&inv).contains("Pacotes (0):\nFlatpak (1):\n"));
+    }
+
+    #[test]
+    fn texto_flatpak_nao_instalado() {
+        let mut inv = inventario(None);
+        inv.flatpak_apps = None;
+        assert!(render_text(&inv).ends_with("Flatpak: não instalado\n"));
+    }
+
+    #[test]
+    fn texto_flatpak_sem_apps() {
+        let mut inv = inventario(None);
+        inv.flatpak_apps = Some(vec![]);
+        assert!(render_text(&inv).ends_with("Flatpak (0):\n"));
+    }
+
+    #[test]
+    fn texto_flatpak_sem_versao_mostra_traco() {
+        let mut inv = inventario(None);
+        inv.flatpak_apps = Some(vec![FlatpakApp {
+            application: "org.example.App".into(),
+            version: None,
+            branch: "stable".into(),
+            origin: "flathub".into(),
+            installation: "system".into(),
+        }]);
+        assert!(render_text(&inv).ends_with("  org.example.App - stable flathub system\n"));
     }
 }
