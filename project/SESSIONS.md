@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-12 — Sessão 7 (Fase 1, marco 2: `nodus inventory`)
+
+- **Pedido**: seguir a Fase 1 pelo critério 2 do MVP. Escolhas do dono no plano: sistema + pacotes pacman (sem hardware), texto + `--json`, trait `CommandRunner` no core.
+- **Feito**: `nodus inventory [--json]`. Core: parsers puros de `os-release` e `pacman -Q`, tipos `Inventory`/`SystemInfo`/`Package`, trait `CommandRunner`. CLI: `RealRunner` (lista de argumentos, sem shell), render em texto. Deps novas: `anyhow`, `serde`, `serde_json`, `thiserror` (`LIBS.md` atualizado; `serde_json` fora do levantamento original e sem licença conferida).
+- **Ruleset `protect-main`** (aplicado no fim da sessão 6, com autorização do dono): agora exige `guard` e `Rust (clippy and tests)`, igual ao `kin`. Confirmado pela resposta da API; este PR é o primeiro a exercitá-lo.
+- **CI (resultado real, PR #7)**: commit 1 (só testes) falhou por erro de compilação (itens inexistentes); commit 2 passou com 14 + 17 testes ok e clippy limpo; commit de mutação (`index + 1` → `index` no número da linha) falhou em 3 testes (`number: 0` em vez de `1`); revertido.
+- **Não verificado**: execução no Arch real (CI é ubuntu; falta o dono rodar `nodus inventory` e `--json` e comparar com `pacman -Q | wc -l`); o bloqueio de merge pelo check obrigatório ainda não foi provado na prática; a licença do `serde_json`; a leitura de `/etc/os-release` e `/proc` na CLI (`main.rs`) não tem teste automatizado.
+- **Fica**: hardware (`sysinfo`), Flatpak, preset; P-09 a P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+
 ### 2026-11-12 — Sessão 6 (Fase 1, marco 1: esqueleto e CI)
 
 - **Pedido**: iniciar a Fase 1. Escolhas do dono: primeiro marco = esqueleto + CI; binário `nodus`, crates `nodus-*`.
