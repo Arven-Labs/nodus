@@ -35,10 +35,21 @@ pub struct HardwareInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FlatpakApp {
+    pub application: String,
+    pub version: Option<String>,
+    pub branch: String,
+    pub origin: String,
+    pub installation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Inventory {
     pub system: SystemInfo,
     pub hardware: HardwareInfo,
     pub packages: Vec<Package>,
+    /// `None`: Flatpak não instalado. `Some(vec![])`: instalado, sem apps.
+    pub flatpak_apps: Option<Vec<FlatpakApp>>,
 }
 
 /// Campos que usamos do `/etc/os-release`.
@@ -115,6 +126,42 @@ pub fn parse_pacman_q(output: &str) -> Result<Vec<Package>, ParseError> {
     Ok(packages)
 }
 
+/// Colunas pedidas ao Flatpak (ADR 0008): o parser depende desta ordem.
+const FLATPAK_COLUMNS: &str = "--columns=application,version,branch,origin,installation";
+
+/// Interpreta `flatpak list --app` com as colunas de `FLATPAK_COLUMNS`, separadas por tabulação.
+/// Campo vazio é dado (a versão pode faltar), por isso não se descartam campos vazios ao dividir.
+pub fn parse_flatpak_list(output: &str) -> Result<Vec<FlatpakApp>, ParseError> {
+    let mut apps = Vec::new();
+    for (index, line) in output.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let invalid = || ParseError::InvalidLine {
+            number: index + 1,
+            content: line.to_string(),
+        };
+        if line.chars().any(|c| c.is_control() && c != '\t') {
+            return Err(invalid());
+        }
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [application, version, branch, origin, installation] = fields[..] else {
+            return Err(invalid());
+        };
+        if application.is_empty() || branch.is_empty() || installation.is_empty() {
+            return Err(invalid());
+        }
+        apps.push(FlatpakApp {
+            application: application.to_string(),
+            version: (!version.is_empty()).then(|| version.to_string()),
+            branch: branch.to_string(),
+            origin: origin.to_string(),
+            installation: installation.to_string(),
+        });
+    }
+    Ok(apps)
+}
+
 /// Monta o inventário. O conteúdo de `os-release` e do kernel vem de quem chama (o core não lê arquivos).
 pub fn collect(
     runner: &dyn CommandRunner,
@@ -124,6 +171,12 @@ pub fn collect(
 ) -> Result<Inventory, InventoryError> {
     let os = parse_os_release(os_release)?;
     let packages = parse_pacman_q(&runner.run("pacman", &["-Q"])?)?;
+    // Flatpak é opcional: só "programa não encontrado" vira `None`; outras falhas continuam erro.
+    let flatpak_apps = match runner.run("flatpak", &["list", "--app", FLATPAK_COLUMNS]) {
+        Ok(output) => Some(parse_flatpak_list(&output)?),
+        Err(RunnerError::NotFound { .. }) => None,
+        Err(erro) => return Err(erro.into()),
+    };
     Ok(Inventory {
         system: SystemInfo {
             os_name: os.name,
@@ -132,6 +185,7 @@ pub fn collect(
         },
         hardware,
         packages,
+        flatpak_apps,
     })
 }
 

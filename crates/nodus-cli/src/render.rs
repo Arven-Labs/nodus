@@ -34,6 +34,25 @@ pub fn render_text(inventory: &Inventory) -> String {
     for package in &inventory.packages {
         let _ = writeln!(out, "  {} {}", package.name, package.version);
     }
+    match &inventory.flatpak_apps {
+        None => {
+            let _ = writeln!(out, "Flatpak: não instalado");
+        }
+        Some(apps) => {
+            let _ = writeln!(out, "Flatpak ({}):", apps.len());
+            for app in apps {
+                let _ = writeln!(
+                    out,
+                    "  {} {} {} {} {}",
+                    app.application,
+                    app.version.as_deref().unwrap_or("-"),
+                    app.branch,
+                    app.origin,
+                    app.installation
+                );
+            }
+        }
+    }
     out
 }
 
