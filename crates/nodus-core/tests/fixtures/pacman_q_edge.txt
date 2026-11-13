@@ -1,0 +1,6 @@
+alsa-plugins 1:1.2.12-6
+avahi 1:0.9rc5-2
+gcc 16.2.1+r23+gd564253eb6c8-1
+glibc 2.44+r50+g1848099f063e-1
+paru 2.2.0-1
+kwin-x11 6.7.5-3
