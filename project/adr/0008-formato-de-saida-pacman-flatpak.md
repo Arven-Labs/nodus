@@ -40,7 +40,7 @@ Exit codes: `pacman -Qu` e `checkupdates` saíram com 0 com atualizações pende
 - `checkupdates` usa a rede e grava em `/tmp`: pertence à classe "leitura com rede" e precisa aparecer assim no plano de execução (SECURITY.md).
 
 ## Não verificado
-- **`flatpak list --app`:** a máquina não tinha nenhum app Flatpak (0 linhas); o formato de app foi **assumido** igual ao de runtime.
+- **`flatpak list --app`:** no spike a máquina não tinha nenhum app Flatpak (0 linhas). **Atualização (marco 4, 2026-11-12):** com `org.nongnu.lingot` instalado via `--user`, saiu `org.nongnu.lingot<TAB>1.1.1<TAB>stable<TAB>flathub<TAB>user`, as 5 colunas pedidas. Ainda **não medido**: instalação de sistema para apps e app sem versão (o campo vazio vem dos runtimes).
 - Instalações `--user` e outras instalações `--installation=NAME` (a `--user` veio vazia).
 - Locale: `LC_ALL=C` deu saída idêntica a `en_US.UTF-8`, mas o locale `pt_BR` não está gerado na máquina, então **não testei idioma diferente**.
 - Exit code de `pacman -Qu` e de `checkupdates` sem atualizações pendentes; `IgnorePkg` (linhas com `[ignored]`) não apareceu nas amostras.

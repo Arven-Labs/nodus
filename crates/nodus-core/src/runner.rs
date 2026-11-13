@@ -9,6 +9,9 @@ pub trait CommandRunner {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum RunnerError {
+    /// Programa inexistente no PATH: estado normal para programas opcionais, como o `flatpak`.
+    #[error("`{program}` não encontrado")]
+    NotFound { program: String },
     #[error("não consegui iniciar `{program}`: {reason}")]
     Spawn { program: String, reason: String },
     #[error("`{program}` terminou com erro (código {code:?})")]

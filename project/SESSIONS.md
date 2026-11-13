@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-12 — Sessão 7, continuação (Fase 1, marco 4: apps Flatpak no `inventory`)
+
+- **Pedido**: Flatpak no inventário. Escolhas do dono no plano: só apps (sem runtimes), `flatpak_apps: null` quando o Flatpak não está instalado, e a amostra de `--app` medida de verdade.
+- **Antes**: spike P-10 (PR #9) mesclado; `CI Private Files` verde na `main` (o `CI` principal estava em andamento quando conferi).
+- **Medição**: o dono pediu para eu instalar um app. Instalei `org.nongnu.lingot` (1,2 MB, `--user`, sem runtime novo) e adicionei o remote `flathub` ao escopo do usuário (`flatpak remote-add --user`), porque o remote existente era só do sistema. `flatpak list --app` saiu `org.nongnu.lingot<TAB>1.1.1<TAB>stable<TAB>flathub<TAB>user`. Para desfazer: `flatpak uninstall --user org.nongnu.lingot` e `flatpak remote-delete --user flathub`.
+- **Feito**: `FlatpakApp` e `parse_flatpak_list` (divide por tabulação sem descartar campo vazio; 5 colunas exatas; erro tipado em coluna a mais ou a menos, id/ramo/instalação vazio ou caractere de controle); `Inventory.flatpak_apps` como `Option<Vec>`; `RunnerError::NotFound` separado de `Spawn` (só `NotFound` do `flatpak` vira `None`; `pacman` ausente continua erro); seção `Flatpak` no texto; fixture `flatpak_list_app.tsv`; ADR 0008 e `README` das fixtures atualizados.
+- **CI (resultado real, PR #10)**: commit 1 (só testes) falhou por erro de compilação (`FlatpakApp`, `NotFound` e `flatpak_apps` inexistentes); commit 2 passou com 22 + 34 testes e clippy limpo; mutação (versão vazia deixa de virar `None`) falhou 1 teste (`Some("")` em vez de `None`); revertida.
+- **Mudança de comportamento**: o teste do runner do marco 2 passou a esperar `NotFound` para programa inexistente.
+- **Não verificado**: instalação Flatpak de sistema para apps (só `user` medido); app **sem** versão (o campo vazio vem dos runtimes, não de um app); execução do `nodus inventory` no Arch real; o bloqueio de merge pelo check obrigatório (nenhum PR falhou sob a regra até agora); locale `pt_BR`; a regra de `--installation=NAME`.
+- **Fica**: verificação de atualizações (critério 8: `checkupdates` e `flatpak remote-ls --updates`, ADR 0008); preset e o resto do MVP; P-09, P-11, P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+
 ### 2026-11-12 — Sessão 7, continuação (spike P-10: formato de pacman e Flatpak)
 
 - **Pedido**: seguir com o spike P-10 antes do Flatpak no inventário. Escolhas do dono: eu rodo as medições (só leitura), amostras curtas e editadas, entrega = ADR + amostras sem código de produção.
