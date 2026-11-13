@@ -9,7 +9,7 @@ O ADR 0005 deixou Rust como stack provisória, a confirmar na Fase 0. O levantam
 1. **Rust continua a stack do MVP.** Nenhum requisito do `MVP.md` apareceu que o contradiga. Isto confirma o ADR 0005, que segue valendo.
 2. **pacman e Flatpak por processo externo**, com lista de argumentos e nunca por string de shell (SECURITY.md T7). Sem linkar `alpm` nem `libflatpak`.
 3. **Núcleo adotado em princípio:** `clap`, `serde`, `toml`, `thiserror`, `anyhow`, `rusqlite`, `sysinfo`; `tempfile` só em testes. `alpm-types` é candidata para tipos e versões, a confirmar.
-4. **Git em aberto:** `gix` ou `git` CLI isolado. Decide um spike no início da Fase 1 que prove qual não executa hooks nem `core.fsmonitor` no `fetch` (SECURITY.md §6). `git2` descartado.
+4. **Git em aberto:** `gix` ou `git` CLI isolado. Decide um spike no início da Fase 1 que prove qual não executa hooks nem `core.fsmonitor` no `fetch` (SECURITY.md §6). `git2` descartado. **Resolvido no ADR 0009:** `git` CLI isolado, só refs.
 5. **CI:** `cargo-deny` verifica licenças e avisos assim que houver código.
 6. **Cada dependência exige aprovação do dono ao entrar** (AGENTS.md §E). Esta lista é uma pré-aprovação de direção, não de versões.
 

@@ -66,9 +66,10 @@ Regras gerais:
 
 Rodar `git` num repositório que não é seu não é automaticamente seguro: o Git pode executar código vindo de `.git/config` (por exemplo `core.fsmonitor`) e de hooks. Regras:
 - Nunca `pull`, `reset`, `checkout` ou `merge` (SPEC §15).
-- Executar `git` com configuração isolada: sem hooks (`core.hooksPath` apontando para vazio) e ignorando a config do repo que execute programas.
+- Executar `git` com configuração isolada, na lista de argumentos: `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_ALLOW_PROTOCOL=file:https:ssh`, `GIT_TERMINAL_PROMPT=0`, `-c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.sshCommand=ssh -c core.gitProxy= -c credential.helper= -c protocol.ext.allow=never` e, no `fetch`, `--upload-pack=git-upload-pack`. Medido contra um repositório hostil no git 2.56.0 (ADR 0009).
+- **Nunca `git status`** nem comando que olhe a árvore de trabalho: um filtro `clean` com nome escolhido pelo atacante o executa mesmo com o isolamento (medido). O nodus lê só refs (`for-each-ref`, `rev-list`, `rev-parse`).
 - Tratar nomes de branch, remoto e tag como entrada não confiável (T7).
-- **Não verificado:** a lista exata de opções necessárias para isolar o `git` precisa ser testada na Fase 1. Não confie nesta seção como receita.
+- **Não verificado:** `credential.helper` (não medido), `pre-auto-gc` (não consegui disparar o vetor), outros vetores e outras versões do Git. A receita vale para o que foi medido, não é garantia de segurança. Repetir `project/spikes/p09-git/medir.sh` ao trocar a versão do Git.
 
 ## 7. Supply chain do próprio nodus
 
