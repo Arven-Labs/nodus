@@ -1,6 +1,6 @@
 # nodus: Estado do Projeto
 
-> Última atualização: 2026-11-12 (Fase 1, spike P-10: formato de saída de pacman e Flatpak, ADR 0008)
+> Última atualização: 2026-11-12 (Fase 1, marco 4: apps Flatpak no `nodus inventory`)
 
 ## Como usar este arquivo
 

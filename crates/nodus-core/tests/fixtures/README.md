@@ -4,10 +4,11 @@ Trechos curtos de saída **real**, medidos em 2026-11-12 num Arch Linux (pacman 
 
 | Arquivo | Comando | Observação |
 |---|---|---|
+| `flatpak_list_app.tsv` | `flatpak list --app --columns=application,version,branch,origin,installation` | 5 colunas; instalação `user`. Medido depois do spike, com `org.nongnu.lingot` instalado com `--user` |
 | `flatpak_list_runtime.tsv` | `flatpak list --runtime --columns=application,version,branch,origin` | Tabulação como separador; versão pode ser **vazia** (tab duplo); mesmo ID com ramos diferentes |
 | `flatpak_remote_ls_updates.tsv` | `flatpak remote-ls --updates --columns=application,version,branch` | Sem coluna da versão instalada |
 | `pacman_qu.txt` | `pacman -Qu` | `nome velha -> nova`; olha o banco local, que pode estar velho |
 | `checkupdates.txt` | `checkupdates` | Mesmo formato, mas sincroniza uma cópia temporária do banco |
 | `pacman_q_edge.txt` | `pacman -Q` | Epoch (`1:`), `+` e `rc` na versão; `paru` e `kwin-x11` são pacotes "foreign" (`-Qm`) |
 
-**Lacuna:** não há amostra de `flatpak list --app` porque a máquina de medição não tinha nenhum app Flatpak (só runtimes). O formato de app foi assumido igual ao de runtime e **não foi medido**.
+**Lacunas:** a amostra de `flatpak list --app` (medida em 2026-11-12, depois do spike) cobre só uma instalação `--user`; uma instalação de sistema (`system` na última coluna) **não foi medida**. O caso de versão vazia vem dos runtimes, não de um app.
