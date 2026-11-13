@@ -153,7 +153,7 @@ pub fn parse_flatpak_list(output: &str) -> Result<Vec<FlatpakApp>, ParseError> {
         }
         apps.push(FlatpakApp {
             application: application.to_string(),
-            version: Some(version.to_string()),
+            version: (!version.is_empty()).then(|| version.to_string()),
             branch: branch.to_string(),
             origin: origin.to_string(),
             installation: installation.to_string(),
