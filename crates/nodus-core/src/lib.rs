@@ -2,6 +2,7 @@
 
 pub mod inventory;
 pub mod runner;
+pub mod updates;
 
 /// Versão do workspace, lida do `Cargo.toml` em tempo de compilação.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
