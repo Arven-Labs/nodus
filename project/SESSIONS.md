@@ -10,7 +10,7 @@ Mais recente no topo.
 - **Primeira rodada inválida**: 9 de 11 baselines vieram "limpo" (dois defeitos do próprio script: `timeout` não executa função de shell; o preparo disparava o canário antes da medição). Tratei como medição inválida, corrigi e repeti. Quebra de propósito (tirar `core.hooksPath=/dev/null` do isolamento) fez `hook_reftx` e `hookspath` dispararem de novo.
 - **Decisão do dono**: o critério 7 lê **só refs** (sem `git status`, sem "sujo/limpo" no MVP); `pre-auto-gc` e `credential.helper` declarados como lacunas não provadas.
 - **Feito**: ADR 0009, `medir.sh`, `SECURITY.md` §6 (receita medida no lugar do "não verificado"), `LIBS.md`, `OVERVIEW.md`, ADR 0007 (aponta para o 0009), `PENDING.md` (P-09 resolvida).
-- **CI**: a conferir no PR (só docs e um script; nenhum código Rust mudou).
+- **CI (resultado real, PR #13)**: `Rust (clippy and tests)` e `guard` verdes (só docs e um script; nenhum código Rust mudou, então o CI valida apenas que nada quebrou, não o `medir.sh`, que o CI não executa).
 - **Não verificado**: `credential.helper` (exige servidor HTTP de teste); `pre-auto-gc` (o gc não subiu nem com objetos soltos plantados); dono diferente só simulado (`GIT_TEST_ASSUME_DIFFERENT_OWNER`); remotos com nome diferente de `origin`; outros vetores (`diff.external`, `textconv`, `submodule`), outras versões do Git e outros SOs; `gix` não foi medido.
 - **Fica**: critério 7 em si (descoberta de repos e refs com o isolamento do ADR 0009); preset e o resto do MVP; P-11, P-12, P-02, P-03, P-07, P-08; `pacman -Qu` = 1 numa máquina realmente em dia; fallback sem `pacman-contrib`; fechamento formal da Fase 0.
 
