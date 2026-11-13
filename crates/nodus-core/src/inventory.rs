@@ -79,7 +79,7 @@ pub fn parse_pacman_q(output: &str) -> Result<Vec<Package>, ParseError> {
             continue;
         }
         let invalid = || ParseError::InvalidLine {
-            number: index + 1,
+            number: index,
             content: line.trim().to_string(),
         };
         if line.chars().any(char::is_control) {
