@@ -9,7 +9,7 @@ CLI + agente local, só Arch Linux (ADR 0004). Base: SPEC §16.
 4. Reaplicar o preset sem duplicar nem quebrar configurações (idempotência).
 5. Detectar app recém-instalado e perguntar se entra no preset.
 6. Identificar a pasta padrão de workspace.
-7. Descobrir repositórios Git e exibir o estado (somente leitura, mais `fetch`).
+7. Descobrir repositórios Git e exibir o estado (somente leitura, mais `fetch`). (Marco 6: `nodus repos <pasta> [--fetch] [--json]` lista os filhos diretos com branch, commit, upstream, ahead/behind e URL do `origin`, só por refs com o isolamento do ADR 0009; sem "sujo/limpo", sem `status`. `--fetch` só do `origin`.)
 8. Verificar atualizações de pacotes (pacman) e apps (Flatpak).
 9. Exibir um plano antes de qualquer mudança; nada executa sem confirmação.
 10. Registrar o que mudou e permitir reversão quando suportada.

@@ -1,6 +1,7 @@
 //! Formatação do inventário para o terminal.
 
 use nodus_core::inventory::Inventory;
+use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
@@ -90,6 +91,59 @@ pub fn render_updates(updates: &Updates) -> String {
                 );
             }
         }
+    }
+    out
+}
+
+pub fn render_repos(repos: &[RepoStatus]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "Repositórios ({}):", repos.len());
+    for repo in repos {
+        let _ = write!(out, "  {}", repo.name);
+        if let Some(erro) = &repo.error {
+            let _ = writeln!(out, " ERRO: {erro}");
+            continue;
+        }
+        match (&repo.branch, &repo.commit) {
+            (Some(branch), _) => {
+                let _ = write!(out, " {branch}");
+            }
+            (None, Some(_)) => {
+                let _ = write!(out, " (HEAD solto)");
+            }
+            (None, None) => {
+                let _ = write!(out, " (sem commits)");
+            }
+        }
+        if let Some(commit) = &repo.commit {
+            let _ = write!(out, " {commit}");
+        }
+        match &repo.upstream {
+            None => {
+                let _ = write!(out, " sem upstream");
+            }
+            Some(upstream) if repo.upstream_gone => {
+                let _ = write!(out, " {upstream} (sumiu)");
+            }
+            Some(upstream) => {
+                let _ = write!(out, " {upstream}");
+                if let (Some(ahead), Some(behind)) = (repo.ahead, repo.behind) {
+                    let _ = write!(out, " (à frente {ahead}, atrás {behind})");
+                }
+            }
+        }
+        match &repo.origin_url {
+            Some(url) => {
+                let _ = write!(out, " {url}");
+            }
+            None => {
+                let _ = write!(out, " sem origin");
+            }
+        }
+        if let Some(FetchResult::Failed(motivo)) = &repo.fetch {
+            let _ = write!(out, " [fetch falhou: {motivo}]");
+        }
+        let _ = writeln!(out);
     }
     out
 }
@@ -196,6 +250,70 @@ mod tests {
                 branch: "stable".into(),
             }]),
         }
+    }
+
+    fn repo(nome: &str) -> RepoStatus {
+        RepoStatus {
+            name: nome.into(),
+            path: format!("/ws/{nome}"),
+            branch: Some("main".into()),
+            commit: Some("1a2b3c4".into()),
+            upstream: Some("origin/main".into()),
+            ahead: Some(1),
+            behind: Some(2),
+            upstream_gone: false,
+            origin_url: Some("git@github.com:x/y.git".into()),
+            fetch: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn repos_texto_completo() {
+        let esperado = "Repositórios (1):\n  arca main 1a2b3c4 origin/main (à frente 1, atrás 2) git@github.com:x/y.git\n";
+        assert_eq!(render_repos(&[repo("arca")]), esperado);
+    }
+
+    #[test]
+    fn repos_texto_head_solto_sem_commits_e_sem_upstream() {
+        let mut solto = repo("a");
+        solto.branch = None;
+        solto.upstream = None;
+        solto.ahead = None;
+        solto.behind = None;
+        solto.origin_url = None;
+        assert_eq!(
+            render_repos(&[solto]),
+            "Repositórios (1):\n  a (HEAD solto) 1a2b3c4 sem upstream sem origin\n"
+        );
+        let mut vazio = repo("b");
+        vazio.branch = None;
+        vazio.commit = None;
+        vazio.upstream = None;
+        vazio.ahead = None;
+        vazio.behind = None;
+        vazio.origin_url = None;
+        assert!(render_repos(&[vazio]).contains("  b (sem commits) sem upstream sem origin\n"));
+    }
+
+    #[test]
+    fn repos_texto_erro_fetch_e_upstream_sumido() {
+        let mut com_erro = repo("e");
+        com_erro.error = Some("git terminou com erro".into());
+        assert!(render_repos(&[com_erro]).contains("  e ERRO: git terminou com erro\n"));
+        let mut falho = repo("f");
+        falho.fetch = Some(FetchResult::Failed("sem remoto origin".into()));
+        assert!(render_repos(&[falho]).contains("[fetch falhou: sem remoto origin]"));
+        let mut gone = repo("g");
+        gone.upstream_gone = true;
+        gone.ahead = None;
+        gone.behind = None;
+        assert!(render_repos(&[gone]).contains("origin/main (sumiu)"));
+    }
+
+    #[test]
+    fn repos_texto_sem_repositorios() {
+        assert_eq!(render_repos(&[]), "Repositórios (0):\n");
     }
 
     #[test]

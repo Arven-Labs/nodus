@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 /// Plataforma aberta para padronizar e administrar ambientes de computadores.
 #[derive(Parser, Debug)]
@@ -18,6 +19,17 @@ pub enum Command {
     },
     /// Lista atualizações pendentes de pacman e Flatpak (somente leitura, usa a rede).
     Updates {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
+    Repos {
+        /// Pasta cujos filhos diretos são examinados.
+        dir: PathBuf,
+        /// Faz `fetch` do `origin` antes de ler o estado (usa a rede).
+        #[arg(long)]
+        fetch: bool,
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
@@ -72,6 +84,38 @@ mod tests {
     fn updates_com_json() {
         let cli = Cli::try_parse_from(["nodus", "updates", "--json"]).unwrap();
         assert!(matches!(cli.command, Command::Updates { json: true }));
+    }
+
+    #[test]
+    fn repos_exige_a_pasta() {
+        let erro = Cli::try_parse_from(["nodus", "repos"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn repos_so_com_a_pasta_e_offline_em_texto() {
+        let cli = Cli::try_parse_from(["nodus", "repos", "/ws"]).unwrap();
+        match cli.command {
+            Command::Repos { dir, fetch, json } => {
+                assert_eq!(dir, std::path::PathBuf::from("/ws"));
+                assert!(!fetch);
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn repos_com_fetch_e_json() {
+        let cli = Cli::try_parse_from(["nodus", "repos", "/ws", "--fetch", "--json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Repos {
+                fetch: true,
+                json: true,
+                ..
+            }
+        ));
     }
 
     #[test]
