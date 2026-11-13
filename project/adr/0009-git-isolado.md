@@ -41,6 +41,9 @@ O critério 7 do MVP roda `git` em repositórios que o usuário não controla. O
 - A lista de opções vale **para o git 2.56.0** e para os vetores listados: não é "seguro", é "isolado contra o que foi medido". Vetores novos exigem repetir `medir.sh`.
 - O isolamento do `fetch` usa o remoto `origin` na medição; no produto os remotos têm nomes arbitrários (T7), então `--upload-pack` na linha de comando vale para qualquer remoto, mas `remote.<nome>.uploadpack` precisa de teste com outros nomes.
 
+## Comandos do `nodus repos` (marco 6, medido em 2026-11-13)
+`medir.sh` foi estendido com os comandos reais: `for-each-ref --format=...`, `rev-parse --short HEAD` e `config --local --get remote.origin.url` ficaram **limpos nos 10 vetores** (o baseline também não dispara: esses comandos não são gatilho). O vetor novo **submódulo** (config do repo com `fetch.recurseSubmodules=true` e um submódulo com `uploadpack` próprio) dispara no baseline e fica bloqueado com `fetch --no-recurse-submodules`. `--no-auto-maintenance` reduziu as chamadas a `git maintenance` de 3 para 0 no trace do `fetch`, o que elimina o caminho do `pre-auto-gc` (o vetor continua sem prova direta, mas deixou de ser alcançável pelo `fetch`). A receita está em `crates/nodus-core/src/repos.rs` (`ISOLATION_ENV`, `ISOLATION_CONFIG`) e travada por testes; `medir.sh` mantém a cópia em bash (conferir as duas ao mudar uma).
+
 ## Não verificado
 - **`credential.helper`:** não medido (exige um servidor HTTP de teste que peça credencial). A única proteção é `-c credential.helper=`, não provada.
 - **`pre-auto-gc`:** o `fetch` chamou `git maintenance run --auto`, mas o `gc` e o hook não subiram nesta versão, nem com objetos soltos plantados. A proteção esperada vem de `core.hooksPath=/dev/null`, que **foi** provada com outros hooks.

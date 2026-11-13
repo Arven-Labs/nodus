@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-13 — Sessão 9, continuação (Fase 1, marco 6: `nodus repos`)
+
+- **Pedido**: critério 7 do MVP. Escolhas do dono no plano: `fetch` só com `--fetch`; descoberta só em filhos diretos; ambiente por `env VAR=... git ...` (sem mexer no `CommandRunner`); mensagem de erro genérica no repo com `git` falhando (sem capturar stderr); repos ignorados (symlink, `.git` arquivo, nome com controle) em silêncio.
+- **Antes**: PR #13 (P-09) mesclado, `main` do nodus com `CI` verde em `4eb352b`.
+- **Etapa 0 (medição)**: `medir.sh` estendido; comandos de leitura limpos em 10 vetores; submódulo hostil bloqueado por `--no-recurse-submodules`; `--no-auto-maintenance` tira o `git maintenance` do `fetch` (3 chamadas para 0 no trace). Defeito do próprio script achado no caminho (`p_filter_clean` inexistente) e corrigido antes de valer.
+- **Feito**: `nodus-core/src/repos.rs` (`parse_branches`, `isolated_git_args`, `inspect_repo`, `FetchResult`), `nodus-cli/src/discovery.rs` (`find_repos`), subcomando `Repos`, `render_repos`. Sem dependência nova.
+- **CI (resultado real, PR #14, aberto como rascunho)**: commit 1 (só testes) falhou por erro de compilação (`parse_branches`, `find_repos`, `render_repos`, `inspect_repo`, `isolated_git_args`, variante `Repos` inexistentes); commit 2 passou de primeira (85 testes no core e 44 na CLI, clippy limpo); mutação (`core.hooksPath=/dev/null` → `/tmp`) falhou 2 testes (`linha_isolada_tem_a_receita_do_adr_0009` e `toda_chamada_vai_por_env_e_isolada`), 83 passaram; revertida em commit próprio.
+- **Mudança de doc**: `OVERVIEW.md` ainda dizia que o marco 5 estava "em revisão no PR #11" (já mesclado); corrigido.
+- **Não verificado**: execução do `nodus repos` no Arch real (falta o dono rodar e comparar com `git branch -vv`); `--fetch` com rede real (a medição usou remoto local); `--fetch` em repo HTTPS privado vai falhar (`GIT_CONFIG_GLOBAL=/dev/null` descarta credenciais; SSH com agent deve funcionar, não testado); remotos com nome diferente de `origin` (só `origin` é buscado); a mensagem do erro de "dubious ownership" é genérica (`código 128`); `credential.helper` segue sem medição (ADR 0009).
+- **Fica**: validar no Arch real; preset e o resto do MVP; P-11, P-12, P-02, P-03, P-07, P-08; `pacman -Qu` = 1 numa máquina em dia; fallback sem `pacman-contrib`; fechamento formal da Fase 0.
+
 ### 2026-11-13 — Sessão 9 (spike P-09: Git isolado)
 
 - **Pedido**: seguir pelo P-09 antes do critério 7. Escolhas do dono no plano: medir só o `git` CLI (`gix` só se o CLI falhasse), entregar ADR + script repetível que gera o repo hostil num diretório temporário.
