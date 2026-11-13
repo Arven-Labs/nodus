@@ -3,6 +3,7 @@ use clap::Parser;
 use cli::{Cli, Command};
 
 mod cli;
+mod hardware;
 mod process;
 mod render;
 

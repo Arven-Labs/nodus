@@ -22,7 +22,7 @@ pub fn render_text(inventory: &Inventory) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nodus_core::inventory::{Inventory, Package, SystemInfo};
+    use nodus_core::inventory::{Disk, HardwareInfo, Inventory, Package, SystemInfo};
 
     fn inventario(os_version: Option<&str>) -> Inventory {
         Inventory {
@@ -30,6 +30,17 @@ mod tests {
                 os_name: "Arch Linux".into(),
                 os_version: os_version.map(String::from),
                 kernel: "6.12.1-arch1-1".into(),
+            },
+            hardware: HardwareInfo {
+                cpu_model: "AMD Ryzen 5 5600".into(),
+                cpu_threads: 12,
+                memory_total_bytes: 34_359_738_368,
+                disks: vec![Disk {
+                    name: "/dev/sda3".into(),
+                    mount_point: "/home".into(),
+                    file_system: "ext4".into(),
+                    total_bytes: 200_000_000_000,
+                }],
             },
             packages: vec![
                 Package {
@@ -46,8 +57,15 @@ mod tests {
 
     #[test]
     fn texto_sem_versao_do_sistema() {
-        let esperado = "Sistema: Arch Linux\nKernel: 6.12.1-arch1-1\nPacotes (2):\n  bash 5.2.037-2\n  linux 6.12.1.arch1-1\n";
+        let esperado = "Sistema: Arch Linux\nKernel: 6.12.1-arch1-1\nCPU: AMD Ryzen 5 5600 (12 threads)\nMemória: 32.0 GiB\nDiscos (1):\n  /home /dev/sda3 ext4 186.3 GiB\nPacotes (2):\n  bash 5.2.037-2\n  linux 6.12.1.arch1-1\n";
         assert_eq!(render_text(&inventario(None)), esperado);
+    }
+
+    #[test]
+    fn texto_sem_discos() {
+        let mut inv = inventario(None);
+        inv.hardware.disks.clear();
+        assert!(render_text(&inv).contains("Discos (0):\nPacotes (2):\n"));
     }
 
     #[test]
