@@ -103,6 +103,7 @@ fn gib(bytes: u64) -> String {
 mod tests {
     use super::*;
     use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
+    use nodus_core::repos::{FetchResult, RepoStatus};
     use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
 
     fn inventario(os_version: Option<&str>) -> Inventory {
@@ -196,6 +197,70 @@ mod tests {
                 branch: "stable".into(),
             }]),
         }
+    }
+
+    fn repo(nome: &str) -> RepoStatus {
+        RepoStatus {
+            name: nome.into(),
+            path: format!("/ws/{nome}"),
+            branch: Some("main".into()),
+            commit: Some("1a2b3c4".into()),
+            upstream: Some("origin/main".into()),
+            ahead: Some(1),
+            behind: Some(2),
+            upstream_gone: false,
+            origin_url: Some("git@github.com:x/y.git".into()),
+            fetch: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn repos_texto_completo() {
+        let esperado = "Repositórios (1):\n  arca main 1a2b3c4 origin/main (à frente 1, atrás 2) git@github.com:x/y.git\n";
+        assert_eq!(render_repos(&[repo("arca")]), esperado);
+    }
+
+    #[test]
+    fn repos_texto_head_solto_sem_commits_e_sem_upstream() {
+        let mut solto = repo("a");
+        solto.branch = None;
+        solto.upstream = None;
+        solto.ahead = None;
+        solto.behind = None;
+        solto.origin_url = None;
+        assert_eq!(
+            render_repos(&[solto]),
+            "Repositórios (1):\n  a (HEAD solto) 1a2b3c4 sem upstream sem origin\n"
+        );
+        let mut vazio = repo("b");
+        vazio.branch = None;
+        vazio.commit = None;
+        vazio.upstream = None;
+        vazio.ahead = None;
+        vazio.behind = None;
+        vazio.origin_url = None;
+        assert!(render_repos(&[vazio]).contains("  b (sem commits) sem upstream sem origin\n"));
+    }
+
+    #[test]
+    fn repos_texto_erro_fetch_e_upstream_sumido() {
+        let mut com_erro = repo("e");
+        com_erro.error = Some("git terminou com erro".into());
+        assert!(render_repos(&[com_erro]).contains("  e ERRO: git terminou com erro\n"));
+        let mut falho = repo("f");
+        falho.fetch = Some(FetchResult::Failed("sem remoto origin".into()));
+        assert!(render_repos(&[falho]).contains("[fetch falhou: sem remoto origin]"));
+        let mut gone = repo("g");
+        gone.upstream_gone = true;
+        gone.ahead = None;
+        gone.behind = None;
+        assert!(render_repos(&[gone]).contains("origin/main (sumiu)"));
+    }
+
+    #[test]
+    fn repos_texto_sem_repositorios() {
+        assert_eq!(render_repos(&[]), "Repositórios (0):\n");
     }
 
     #[test]

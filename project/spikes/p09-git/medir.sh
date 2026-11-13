@@ -56,11 +56,15 @@ iso_c=(-c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.sshCommand=ss
 run_git() {
   local modo="$1" cmd="$2" repo="$3"; shift 3
   local extra=("$@") args
-  local anula=()
+  local anula=() lotes=()
   case "$cmd:$modo" in
     fetch:base) args=(fetch origin) ;;
-    fetch:iso)  args=(fetch --upload-pack=git-upload-pack origin) ;;
+    # Receita do marco 6: sem submódulos e sem manutenção automática (gc/hooks) no fetch.
+    fetch:iso)  args=(fetch --no-recurse-submodules --no-auto-maintenance --upload-pack=git-upload-pack origin) ;;
     status:*)   args=(status --porcelain) ;;
+    # Os três comandos de leitura do `nodus repos` (marco 6), todos só de refs e config.
+    leitura:*)  lotes=("for-each-ref --format=%(HEAD)%09%(refname:short)%09%(objectname:short)%09%(upstream:short)%09%(upstream:track,nobracket)"
+                       "rev-parse --short HEAD" "config --local --get remote.origin.url") ;;
     refs:*)     args=(for-each-ref) ;;   # só lê refs: não olha a árvore de trabalho
     status_anula:base) args=(status --porcelain) ;;
     status_anula:iso)
@@ -72,11 +76,17 @@ run_git() {
       done < <("${NEUTRO[@]}" git -C "$repo" config --local --name-only --list 2>/dev/null)
       ;;
   esac
-  if [ "$modo" = iso ]; then
-    timeout 20 "${NEUTRO[@]}" "${iso_env[@]}" "${extra[@]}" git "${iso_c[@]}" "${anula[@]}" -C "$repo" "${args[@]}" >"$WORK/saida" 2>&1
-  else
-    timeout 20 "${NEUTRO[@]}" "${extra[@]}" git -C "$repo" "${args[@]}" >"$WORK/saida" 2>&1
-  fi
+  [ "${#lotes[@]}" -eq 0 ] && lotes=("${args[*]}")   # nenhum argumento tem espaço
+  : > "$WORK/saida"
+  local lote a
+  for lote in "${lotes[@]}"; do
+    read -ra a <<<"$lote"
+    if [ "$modo" = iso ]; then
+      timeout 20 "${NEUTRO[@]}" "${iso_env[@]}" "${extra[@]}" git "${iso_c[@]}" "${anula[@]}" -C "$repo" "${a[@]}" >>"$WORK/saida" 2>&1
+    else
+      timeout 20 "${NEUTRO[@]}" "${extra[@]}" git -C "$repo" "${a[@]}" >>"$WORK/saida" 2>&1
+    fi
+  done
 }
 
 TOTAL=0; FALHAS=0; INVALIDOS=0; TABELA=""
@@ -120,6 +130,15 @@ p_ext()        { cfg "$1" protocol.ext.allow always; cfg "$1" remote.origin.url 
 p_include()    { printf '[core]\n\tfsmonitor = %s include\n' "$ATK" > "$WORK/incluido.cfg"; cfg "$1" include.path "$WORK/incluido.cfg"; }
 p_filter()     { cfg "$1" filter.evil.clean "$ATK filter_clean"; echo '* filter=evil' > "$1/.gitattributes"; touch -d '2000-01-01' "$1/a.txt"; G -C "$1" update-index --refresh >/dev/null 2>&1; touch "$1/a.txt"; }
 
+p_filter_clean() { p_filter "$@"; }   # nome do vetor na tabela
+
+# Submódulo hostil: a config do repo manda o fetch recursar, e o submódulo tem seu próprio uploadpack.
+p_submodule()  { cfg "$1" fetch.recurseSubmodules true
+                 mkdir -p "$1/sub" && G init -q "$1/sub" && G -C "$1/sub" remote add origin "$WORK/remoto.git" \
+                   && G -C "$1/sub" config remote.origin.uploadpack "$ATK submodule"
+                 printf '[submodule "sub"]\n\tpath = sub\n\turl = %s\n' "$WORK/remoto.git" > "$1/.gitmodules"
+                 G -C "$1" update-index --add --cacheinfo "160000,$(G -C "$WORK/modelo" rev-parse HEAD),sub" 2>/dev/null; }
+
 medir fsmonitor    status p_fsmonitor
 medir hook_reftx   fetch  p_hook_reftx
 medir hook_autogc  fetch  p_hook_autogc
@@ -130,10 +149,17 @@ medir gitproxy     fetch  p_gitproxy
 medir ext          fetch  p_ext
 medir include      status p_include
 medir filter_clean status p_filter
+medir submodule    fetch  p_submodule
 # Alternativas para o vetor sem chave fixa a anular (filtro com nome escolhido pelo atacante):
 CANARIO=filter_clean
 medir alt_filter_anula  status_anula p_filter   # (A) anular todo filter.*.{clean,smudge,process} encontrado
 medir alt_filter_refs   refs         p_filter   # (B) não usar `status`: só ler refs
+# Comandos de leitura do `nodus repos` contra todos os vetores (o baseline não precisa disparar: estes
+# comandos não são gatilho; o que importa é que NADA dispare sob isolamento).
+for v in fsmonitor hook_reftx hookspath uploadpack sshcommand gitproxy ext include filter_clean submodule; do
+  CANARIO=$v
+  medir "alt_leitura_$v" leitura "p_$v"
+done
 unset CANARIO
 # Dono diferente: simulado com a variável de teste do próprio Git (não há como criar outro dono sem root).
 medir ownership    status p_fsmonitor GIT_TEST_ASSUME_DIFFERENT_OWNER=1

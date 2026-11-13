@@ -75,6 +75,34 @@ mod tests {
     }
 
     #[test]
+    fn repos_exige_a_pasta() {
+        let erro = Cli::try_parse_from(["nodus", "repos"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn repos_so_com_a_pasta_e_offline_em_texto() {
+        let cli = Cli::try_parse_from(["nodus", "repos", "/ws"]).unwrap();
+        match cli.command {
+            Command::Repos { dir, fetch, json } => {
+                assert_eq!(dir, std::path::PathBuf::from("/ws"));
+                assert!(!fetch);
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn repos_com_fetch_e_json() {
+        let cli = Cli::try_parse_from(["nodus", "repos", "/ws", "--fetch", "--json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Repos { fetch: true, json: true, .. }
+        ));
+    }
+
+    #[test]
     fn sem_subcomando_mostra_a_ajuda() {
         let erro = Cli::try_parse_from(["nodus"]).unwrap_err();
         assert_eq!(
