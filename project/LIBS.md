@@ -12,10 +12,10 @@ Critério: (1) licença compatível com MIT (ADR 0002); (2) publicada nos últim
 |---|---|---|---|---|---|
 | CLI | `clap` | 4.6.7 | MIT OR Apache-2.0 | 2026-09 | Adotar |
 | Preset e serialização | `serde`, `toml` | 1.0.229 / 1.2.1 | MIT OR Apache-2.0 | 2026-07 / 2026-11 | Adotar |
-| Saída `--json` (contrato da CLI, marco 2) | `serde_json` | 1.0.154 (`Cargo.lock`) | não conferida | não consultada | Adotada no marco 2, fora do levantamento original; licença e metadados a conferir no crates.io (acompanha o `cargo-deny`, P-11) |
+| Saída `--json` (contrato da CLI, marco 2) | `serde_json` | 1.0.154 (`Cargo.lock`) | MIT OR Apache-2.0 | 2026-10 | Adotada no marco 2, fora do levantamento original; licença e data conferidas no crates.io em 2026-11-12 (só metadados) |
 | Erros | `thiserror`, `anyhow` | 2.0.21 / 1.0.104 | MIT OR Apache-2.0 | 2026-09 / 2026-07 | Adotar |
 | Estado e histórico locais (critério 10) | `rusqlite` | 0.42.0 | MIT | 2026-11 | Adotar, a confirmar no spike |
-| Inventário de hardware e sistema (critério 2) | `sysinfo` | 0.40.3 | MIT | 2026-11 | Adotar; cobre CPU, RAM, discos; **não** cobre GPU nem periféricos (fora do MVP) |
+| Inventário de hardware e sistema (critério 2) | `sysinfo` | 0.40.3 | MIT | 2026-11 | Adotada no marco 3 (0.40.3 no `Cargo.lock`; licença MIT e data reconferidas no crates.io em 2026-11-12, só metadados); cobre CPU, RAM, discos; **não** cobre GPU nem periféricos (fora do MVP) |
 | Pacotes pacman (critérios 2, 8) | `alpm` (libalpm) | 5.0.2 | **GPL-3.0** | 2026-01 | **Descartar** (ver abaixo) |
 | Tipos e versões de pacote Arch | `alpm-types` | 0.14.0 | Apache-2.0 OR MIT | 2026-11 | Candidata, só tipos e comparação de versão; confirmar que cobre o necessário |
 | Apps Flatpak (critérios 2, 8) | `libflatpak` | 0.7.0 | MIT | 2025-11 | Descartar para o MVP: bindings pouco usados (~5 mil downloads recentes), sem publicação há ~1 ano |

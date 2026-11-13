@@ -18,8 +18,26 @@ pub struct SystemInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Disk {
+    pub name: String,
+    pub mount_point: String,
+    pub file_system: String,
+    pub total_bytes: u64,
+}
+
+/// Hardware lido por um adaptador (o core não toca a máquina).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HardwareInfo {
+    pub cpu_model: String,
+    pub cpu_threads: usize,
+    pub memory_total_bytes: u64,
+    pub disks: Vec<Disk>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Inventory {
     pub system: SystemInfo,
+    pub hardware: HardwareInfo,
     pub packages: Vec<Package>,
 }
 
@@ -102,6 +120,7 @@ pub fn collect(
     runner: &dyn CommandRunner,
     os_release: &str,
     kernel: &str,
+    hardware: HardwareInfo,
 ) -> Result<Inventory, InventoryError> {
     let os = parse_os_release(os_release)?;
     let packages = parse_pacman_q(&runner.run("pacman", &["-Q"])?)?;
@@ -111,6 +130,7 @@ pub fn collect(
             os_version: os.version,
             kernel: kernel.trim().to_string(),
         },
+        hardware,
         packages,
     })
 }
@@ -155,6 +175,20 @@ mod tests {
                 args.iter().map(|a| a.to_string()).collect(),
             ));
             self.resposta.clone()
+        }
+    }
+
+    fn hardware() -> HardwareInfo {
+        HardwareInfo {
+            cpu_model: "AMD Ryzen 5 5600".into(),
+            cpu_threads: 12,
+            memory_total_bytes: 33_554_432_000,
+            disks: vec![Disk {
+                name: "/dev/sda3".into(),
+                mount_point: "/home".into(),
+                file_system: "ext4".into(),
+                total_bytes: 200_000_000_000,
+            }],
         }
     }
 
@@ -272,7 +306,7 @@ mod tests {
     #[test]
     fn collect_chama_pacman_q_com_lista_de_argumentos() {
         let runner = Falso::ok(PACMAN_Q);
-        collect(&runner, OS_RELEASE_ARCH, "6.12.1-arch1-1\n").unwrap();
+        collect(&runner, OS_RELEASE_ARCH, "6.12.1-arch1-1\n", hardware()).unwrap();
         assert_eq!(
             *runner.chamadas.borrow(),
             vec![("pacman".to_string(), vec!["-Q".to_string()])]
@@ -282,7 +316,7 @@ mod tests {
     #[test]
     fn collect_monta_o_inventario_e_tira_a_quebra_de_linha_do_kernel() {
         let runner = Falso::ok("bash 5.2.037-2\n");
-        let inv = collect(&runner, OS_RELEASE_ARCH, "6.12.1-arch1-1\n").unwrap();
+        let inv = collect(&runner, OS_RELEASE_ARCH, "6.12.1-arch1-1\n", hardware()).unwrap();
         assert_eq!(
             inv,
             Inventory {
@@ -291,6 +325,7 @@ mod tests {
                     os_version: None,
                     kernel: "6.12.1-arch1-1".into(),
                 },
+                hardware: hardware(),
                 packages: vec![pacote("bash", "5.2.037-2")],
             }
         );
@@ -303,14 +338,14 @@ mod tests {
             code: Some(1),
         };
         let runner = Falso::erro(falha.clone());
-        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1").unwrap_err();
+        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap_err();
         assert_eq!(erro, InventoryError::Runner(falha));
     }
 
     #[test]
     fn collect_propaga_erro_de_parsing_do_pacman() {
         let runner = Falso::ok("linux\n");
-        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1").unwrap_err();
+        let erro = collect(&runner, OS_RELEASE_ARCH, "6.12.1", hardware()).unwrap_err();
         assert!(matches!(
             erro,
             InventoryError::Parse(ParseError::InvalidLine { number: 1, .. })
@@ -320,7 +355,7 @@ mod tests {
     #[test]
     fn collect_propaga_os_release_invalido() {
         let runner = Falso::ok("");
-        let erro = collect(&runner, "ID=arch\n", "6.12.1").unwrap_err();
+        let erro = collect(&runner, "ID=arch\n", "6.12.1", hardware()).unwrap_err();
         assert_eq!(
             erro,
             InventoryError::Parse(ParseError::MissingField("NAME"))
@@ -337,6 +372,7 @@ mod tests {
                 os_version: None,
                 kernel: "6.12.1-arch1-1".into(),
             },
+            hardware: hardware(),
             packages: vec![pacote("bash", "5.2.037-2")],
         };
         let json = serde_json::to_value(&inv).unwrap();
@@ -344,6 +380,14 @@ mod tests {
             json,
             serde_json::json!({
                 "system": { "os_name": "Arch Linux", "os_version": null, "kernel": "6.12.1-arch1-1" },
+                "hardware": {
+                    "cpu_model": "AMD Ryzen 5 5600",
+                    "cpu_threads": 12,
+                    "memory_total_bytes": 33554432000u64,
+                    "disks": [
+                        { "name": "/dev/sda3", "mount_point": "/home", "file_system": "ext4", "total_bytes": 200000000000u64 }
+                    ]
+                },
                 "packages": [ { "name": "bash", "version": "5.2.037-2" } ]
             })
         );

@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-12 — Sessão 7, continuação (Fase 1, marco 3: hardware no `inventory`)
+
+- **Pedido**: seguir o critério 2 do MVP com o hardware. Escolhas do dono no plano: `sysinfo`, campos CPU/RAM/discos, campo novo `hardware` no `--json`.
+- **Feito**: tipos `HardwareInfo` e `Disk` no core (`collect` recebe o hardware pronto, o core continua sem I/O); adaptador `hardware.rs` na CLI com `sysinfo` 0.40.3; seção de hardware no texto (GiB com 1 casa decimal); filtro que descarta discos de tamanho 0 (`/proc`, `/sys`). Marco 2 (PR #7) mesclado antes, com `CI` e `CI Private Files` verdes na `main`.
+- **CI (resultado real, PR #8)**: commit 1 (só testes) falhou por erro de compilação (`HardwareInfo`, `Disk` e o campo `hardware` inexistentes); commit 2 passou de primeira, com 18 + 17 testes ok e clippy limpo (a API do `sysinfo` conferida na docs.rs bateu); mutação (filtro `> 0` → `== 0`) falhou 1 teste (`["/proc", "/sys"]` em vez de `["/", "/home"]`); revertido.
+- **Achado**: o teste de leitura real (`leitura_real_tem_invariantes_basicas`) **não** pegou a mutação, porque o runner do CI não tinha disco de tamanho 0 e as invariantes valem para lista vazia. Quem protege o filtro é só o teste com dados fixos.
+- **LIBS.md**: licença e data do `sysinfo` (MIT, 2026-11-11) e do `serde_json` (MIT OR Apache-2.0, 2026-10-11) conferidas no crates.io em 2026-11-12; só metadados, sem leitura de código.
+- **Não verificado**: execução em Arch real (o CI é ubuntu): falta o dono rodar `nodus inventory` e conferir com `lscpu`, `free -b` e `lsblk`; o bloqueio de merge pelo check obrigatório ainda não foi provado na prática; `cpu_threads` são threads lógicas, não núcleos físicos; o filtro por tamanho deixa passar `tmpfs` grande.
+- **Fica**: Flatpak no inventário, preset; P-09 a P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+
 ### 2026-11-12 — Sessão 7 (Fase 1, marco 2: `nodus inventory`)
 
 - **Pedido**: seguir a Fase 1 pelo critério 2 do MVP. Escolhas do dono no plano: sistema + pacotes pacman (sem hardware), texto + `--json`, trait `CommandRunner` no core.
