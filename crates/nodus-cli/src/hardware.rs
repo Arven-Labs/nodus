@@ -30,7 +30,7 @@ pub fn read_hardware() -> Result<HardwareInfo> {
 
 /// Pseudo-sistemas de arquivos (`/proc`, `/sys`) vêm com tamanho 0; não são discos.
 fn drop_empty_disks(disks: Vec<Disk>) -> Vec<Disk> {
-    disks.into_iter().filter(|d| d.total_bytes == 0).collect()
+    disks.into_iter().filter(|d| d.total_bytes > 0).collect()
 }
 
 #[cfg(test)]
