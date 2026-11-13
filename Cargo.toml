@@ -21,5 +21,9 @@ all = "warn"
 
 [workspace.dependencies]
 # Dependências externas entram aqui e são herdadas pelos crates (cada uma com aprovação do dono, ADR 0007).
+anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
 nodus-core = { path = "crates/nodus-core" }

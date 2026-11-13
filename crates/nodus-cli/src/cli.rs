@@ -30,4 +30,31 @@ mod tests {
         let erro = Cli::try_parse_from(["nodus", "--xyz"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
     }
+
+    #[test]
+    fn inventory_sem_flag_e_texto() {
+        let cli = Cli::try_parse_from(["nodus", "inventory"]).unwrap();
+        assert!(matches!(cli.command, Command::Inventory { json: false }));
+    }
+
+    #[test]
+    fn inventory_com_json() {
+        let cli = Cli::try_parse_from(["nodus", "inventory", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Inventory { json: true }));
+    }
+
+    #[test]
+    fn sem_subcomando_mostra_a_ajuda() {
+        let erro = Cli::try_parse_from(["nodus"]).unwrap_err();
+        assert_eq!(
+            erro.kind(),
+            ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+    }
+
+    #[test]
+    fn subcomando_desconhecido_e_erro_de_uso() {
+        let erro = Cli::try_parse_from(["nodus", "apagar-tudo"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::InvalidSubcommand);
+    }
 }
