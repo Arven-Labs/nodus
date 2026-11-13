@@ -19,7 +19,7 @@ Critério: (1) licença compatível com MIT (ADR 0002); (2) publicada nos últim
 | Pacotes pacman (critérios 2, 8) | `alpm` (libalpm) | 5.0.2 | **GPL-3.0** | 2026-01 | **Descartar** (ver abaixo) |
 | Tipos e versões de pacote Arch | `alpm-types` | 0.14.0 | Apache-2.0 OR MIT | 2026-11 | Não entra no MVP (ADR 0008): `pacman -Qu` e `checkupdates` já entregam o par `velha -> nova`. Docs.rs 0.14.0 mostra `Version` com epoch/pkgver/pkgrel e `vercmp`; reavaliar se o nodus precisar comparar versões |
 | Apps Flatpak (critérios 2, 8) | `libflatpak` | 0.7.0 | MIT | 2025-11 | Descartar para o MVP: bindings pouco usados (~5 mil downloads recentes), sem publicação há ~1 ano |
-| Git: descoberta e `fetch` (critério 7) | `gix` | 0.90.0 | MIT OR Apache-2.0 | 2026-10 | Em aberto, ver spike |
+| Git: descoberta e `fetch` (critério 7) | `git` CLI isolado (processo externo) | n/a | n/a | n/a | Decidido no ADR 0009; `gix` 0.90.0 (MIT OR Apache-2.0) fora do MVP |
 | Git, alternativa | `git2` (libgit2, C) | 0.21.0 | MIT OR Apache-2.0 | 2026-10 | Descartar: liga código C nativo e aumenta a superfície |
 | Testes de arquivo | `tempfile` | 3.27.0 | MIT OR Apache-2.0 | 2026-03 | Adotar (só dev) |
 | Auditoria de licenças e avisos (CI) | `cargo-deny` | 0.20.2 | MIT OR Apache-2.0 | 2026-07 | Adotar no CI quando houver código |
@@ -33,6 +33,6 @@ Alternativa: executar `pacman` e `flatpak` como **processos externos**, com list
 ## Não verificado
 - Código, segurança e testes de cada crate.
 - Se `alpm-types` cobre a comparação de versões que o plano de atualização precisa (`vercmp`): ficou sem necessidade no MVP (ADR 0008).
-- Se `gix` não executa hooks nem `core.fsmonitor` num `fetch` (SECURITY.md §6). Depende de teste na Fase 1.
+- ~~Se `gix` não executa hooks nem `core.fsmonitor` num `fetch`~~: o `git` CLI isolado foi medido no P-09 (ADR 0009); `gix` não foi medido porque não foi necessário.
 - Formatos de saída estáveis de `pacman` e `flatpak` para parsing: medidos no spike P-10 (ADR 0008), com lacunas lá registradas (nenhum app Flatpak na máquina, locale `pt_BR` ausente).
 - Dotfiles: não há lib candidata; a vinculação por symlink usa `std::os::unix::fs` e é código nosso, sujeito ao SECURITY.md T2.
