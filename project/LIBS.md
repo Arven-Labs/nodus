@@ -12,6 +12,7 @@ Critério: (1) licença compatível com MIT (ADR 0002); (2) publicada nos últim
 |---|---|---|---|---|---|
 | CLI | `clap` | 4.6.7 | MIT OR Apache-2.0 | 2026-09 | Adotar |
 | Preset e serialização | `serde`, `toml` | 1.0.229 / 1.2.1 | MIT OR Apache-2.0 | 2026-07 / 2026-11 | Adotar |
+| Saída `--json` (contrato da CLI, marco 2) | `serde_json` | 1.0.154 (`Cargo.lock`) | não conferida | não consultada | Adotada no marco 2, fora do levantamento original; licença e metadados a conferir no crates.io (acompanha o `cargo-deny`, P-11) |
 | Erros | `thiserror`, `anyhow` | 2.0.21 / 1.0.104 | MIT OR Apache-2.0 | 2026-09 / 2026-07 | Adotar |
 | Estado e histórico locais (critério 10) | `rusqlite` | 0.42.0 | MIT | 2026-11 | Adotar, a confirmar no spike |
 | Inventário de hardware e sistema (critério 2) | `sysinfo` | 0.40.3 | MIT | 2026-11 | Adotar; cobre CPU, RAM, discos; **não** cobre GPU nem periféricos (fora do MVP) |

@@ -1,5 +1,8 @@
 //! Núcleo do nodus. Por enquanto só expõe a versão; o domínio entra nos próximos marcos da Fase 1.
 
+pub mod inventory;
+pub mod runner;
+
 /// Versão do workspace, lida do `Cargo.toml` em tempo de compilação.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

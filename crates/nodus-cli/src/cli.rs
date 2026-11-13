@@ -1,9 +1,22 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 /// Plataforma aberta para padronizar e administrar ambientes de computadores.
 #[derive(Parser, Debug)]
-#[command(name = "nodus", version = nodus_core::VERSION)]
-pub struct Cli {}
+#[command(name = "nodus", version = nodus_core::VERSION, arg_required_else_help = true)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+    /// Mostra o sistema e os pacotes instalados (somente leitura).
+    Inventory {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
+}
 
 #[cfg(test)]
 mod tests {
@@ -29,5 +42,32 @@ mod tests {
     fn flag_desconhecida_e_erro_de_uso() {
         let erro = Cli::try_parse_from(["nodus", "--xyz"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn inventory_sem_flag_e_texto() {
+        let cli = Cli::try_parse_from(["nodus", "inventory"]).unwrap();
+        assert!(matches!(cli.command, Command::Inventory { json: false }));
+    }
+
+    #[test]
+    fn inventory_com_json() {
+        let cli = Cli::try_parse_from(["nodus", "inventory", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Inventory { json: true }));
+    }
+
+    #[test]
+    fn sem_subcomando_mostra_a_ajuda() {
+        let erro = Cli::try_parse_from(["nodus"]).unwrap_err();
+        assert_eq!(
+            erro.kind(),
+            ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+    }
+
+    #[test]
+    fn subcomando_desconhecido_e_erro_de_uso() {
+        let erro = Cli::try_parse_from(["nodus", "apagar-tudo"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::InvalidSubcommand);
     }
 }

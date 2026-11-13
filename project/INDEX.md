@@ -1,6 +1,6 @@
 # nodus: Estado do Projeto
 
-> Última atualização: 2026-11-12 (Fase 1, marco 1: esqueleto do workspace, CI Rust e `GUIDELINES.md`)
+> Última atualização: 2026-11-12 (Fase 1, marco 2: `nodus inventory`)
 
 ## Como usar este arquivo
 

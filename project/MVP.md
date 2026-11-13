@@ -4,7 +4,7 @@ CLI + agente local, só Arch Linux (ADR 0004). Base: SPEC §16.
 
 ## Critérios de pronto
 1. Instalar a CLI em um Arch Linux.
-2. `inventory`: hardware, sistema e aplicativos instalados.
+2. `inventory`: hardware, sistema e aplicativos instalados. (Marco 2: sistema e pacotes pacman, texto e `--json`; hardware e Flatpak ainda faltam.)
 3. Criar um preset declarativo (apps e configurações).
 4. Reaplicar o preset sem duplicar nem quebrar configurações (idempotência).
 5. Detectar app recém-instalado e perguntar se entra no preset.
