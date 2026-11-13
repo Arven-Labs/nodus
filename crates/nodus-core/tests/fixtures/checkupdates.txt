@@ -1,0 +1,6 @@
+alsa-card-profiles 1:1.6.10-1 -> 1:1.6.11-1
+appstream 1.2.2-1 -> 1.2.3-1
+appstream-qt 1.2.2-1 -> 1.2.3-1
+bluez 5.87-2 -> 5.88-1
+bluez-libs 5.87-2 -> 5.88-1
+bluez-utils 5.87-2 -> 5.88-1

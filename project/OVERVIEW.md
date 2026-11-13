@@ -13,4 +13,4 @@ Monorepo com Cargo workspace (`crates/*`), como o `kin` (ADR 0006): `nodus-core`
 MIT (ADR 0002).
 
 ## Status
-Fase 0 com todas as entregas feitas (ADR 0003), aguardando o fechamento formal pelo dono. Fase 1 em andamento: esqueleto do workspace e CI Rust; `nodus inventory` (sistema, pacotes pacman, `--json`) mesclado; hardware (CPU, RAM, discos via `sysinfo`) em revisão no marco 3. Flatpak, preset e o resto do MVP ainda não existem.
+Fase 0 com todas as entregas feitas (ADR 0003), aguardando o fechamento formal pelo dono. Fase 1 em andamento: esqueleto do workspace e CI Rust; `nodus inventory` (sistema, hardware via `sysinfo`, pacotes pacman, `--json`) mesclado. Spike P-10 (ADR 0008) em revisão: formato de saída de Flatpak e de atualizações medido, sem código. Flatpak no inventário, atualizações, preset e o resto do MVP ainda não existem.

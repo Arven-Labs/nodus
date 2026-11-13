@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-12 — Sessão 7, continuação (spike P-10: formato de pacman e Flatpak)
+
+- **Pedido**: seguir com o spike P-10 antes do Flatpak no inventário. Escolhas do dono: eu rodo as medições (só leitura), amostras curtas e editadas, entrega = ADR + amostras sem código de produção.
+- **Antes**: marco 3 (PR #8) mesclado; `CI` e `CI Private Files` verdes na `main`.
+- **Medido** (pacman 7.1.0, Flatpak 1.18.4, checkupdates 1.13.1, `LANG=en_US.UTF-8`): `flatpak list` sai com tabulação, sem cabeçalho fora do terminal e com campo vazio possível; `pacman -Qu` deu 92 itens e `checkupdates` 134 (banco local velho); `vercmp` confirma que epoch vence; `checkupdates` só toca um banco temporário em `/tmp` (lido no script).
+- **Feito**: ADR 0008 (formato escolhido: `checkupdates` como fonte principal, `-Qu` como alternativa offline, colunas do Flatpak fixadas, nodus não compara versões no MVP, `alpm-types` fora), fixtures em `crates/nodus-core/tests/fixtures/` com README, P-10 resolvida, `LIBS.md` ajustado.
+- **CI**: a conferir no PR (só docs e fixtures; nenhum código mudou).
+- **Não verificado**: `flatpak list --app` (a máquina não tem app Flatpak, formato assumido igual ao de runtime); locale `pt_BR` (não está gerado na máquina); exit codes de `pacman -Qu` e `checkupdates` sem atualização; linhas `[ignored]` de `IgnorePkg`; instalações `--user`/`--installation`; outras versões e distros.
+- **Fica**: Flatpak no inventário e verificação de atualizações (próximos marcos); rodar `nodus inventory` no Arch real; P-09, P-11, P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+
 ### 2026-11-12 — Sessão 7, continuação (Fase 1, marco 3: hardware no `inventory`)
 
 - **Pedido**: seguir o critério 2 do MVP com o hardware. Escolhas do dono no plano: `sysinfo`, campos CPU/RAM/discos, campo novo `hardware` no `--json`.
