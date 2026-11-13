@@ -1,6 +1,7 @@
 //! Formatação do inventário para o terminal.
 
 use nodus_core::inventory::Inventory;
+use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
 pub fn render_text(inventory: &Inventory) -> String {
@@ -56,6 +57,43 @@ pub fn render_text(inventory: &Inventory) -> String {
     out
 }
 
+pub fn render_updates(updates: &Updates) -> String {
+    let mut out = String::new();
+    let _ = match updates.pacman_source {
+        PacmanSource::Checkupdates => writeln!(out, "Pacman ({}):", updates.pacman.len()),
+        PacmanSource::PacmanQu => writeln!(
+            out,
+            "Pacman ({}) [pode estar desatualizado: `checkupdates` não encontrado, usei `pacman -Qu`]:",
+            updates.pacman.len()
+        ),
+    };
+    for pkg in &updates.pacman {
+        let _ = writeln!(
+            out,
+            "  {} {} -> {}",
+            pkg.name, pkg.old_version, pkg.new_version
+        );
+    }
+    match &updates.flatpak {
+        None => {
+            let _ = writeln!(out, "Flatpak: não instalado");
+        }
+        Some(apps) => {
+            let _ = writeln!(out, "Flatpak ({}):", apps.len());
+            for app in apps {
+                let _ = writeln!(
+                    out,
+                    "  {} {} {}",
+                    app.application,
+                    app.version.as_deref().unwrap_or("-"),
+                    app.branch
+                );
+            }
+        }
+    }
+    out
+}
+
 /// Bytes em GiB (base 1024) com uma casa decimal.
 fn gib(bytes: u64) -> String {
     format!("{:.1} GiB", bytes as f64 / (1u64 << 30) as f64)
@@ -65,6 +103,7 @@ fn gib(bytes: u64) -> String {
 mod tests {
     use super::*;
     use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
+    use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
 
     fn inventario(os_version: Option<&str>) -> Inventory {
         Inventory {
@@ -141,6 +180,45 @@ mod tests {
         let mut inv = inventario(None);
         inv.flatpak_apps = Some(vec![]);
         assert!(render_text(&inv).ends_with("Flatpak (0):\n"));
+    }
+
+    fn atualizacoes(fonte: PacmanSource) -> Updates {
+        Updates {
+            pacman_source: fonte,
+            pacman: vec![PacmanUpdate {
+                name: "bash".into(),
+                old_version: "5.2-1".into(),
+                new_version: "5.3-1".into(),
+            }],
+            flatpak: Some(vec![FlatpakUpdate {
+                application: "org.example.App".into(),
+                version: None,
+                branch: "stable".into(),
+            }]),
+        }
+    }
+
+    #[test]
+    fn updates_texto_com_checkupdates() {
+        let esperado =
+            "Pacman (1):\n  bash 5.2-1 -> 5.3-1\nFlatpak (1):\n  org.example.App - stable\n";
+        assert_eq!(
+            render_updates(&atualizacoes(PacmanSource::Checkupdates)),
+            esperado
+        );
+    }
+
+    #[test]
+    fn updates_texto_avisa_quando_a_fonte_e_pacman_qu() {
+        let texto = render_updates(&atualizacoes(PacmanSource::PacmanQu));
+        assert!(texto.starts_with("Pacman (1) [pode estar desatualizado"));
+    }
+
+    #[test]
+    fn updates_texto_flatpak_nao_instalado() {
+        let mut up = atualizacoes(PacmanSource::Checkupdates);
+        up.flatpak = None;
+        assert!(render_updates(&up).ends_with("Flatpak: não instalado\n"));
     }
 
     #[test]

@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-13 — Sessão 8 (Fase 1, marco 5: `nodus updates`)
+
+- **Pedido**: verificação de atualizações (critério 8 do MVP). Escolhas do dono no plano: subcomando separado `nodus updates [--json]` (o `inventory` segue offline), fallback para `pacman -Qu` rotulado como possivelmente desatualizado quando falta `checkupdates`, e medir o exit code antes de implementar.
+- **Medição**: `checkupdates`, `pacman -Qu` e `flatpak remote-ls --updates` saíram com 0 (havia pendências; 1 app Flatpak, igual à amostra). O exit code **sem** pendências não deu para medir.
+- **Feito**: `crates/nodus-core/src/updates.rs` (parsers `parse_pacman_updates` e `parse_flatpak_updates`, `collect_updates`, `PacmanSource`), subcomando `Updates` na CLI, `render_updates` com aviso quando a fonte é `pacman -Qu`. Sem dependência nova. Flatpak ausente vira `null`; `checkupdates` com exit 2 e `pacman -Qu` com exit 1 viram lista vazia (suposição, ver ADR 0008).
+- **CI (resultado real, PR #11)**: testes e implementação passaram juntos (`Rust (clippy and tests)` e `guard` verdes). A falha do commit só de testes **não foi mostrada** no CI: o CI só rodou depois de abrir o PR. Mutação (exit 2 → 3 no `checkupdates`) falhou 1 teste (`checkupdates_codigo_2_significa_sem_atualizacoes`), 59 passaram; revertida em commit próprio.
+- **Incidente**: um `git revert -q` falhou sem aviso e um `--amend` renomeou o commit da mutação; detectei pela linha ainda com `3`, nada tinha sido empurrado, refiz com `reset` e um revert normal.
+- **Não verificado**: exit codes sem pendências (`checkupdates` = 2, `pacman -Qu` = 1); execução do `nodus updates` no Arch real; o caminho de fallback numa máquina sem `pacman-contrib`; locale `pt_BR`; `IgnorePkg`.
+- **Fica**: preset e o resto do MVP; P-09, P-11, P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+
 ### 2026-11-12 — Sessão 7, continuação (Fase 1, marco 4: apps Flatpak no `inventory`)
 
 - **Pedido**: Flatpak no inventário. Escolhas do dono no plano: só apps (sem runtimes), `flatpak_apps: null` quando o Flatpak não está instalado, e a amostra de `--app` medida de verdade.

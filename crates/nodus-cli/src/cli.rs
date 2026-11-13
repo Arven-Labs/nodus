@@ -16,6 +16,12 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Lista atualizações pendentes de pacman e Flatpak (somente leitura, usa a rede).
+    Updates {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[cfg(test)]
@@ -54,6 +60,18 @@ mod tests {
     fn inventory_com_json() {
         let cli = Cli::try_parse_from(["nodus", "inventory", "--json"]).unwrap();
         assert!(matches!(cli.command, Command::Inventory { json: true }));
+    }
+
+    #[test]
+    fn updates_sem_flag_e_texto() {
+        let cli = Cli::try_parse_from(["nodus", "updates"]).unwrap();
+        assert!(matches!(cli.command, Command::Updates { json: false }));
+    }
+
+    #[test]
+    fn updates_com_json() {
+        let cli = Cli::try_parse_from(["nodus", "updates", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Updates { json: true }));
     }
 
     #[test]
