@@ -10,7 +10,18 @@ mod render;
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Inventory { json } => inventory(json),
+        Command::Updates { json } => updates(json),
     }
+}
+
+fn updates(json: bool) -> Result<()> {
+    let updates = nodus_core::updates::collect_updates(&process::RealRunner)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&updates)?);
+    } else {
+        print!("{}", render::render_updates(&updates));
+    }
+    Ok(())
 }
 
 fn inventory(json: bool) -> Result<()> {
