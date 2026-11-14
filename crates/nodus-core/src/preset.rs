@@ -301,6 +301,9 @@ mod tests {
     #[test]
     fn nome_de_pacman_que_vira_opcao_ou_injecao_e_recusado() {
         let recusados = [
+            // Só minúsculas e hífen: o único motivo de recusa é o `-` no começo (viraria opção).
+            "--noconfirm",
+            "-rdd",
             "-Rns",
             "--overwrite=*",
             ".oculto",
