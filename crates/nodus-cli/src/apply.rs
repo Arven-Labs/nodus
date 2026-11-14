@@ -205,4 +205,191 @@ mod tests {
         assert_eq!(exec.len(), 1);
         assert!(out.starts_with("aviso: Flatpak ainda não é instalado pelo nodus: 1 app(s)"));
     }
+
+    // --- apply_with_history: registra o que de fato foi executado (SECURITY.md T5) ---
+
+    use crate::testutil::TmpDir;
+    use nodus_core::history::ExecResult;
+    use nodus_core::runner::RunnerError;
+    use std::cell::Cell;
+
+    const AGORA: u64 = 1_794_626_444;
+
+    /// Roda `apply_with_history` com executor e "Depois" falsos. Devolve o resultado, quantas vezes o
+    /// executor e o "Depois" foram chamados, e o histórico gravado.
+    fn rodar_com_historico(
+        plan: &Plan,
+        interactive: bool,
+        entrada: &str,
+        exec_falha: Option<anyhow::Error>,
+        depois: Plan,
+    ) -> (
+        anyhow::Result<Applied>,
+        usize,
+        usize,
+        Vec<nodus_core::history::HistoryEntry>,
+    ) {
+        let tmp = TmpDir::novo();
+        let path = tmp.path().join("nodus/history.jsonl");
+        let (r, execs, depois_chamado) =
+            chamar(plan, interactive, entrada, exec_falha, depois, &path);
+        let gravado = crate::history::read(&path).unwrap();
+        (r, execs, depois_chamado, gravado)
+    }
+
+    fn chamar(
+        plan: &Plan,
+        interactive: bool,
+        entrada: &str,
+        exec_falha: Option<anyhow::Error>,
+        depois: Plan,
+        path: &std::path::Path,
+    ) -> (anyhow::Result<Applied>, usize, usize) {
+        let mut input = Cursor::new(entrada.as_bytes().to_vec());
+        let mut output = Vec::new();
+        let execs = Cell::new(0);
+        let depois_chamado = Cell::new(0);
+        let mut falha = exec_falha;
+        let r = apply_with_history(
+            plan,
+            interactive,
+            &mut input,
+            &mut output,
+            |_| {
+                execs.set(execs.get() + 1);
+                match falha.take() {
+                    Some(e) => Err(e),
+                    None => Ok(()),
+                }
+            },
+            || {
+                depois_chamado.set(depois_chamado.get() + 1);
+                Ok(depois)
+            },
+            path,
+            AGORA,
+        );
+        (r, execs.get(), depois_chamado.get())
+    }
+
+    #[test]
+    fn grava_em_sucesso_com_o_estado_de_depois() {
+        let (r, execs, depois_chamado, hist) = rodar_com_historico(
+            &plano(&["sl", "cowsay"], &[]),
+            true,
+            "s\n",
+            None,
+            plano(&[], &[]),
+        );
+        let aplicado = r.unwrap();
+        assert_eq!(aplicado.outcome, Outcome::Executed);
+        assert_eq!(aplicado.after, Some(plano(&[], &[])));
+        assert_eq!((execs, depois_chamado), (1, 1));
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].at_unix, AGORA);
+        assert_eq!(hist[0].requested, ["sl", "cowsay"]);
+        assert_eq!(hist[0].installed, ["sl", "cowsay"]);
+        assert!(hist[0].still_missing.is_empty());
+        assert_eq!(hist[0].result, ExecResult::Ok);
+        assert_eq!(
+            hist[0].command,
+            ["sudo", "pacman", "-S", "--needed", "--", "sl", "cowsay"]
+        );
+    }
+
+    #[test]
+    fn grava_em_falha_do_pacman_e_propaga_o_erro() {
+        let falha = anyhow::Error::from(RunnerError::Failed {
+            program: "sudo".into(),
+            code: Some(1),
+        });
+        let (r, execs, _, hist) = rodar_com_historico(
+            &plano(&["sl"], &[]),
+            true,
+            "s\n",
+            Some(falha),
+            plano(&["sl"], &[]),
+        );
+        assert!(r.is_err());
+        assert_eq!(execs, 1);
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].result, ExecResult::Failed { code: Some(1) });
+        assert_eq!(hist[0].still_missing, ["sl"]);
+        assert!(hist[0].installed.is_empty());
+    }
+
+    #[test]
+    fn falha_sem_codigo_de_saida_grava_code_nenhum() {
+        let (r, _, _, hist) = rodar_com_historico(
+            &plano(&["sl"], &[]),
+            true,
+            "s\n",
+            Some(anyhow::anyhow!("não consegui iniciar `sudo`")),
+            plano(&["sl"], &[]),
+        );
+        assert!(r.is_err());
+        assert_eq!(hist[0].result, ExecResult::Failed { code: None });
+    }
+
+    #[test]
+    fn nao_grava_na_recusa_nem_consulta_o_depois() {
+        let (r, execs, depois_chamado, hist) =
+            rodar_com_historico(&plano(&["sl"], &[]), true, "n\n", None, plano(&[], &[]));
+        assert_eq!(r.unwrap().outcome, Outcome::Declined);
+        assert_eq!((execs, depois_chamado), (0, 0));
+        assert!(hist.is_empty());
+    }
+
+    #[test]
+    fn nao_grava_com_plano_vazio() {
+        let (r, execs, depois_chamado, hist) =
+            rodar_com_historico(&plano(&[], &[]), true, "s\n", None, plano(&[], &[]));
+        assert_eq!(r.unwrap().outcome, Outcome::NothingToDo);
+        assert_eq!((execs, depois_chamado), (0, 0));
+        assert!(hist.is_empty());
+    }
+
+    #[test]
+    fn nao_grava_quando_so_falta_flatpak() {
+        let (r, execs, _, hist) = rodar_com_historico(
+            &plano(&[], &["org.a.B"]),
+            true,
+            "s\n",
+            None,
+            plano(&[], &[]),
+        );
+        assert_eq!(r.unwrap().outcome, Outcome::FlatpakOnly);
+        assert_eq!(execs, 0);
+        assert!(hist.is_empty());
+    }
+
+    #[test]
+    fn nao_grava_sem_terminal() {
+        let (r, execs, _, hist) =
+            rodar_com_historico(&plano(&["sl"], &[]), false, "s\n", None, plano(&[], &[]));
+        assert!(r.is_err());
+        assert_eq!(execs, 0);
+        assert!(hist.is_empty());
+    }
+
+    #[test]
+    fn falha_ao_gravar_avisa_que_a_instalacao_aconteceu() {
+        // O pai do arquivo de histórico é um arquivo comum: criar o diretório falha.
+        let tmp = TmpDir::novo();
+        let bloqueio = tmp.path().join("bloqueio");
+        std::fs::write(&bloqueio, "").unwrap();
+        let path = bloqueio.join("nodus/history.jsonl");
+        let (r, execs, _) = chamar(
+            &plano(&["sl"], &[]),
+            true,
+            "s\n",
+            None,
+            plano(&[], &[]),
+            &path,
+        );
+        assert_eq!(execs, 1);
+        let erro = format!("{:#}", r.unwrap_err());
+        assert!(erro.contains("instalação foi feita"), "{erro}");
+        assert!(erro.contains("histórico"), "{erro}");
+    }
 }

@@ -449,4 +449,78 @@ mod tests {
         }]);
         assert!(render_text(&inv).ends_with("  org.example.App - stable flathub system\n"));
     }
+
+    // --- render_history ---
+
+    use nodus_core::history::{ExecResult, HistoryEntry};
+
+    fn execucao(
+        at: u64,
+        requested: &[&str],
+        installed: &[&str],
+        missing: &[&str],
+        result: ExecResult,
+    ) -> HistoryEntry {
+        let v = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        HistoryEntry {
+            version: 1,
+            at_unix: at,
+            command: v(&["sudo", "pacman", "-S", "--needed", "--"]),
+            requested: v(requested),
+            installed: v(installed),
+            still_missing: v(missing),
+            result,
+        }
+    }
+
+    #[test]
+    fn historico_vazio_diz_que_nao_ha_execucoes() {
+        assert_eq!(render_history(&[]), "Nenhuma execução registrada.\n");
+    }
+
+    #[test]
+    fn historico_com_sucesso_lista_instalados() {
+        let e = execucao(
+            1_794_626_444,
+            &["sl", "cowsay"],
+            &["sl", "cowsay"],
+            &[],
+            ExecResult::Ok,
+        );
+        assert_eq!(
+            render_history(&[e]),
+            "Histórico (1 execução):\n\
+             2026-11-14T03:20:44Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n"
+        );
+    }
+
+    #[test]
+    fn historico_com_falha_mostra_codigo_e_faltantes() {
+        let ok = execucao(0, &["sl"], &["sl"], &[], ExecResult::Ok);
+        let falha = execucao(
+            1_794_626_444,
+            &["sl", "cowsay"],
+            &["sl"],
+            &["cowsay"],
+            ExecResult::Failed { code: Some(1) },
+        );
+        assert_eq!(
+            render_history(&[ok, falha]),
+            "Histórico (2 execuções):\n\
+             1970-01-01T00:00:00Z  ok  pedidos 1, instalados 1, faltando 0\n  instalados: sl\n\
+             2026-11-14T03:20:44Z  falhou (código 1)  pedidos 2, instalados 1, faltando 1\n  instalados: sl\n  faltando: cowsay\n"
+        );
+    }
+
+    #[test]
+    fn historico_com_falha_sem_codigo() {
+        let e = execucao(0, &["sl"], &[], &["sl"], ExecResult::Failed { code: None });
+        let texto = render_history(&[e]);
+        assert!(
+            texto.contains("  falhou  pedidos 1, instalados 0, faltando 1\n"),
+            "{texto}"
+        );
+        assert!(texto.ends_with("  faltando: sl\n"));
+        assert!(!texto.contains("instalados:"));
+    }
 }

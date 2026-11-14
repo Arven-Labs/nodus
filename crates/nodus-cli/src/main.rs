@@ -6,9 +6,12 @@ mod apply;
 mod cli;
 mod discovery;
 mod hardware;
+mod history;
 mod preset_file;
 mod process;
 mod render;
+#[cfg(test)]
+mod testutil;
 
 fn main() -> Result<()> {
     match Cli::parse().command {

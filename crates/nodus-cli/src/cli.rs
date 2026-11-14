@@ -169,6 +169,18 @@ mod tests {
     }
 
     #[test]
+    fn history_sem_flag_e_texto() {
+        let cli = Cli::try_parse_from(["nodus", "history"]).unwrap();
+        assert!(matches!(cli.command, Command::History { json: false }));
+    }
+
+    #[test]
+    fn history_com_json() {
+        let cli = Cli::try_parse_from(["nodus", "history", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::History { json: true }));
+    }
+
+    #[test]
     fn preset_apply_com_arquivo() {
         let cli = Cli::try_parse_from(["nodus", "preset", "apply", "p.toml"]).unwrap();
         match cli.command {
