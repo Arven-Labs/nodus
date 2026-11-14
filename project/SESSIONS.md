@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, verificação real do `history undo`
+
+- **Pedido**: registrar a verificação que o dono fez no Arch (o terminal dele caiu depois; o log foi colado na conversa).
+- **Medido (Arch real, log do dono)**: `preset apply` instalou `abi-dumper` (arrastou `ctags` e `vtable-dumper`); `history undo 1` mostrou o plano de 3 pacotes, confirmou, rodou `sudo pacman -Rs -- abi-dumper` e removeu exatamente os 3. `nodus history` listou `[2] desfez [1] ... removidos: abi-dumper`. O `pacman -Qq | grep` seguinte não listou nada (pacotes ausentes).
+- **Achado**: o histórico registra 1 removido, mas 3 saíram (dependências órfãs). Virou P-16, sem decisão. Há também duas confirmações seguidas (a do nodus e a do pacman); mantida, pois o ADR 0011 proíbe `--noconfirm`.
+- **Feito**: só docs (`PENDING.md` P-15 e P-16, `OVERVIEW.md`, `MVP.md`). Sem código, sem teste novo, então sem mutação.
+- **Não verificado**: banco do pacman travado; `--json` com `undo`; Flatpak; o log é colado pelo dono, não rodei nada.
+- **Fica**: P-16; Flatpak no `preset apply`; decisão sobre branches extras no `repos`; P-13, P-14, P-12, P-02, P-03; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, continuação (fatia 4, PR 2 de 2: `nodus history undo <n>`)
 
 - **Pedido**: o comando privilegiado do ADR 0011. Escolhas do dono: stderr por função nova em `process.rs`; 5 linhas de saída quando a simulação falha; `--json` ignorado no `undo`. PR #24 (formato v2) já mesclado.
