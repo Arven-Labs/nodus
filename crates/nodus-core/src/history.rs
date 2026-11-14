@@ -7,8 +7,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
-/// Versão do formato da linha. Mudar o formato exige subir este número.
-pub const ENTRY_VERSION: u32 = 1;
+/// Versão do formato que o nodus grava. Mudar o formato exige subir este número. A leitura aceita
+/// também a versão 1 (só instalações, sem `action` nem `undoes`).
+pub const ENTRY_VERSION: u32 = 2;
+
+/// O que a entrada registra.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Action {
+    /// `preset apply`: instalação.
+    Install,
+    /// `history undo`: reversão de uma instalação anterior.
+    Remove,
+}
 
 /// Como a execução terminou, pelo status do processo. O que de fato mudou está em
 /// `installed`/`still_missing`, conferido depois (o código de saída não diz isso).
@@ -22,28 +33,49 @@ pub enum ExecResult {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Só serializa: a leitura passa por `parse_line`, que valida a combinação `version`, `action` e
+/// `undoes`. A ordem dos campos é o contrato do arquivo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HistoryEntry {
     pub version: u32,
     /// Segundos desde 1970 em UTC.
     pub at_unix: u64,
     /// O comando exato que foi executado.
     pub command: Vec<String>,
-    /// Pacotes que o plano mandou instalar.
+    /// Pacotes que o comando pedia (instalar ou remover).
     pub requested: Vec<String>,
     /// Dos pedidos, os que estavam instalados depois (`pacman -Q`).
     pub installed: Vec<String>,
-    /// Dos pedidos, os que continuavam faltando depois.
+    /// Dos pedidos, os que estavam ausentes depois: numa instalação, os que não entraram; numa
+    /// reversão, os que foram removidos.
     pub still_missing: Vec<String>,
     pub result: ExecResult,
+    pub action: Action,
+    /// Número (a partir de 1) da entrada que esta reversão desfaz; só existe em `Action::Remove`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undoes: Option<u32>,
+}
+
+/// A linha como está no arquivo, antes de validar a combinação de campos por versão.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEntry {
+    version: u32,
+    at_unix: u64,
+    command: Vec<String>,
+    requested: Vec<String>,
+    installed: Vec<String>,
+    still_missing: Vec<String>,
+    result: ExecResult,
+    action: Option<Action>,
+    undoes: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HistoryError {
     #[error("linha de histórico inválida: {0}")]
     Invalid(String),
-    #[error("versão {0} do histórico não é suportada (esta versão lê só a {ENTRY_VERSION})")]
+    #[error("versão {0} do histórico não é suportada (esta versão lê a 1 e a {ENTRY_VERSION})")]
     UnsupportedVersion(u32),
     #[error("nome de pacote inválido no histórico: {0:?}")]
     InvalidPackageName(String),
@@ -71,6 +103,8 @@ pub fn entry_from(
         installed,
         still_missing,
         result,
+        action: Action::Install,
+        undoes: None,
     }
 }
 
@@ -81,11 +115,32 @@ pub fn to_line(entry: &HistoryEntry) -> String {
 }
 
 pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
-    let entry: HistoryEntry =
+    let raw: RawEntry =
         serde_json::from_str(line).map_err(|e| HistoryError::Invalid(e.to_string()))?;
-    if entry.version != ENTRY_VERSION {
-        return Err(HistoryError::UnsupportedVersion(entry.version));
-    }
+    let invalid = |why: &str| HistoryError::Invalid(why.to_string());
+    let (action, undoes) = match (raw.version, raw.action, raw.undoes) {
+        (1, None, None) => (Action::Install, None),
+        (1, _, _) => return Err(invalid("a versão 1 não tem `action` nem `undoes`")),
+        (2, Some(Action::Install), None) => (Action::Install, None),
+        (2, Some(Action::Remove), Some(n)) if n >= 1 => (Action::Remove, Some(n)),
+        (2, _, _) => {
+            return Err(invalid(
+                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1",
+            ));
+        }
+        (version, _, _) => return Err(HistoryError::UnsupportedVersion(version)),
+    };
+    let entry = HistoryEntry {
+        version: raw.version,
+        at_unix: raw.at_unix,
+        command: raw.command,
+        requested: raw.requested,
+        installed: raw.installed,
+        still_missing: raw.still_missing,
+        result: raw.result,
+        action,
+        undoes,
+    };
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do pacman.
     let names = entry
         .requested
@@ -163,7 +218,9 @@ mod tests {
             ExecResult::Failed { code: Some(1) },
             1_700_000_000,
         );
-        assert_eq!(e.version, 1);
+        assert_eq!(e.version, 2);
+        assert_eq!(e.action, Action::Install);
+        assert_eq!(e.undoes, None);
         assert_eq!(e.at_unix, 1_700_000_000);
         assert_eq!(e.command, comando(&["sl", "cowsay"]));
         assert_eq!(e.requested, v(&["sl", "cowsay"]));
@@ -226,8 +283,127 @@ mod tests {
         );
         assert_eq!(
             to_line(&e),
-            r#"{"version":1,"at_unix":1700000000,"command":["sudo","pacman","-S","--needed","--","sl"],"requested":["sl"],"installed":["sl"],"still_missing":[],"result":{"status":"ok"}}"#
+            r#"{"version":2,"at_unix":1700000000,"command":["sudo","pacman","-S","--needed","--","sl"],"requested":["sl"],"installed":["sl"],"still_missing":[],"result":{"status":"ok"},"action":"install"}"#
         );
+    }
+
+    /// Uma reversão (`history undo`): o que se pediu para remover, o que ainda estava instalado
+    /// depois e o que já não estava (foi removido).
+    fn remocao(undoes: u32) -> HistoryEntry {
+        HistoryEntry {
+            version: 2,
+            at_unix: 1_700_000_100,
+            command: v(&["sudo", "pacman", "-Rs", "--", "sl"]),
+            requested: v(&["sl"]),
+            installed: vec![],
+            still_missing: v(&["sl"]),
+            result: ExecResult::Ok,
+            action: Action::Remove,
+            undoes: Some(undoes),
+        }
+    }
+
+    #[test]
+    fn linha_de_remocao_tem_action_e_undoes_no_fim() {
+        assert_eq!(
+            to_line(&remocao(1)),
+            r#"{"version":2,"at_unix":1700000100,"command":["sudo","pacman","-Rs","--","sl"],"requested":["sl"],"installed":[],"still_missing":["sl"],"result":{"status":"ok"},"action":"remove","undoes":1}"#
+        );
+    }
+
+    #[test]
+    fn ida_e_volta_de_remocao() {
+        let e = remocao(7);
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+    }
+
+    // --- v1 continua legível, como instalação ---
+
+    const LINHA_V1: &str = r#"{"version":1,"at_unix":1700000000,"command":["sudo","pacman","-S","--needed","--","sl"],"requested":["sl"],"installed":["sl"],"still_missing":[],"result":{"status":"ok"}}"#;
+
+    #[test]
+    fn le_linha_v1_como_instalacao() {
+        let e = parse_line(LINHA_V1).unwrap();
+        assert_eq!(e.version, 1);
+        assert_eq!(e.action, Action::Install);
+        assert_eq!(e.undoes, None);
+        assert_eq!(e.installed, v(&["sl"]));
+        assert_eq!(e.at_unix, 1_700_000_000);
+    }
+
+    #[test]
+    fn v1_nao_pode_trazer_campos_da_v2() {
+        for extra in [
+            r#""action":"install""#,
+            r#""undoes":1"#,
+            r#""action":"remove""#,
+        ] {
+            let linha = LINHA_V1.replacen('{', &format!("{{{extra},"), 1);
+            assert!(
+                parse_line(&linha).is_err(),
+                "{extra} em v1 deveria ser recusado"
+            );
+        }
+    }
+
+    // --- v2: action e undoes obrigatórios na combinação certa ---
+
+    #[test]
+    fn v2_exige_action() {
+        let linha = to_line(&remocao(1)).replace(r#""action":"remove","#, "");
+        assert!(parse_line(&linha).is_err());
+        let linha = linha_valida().replace(r#","action":"install""#, "");
+        assert!(parse_line(&linha).is_err());
+    }
+
+    #[test]
+    fn recusa_action_desconhecida() {
+        for ruim in ["upgrade", "", "Install", "REMOVE"] {
+            let linha =
+                linha_valida().replace(r#""action":"install""#, &format!(r#""action":"{ruim}""#));
+            assert!(
+                parse_line(&linha).is_err(),
+                "action {ruim:?} deveria ser recusada"
+            );
+        }
+    }
+
+    #[test]
+    fn v2_instalacao_nao_pode_ter_undoes() {
+        let linha = linha_valida().replacen(
+            r#""action":"install""#,
+            r#""action":"install","undoes":1"#,
+            1,
+        );
+        assert!(parse_line(&linha).is_err());
+    }
+
+    #[test]
+    fn v2_remocao_exige_undoes_positivo() {
+        let sem = to_line(&remocao(1)).replace(r#","undoes":1"#, "");
+        assert!(parse_line(&sem).is_err(), "remove sem undoes");
+        let zero = to_line(&remocao(1)).replace(r#""undoes":1"#, r#""undoes":0"#);
+        assert!(
+            parse_line(&zero).is_err(),
+            "undoes = 0 (a numeração começa em 1)"
+        );
+        let nulo = to_line(&remocao(1)).replace(r#""undoes":1"#, r#""undoes":null"#);
+        assert!(parse_line(&nulo).is_err(), "undoes nulo");
+    }
+
+    #[test]
+    fn v2_remocao_aceita_undoes_no_limite_inferior_e_no_maximo() {
+        for n in [1, 2, u32::MAX] {
+            let e = parse_line(&to_line(&remocao(n))).unwrap();
+            assert_eq!(e.undoes, Some(n));
+        }
+    }
+
+    #[test]
+    fn nome_invalido_tambem_e_recusado_numa_remocao() {
+        let mut e = remocao(1);
+        e.requested = v(&["-Rdd"]);
+        assert!(parse_line(&to_line(&e)).is_err());
     }
 
     #[test]
@@ -239,7 +415,9 @@ mod tests {
             ExecResult::Failed { code: Some(1) },
             5,
         );
-        assert!(to_line(&e).ends_with(r#""result":{"status":"failed","code":1}}"#));
+        assert!(
+            to_line(&e).ends_with(r#""result":{"status":"failed","code":1},"action":"install"}"#)
+        );
     }
 
     #[test]
@@ -306,11 +484,14 @@ mod tests {
 
     #[test]
     fn recusa_versao_diferente() {
-        let linha = linha_valida().replacen(r#""version":1"#, r#""version":2"#, 1);
-        assert_eq!(
-            parse_line(&linha).unwrap_err(),
-            HistoryError::UnsupportedVersion(2)
-        );
+        for ruim in [0, 3, 99] {
+            let linha =
+                linha_valida().replacen(r#""version":2"#, &format!(r#""version":{ruim}"#), 1);
+            assert_eq!(
+                parse_line(&linha).unwrap_err(),
+                HistoryError::UnsupportedVersion(ruim)
+            );
+        }
     }
 
     #[test]

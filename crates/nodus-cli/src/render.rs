@@ -1,6 +1,6 @@
 //! Formatação do inventário para o terminal.
 
-use nodus_core::history::{ExecResult, HistoryEntry, format_utc};
+use nodus_core::history::{Action, ExecResult, HistoryEntry, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::Plan;
 use nodus_core::repos::{FetchResult, RepoStatus};
@@ -166,25 +166,41 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
         "execuções"
     };
     let mut out = format!("Histórico ({} {plural}):\n", entries.len());
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
         let result = match &entry.result {
             ExecResult::Ok => "ok".to_string(),
             ExecResult::Failed { code: Some(code) } => format!("falhou (código {code})"),
             ExecResult::Failed { code: None } => "falhou".to_string(),
         };
-        let _ = writeln!(
-            out,
-            "{}  {result}  pedidos {}, instalados {}, faltando {}",
-            format_utc(entry.at_unix),
-            entry.requested.len(),
-            entry.installed.len(),
-            entry.still_missing.len()
-        );
-        if !entry.installed.is_empty() {
-            let _ = writeln!(out, "  instalados: {}", entry.installed.join(", "));
-        }
-        if !entry.still_missing.is_empty() {
-            let _ = writeln!(out, "  faltando: {}", entry.still_missing.join(", "));
+        let when = format_utc(entry.at_unix);
+        let n = index + 1;
+        let requested = entry.requested.len();
+        let (installed, missing) = (entry.installed.len(), entry.still_missing.len());
+        match (entry.action, entry.undoes) {
+            (Action::Remove, Some(undoes)) => {
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  desfez [{undoes}]  pedidos {requested}, removidos {missing}, ainda instalados {installed}"
+                );
+                if !entry.still_missing.is_empty() {
+                    let _ = writeln!(out, "  removidos: {}", entry.still_missing.join(", "));
+                }
+                if !entry.installed.is_empty() {
+                    let _ = writeln!(out, "  ainda instalados: {}", entry.installed.join(", "));
+                }
+            }
+            _ => {
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  pedidos {requested}, instalados {installed}, faltando {missing}"
+                );
+                if !entry.installed.is_empty() {
+                    let _ = writeln!(out, "  instalados: {}", entry.installed.join(", "));
+                }
+                if !entry.still_missing.is_empty() {
+                    let _ = writeln!(out, "  faltando: {}", entry.still_missing.join(", "));
+                }
+            }
         }
     }
     out
@@ -487,7 +503,23 @@ mod tests {
 
     // --- render_history ---
 
-    use nodus_core::history::{ExecResult, HistoryEntry};
+    use nodus_core::history::{Action, ExecResult, HistoryEntry};
+
+    /// Uma reversão: `installed` = ainda instalados depois; `missing` = removidos.
+    fn remocao(
+        at: u64,
+        undoes: u32,
+        requested: &[&str],
+        installed: &[&str],
+        missing: &[&str],
+        result: ExecResult,
+    ) -> HistoryEntry {
+        let mut e = execucao(at, requested, installed, missing, result);
+        e.action = Action::Remove;
+        e.undoes = Some(undoes);
+        e.command = vec!["sudo".into(), "pacman".into(), "-Rs".into(), "--".into()];
+        e
+    }
 
     fn execucao(
         at: u64,
@@ -498,7 +530,9 @@ mod tests {
     ) -> HistoryEntry {
         let v = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         HistoryEntry {
-            version: 1,
+            version: 2,
+            action: Action::Install,
+            undoes: None,
             at_unix: at,
             command: v(&["sudo", "pacman", "-S", "--needed", "--"]),
             requested: v(requested),
@@ -525,8 +559,51 @@ mod tests {
         assert_eq!(
             render_history(&[e]),
             "Histórico (1 execução):\n\
-             2026-11-14T03:20:44Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n"
+             [1] 2026-11-14T03:20:44Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n"
         );
+    }
+
+    #[test]
+    fn historico_numera_a_partir_de_1_em_ordem_de_gravacao() {
+        let entradas: Vec<_> = (0..11)
+            .map(|i| execucao(i, &["sl"], &["sl"], &[], ExecResult::Ok))
+            .collect();
+        let texto = render_history(&entradas);
+        assert!(texto.contains("\n[1] 1970-01-01T00:00:00Z  ok"), "{texto}");
+        assert!(texto.contains("\n[2] 1970-01-01T00:00:01Z  ok"), "{texto}");
+        assert!(texto.contains("\n[11] 1970-01-01T00:00:10Z  ok"), "{texto}");
+        assert!(!texto.contains("[0]"), "{texto}");
+    }
+
+    #[test]
+    fn historico_mostra_a_remocao_e_qual_entrada_ela_desfez() {
+        let instalou = execucao(0, &["sl", "cowsay"], &["sl", "cowsay"], &[], ExecResult::Ok);
+        let desfez = remocao(
+            1_794_626_444,
+            1,
+            &["sl", "cowsay"],
+            &["cowsay"],
+            &["sl"],
+            ExecResult::Failed { code: Some(1) },
+        );
+        assert_eq!(
+            render_history(&[instalou, desfez]),
+            "Histórico (2 execuções):\n\
+             [1] 1970-01-01T00:00:00Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n\
+             [2] 2026-11-14T03:20:44Z  falhou (código 1)  desfez [1]  pedidos 2, removidos 1, ainda instalados 1\n  removidos: sl\n  ainda instalados: cowsay\n"
+        );
+    }
+
+    #[test]
+    fn historico_de_remocao_total_nao_lista_ainda_instalados() {
+        let e = remocao(0, 3, &["sl"], &[], &["sl"], ExecResult::Ok);
+        let texto = render_history(&[e]);
+        assert!(
+            texto.contains("[1] 1970-01-01T00:00:00Z  ok  desfez [3]  pedidos 1, removidos 1, ainda instalados 0\n"),
+            "{texto}"
+        );
+        assert!(texto.ends_with("  removidos: sl\n"), "{texto}");
+        assert!(!texto.contains("ainda instalados:"), "{texto}");
     }
 
     #[test]
@@ -542,8 +619,8 @@ mod tests {
         assert_eq!(
             render_history(&[ok, falha]),
             "Histórico (2 execuções):\n\
-             1970-01-01T00:00:00Z  ok  pedidos 1, instalados 1, faltando 0\n  instalados: sl\n\
-             2026-11-14T03:20:44Z  falhou (código 1)  pedidos 2, instalados 1, faltando 1\n  instalados: sl\n  faltando: cowsay\n"
+             [1] 1970-01-01T00:00:00Z  ok  pedidos 1, instalados 1, faltando 0\n  instalados: sl\n\
+             [2] 2026-11-14T03:20:44Z  falhou (código 1)  pedidos 2, instalados 1, faltando 1\n  instalados: sl\n  faltando: cowsay\n"
         );
     }
 
@@ -552,7 +629,8 @@ mod tests {
         let e = execucao(0, &["sl"], &[], &["sl"], ExecResult::Failed { code: None });
         let texto = render_history(&[e]);
         assert!(
-            texto.contains("  falhou  pedidos 1, instalados 0, faltando 1\n"),
+            texto.contains("  falhou  pedidos 1, instalados 0, faltando 1\n")
+                && texto.starts_with("Histórico (1 execução):\n[1] "),
             "{texto}"
         );
         assert!(texto.ends_with("  faltando: sl\n"));

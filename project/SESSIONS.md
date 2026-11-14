@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18 (fatia 4, PR 1 de 2: histórico v2 e número de linha)
+
+- **Pedido**: começar o `history undo` (ADR 0011). Escolhas do dono no plano: 2 PRs (formato primeiro, comando privilegiado depois); stderr da simulação por função nova em `process.rs` (vale para o PR 2). Aceitou gravar instalações também em v2.
+- **Antes**: sessão começou com a `main` local defasada (sem `git fetch`); PR #23 (docs redundantes) aberto por engano e fechado sem mesclar.
+- **Feito**: `Action` (`install`/`remove`) e `undoes` em `HistoryEntry`; `ENTRY_VERSION = 2`; `parse_line` lê v1 (como instalação) e v2, recusando combinação inválida; `nodus history` numera as linhas (`[n]`) e mostra `desfez [n]` nas remoções. Sem dependência nova.
+- **CI (resultado real, PR #24)**: commit 1 (só testes) falhou por erro de compilação (`Action`, `action`, `undoes` inexistentes); commit 2 passou de primeira. Mutação `undoes >= 1` → `>= 0` barrada pelo clippy (não vale como prova); `>= 2` **sobreviveu** (lacuna: nenhum teste lia `undoes = 1`); com o teste do limite adicionado, a mutação falhou 1 teste (139 passaram) e foi revertida em commit próprio.
+- **Não verificado**: `nodus history` no Arch real com um histórico v1 existente; o PR 2 (`history undo`) não existe; a medição de `pacman -Rs` com dependência (etapa 0 do PR 2) não foi feita.
+- **Fica**: PR 2 (`history undo <n>`, privilegiado, com etapa 0 de medição); `git fetch` no início da sessão; Flatpak no `preset apply`; decisão sobre listar branches extras no `repos`; P-13, P-14, P-12, P-02, P-03; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 17 (P-15: semântica da reversão, só decisão)
 
 - **Pedido**: resolver a P-15. Escolhas do dono no plano: só a decisão em ADR agora, com o código (`history undo`) no PR seguinte; validação por confirmar + simular + só o que o nodus instalou (sem cruzar com o `pacman.log`).
