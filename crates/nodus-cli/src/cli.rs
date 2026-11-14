@@ -53,6 +53,12 @@ pub enum PresetAction {
         #[arg(long)]
         json: bool,
     },
+    /// Instala os pacotes pacman que faltam (`sudo pacman -S --needed`), depois de mostrar o comando
+    /// e pedir confirmação. Apps Flatpak ainda não são instalados.
+    Apply {
+        /// Arquivo TOML do preset.
+        file: PathBuf,
+    },
 }
 
 #[cfg(test)]
@@ -160,6 +166,32 @@ mod tests {
             }
             outro => panic!("comando errado: {outro:?}"),
         }
+    }
+
+    #[test]
+    fn preset_apply_com_arquivo() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "apply", "p.toml"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Apply { file },
+            } => assert_eq!(file, std::path::PathBuf::from("p.toml")),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn preset_apply_nao_tem_modo_sim_para_tudo() {
+        for flag in ["--yes", "-y", "--noconfirm"] {
+            let erro =
+                Cli::try_parse_from(["nodus", "preset", "apply", "p.toml", flag]).unwrap_err();
+            assert_eq!(erro.kind(), ErrorKind::UnknownArgument, "{flag}");
+        }
+    }
+
+    #[test]
+    fn preset_apply_exige_o_arquivo() {
+        let erro = Cli::try_parse_from(["nodus", "preset", "apply"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
     }
 
     #[test]

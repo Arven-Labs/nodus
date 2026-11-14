@@ -6,20 +6,40 @@ use std::process::Command;
 
 pub struct RealRunner;
 
+fn spawn_error(program: &str, e: std::io::Error) -> RunnerError {
+    match e.kind() {
+        ErrorKind::NotFound => RunnerError::NotFound {
+            program: program.to_string(),
+        },
+        _ => RunnerError::Spawn {
+            program: program.to_string(),
+            reason: e.to_string(),
+        },
+    }
+}
+
+/// Executa com o terminal herdado (stdin, stdout e stderr do nodus): `sudo` e `pacman` falam direto
+/// com o usuário (senha, `[Y/n]`). O nodus não vê nem guarda o que passa por ali; só o status.
+pub fn run_interactive(program: &str, args: &[&str]) -> Result<(), RunnerError> {
+    let status = Command::new(program)
+        .args(args)
+        .status()
+        .map_err(|e| spawn_error(program, e))?;
+    if !status.success() {
+        return Err(RunnerError::Failed {
+            program: program.to_string(),
+            code: status.code(),
+        });
+    }
+    Ok(())
+}
+
 impl CommandRunner for RealRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<String, RunnerError> {
         let output = Command::new(program)
             .args(args)
             .output()
-            .map_err(|e| match e.kind() {
-                ErrorKind::NotFound => RunnerError::NotFound {
-                    program: program.to_string(),
-                },
-                _ => RunnerError::Spawn {
-                    program: program.to_string(),
-                    reason: e.to_string(),
-                },
-            })?;
+            .map_err(|e| spawn_error(program, e))?;
         if !output.status.success() {
             return Err(RunnerError::Failed {
                 program: program.to_string(),
@@ -81,5 +101,33 @@ mod tests {
         let erro = RealRunner.run(arquivo.to_str().unwrap(), &[]).unwrap_err();
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(matches!(erro, RunnerError::Spawn { .. }));
+    }
+
+    // --- run_interactive (stdio herdado: só o status importa) ---
+
+    #[test]
+    fn interativo_com_sucesso_e_ok() {
+        assert_eq!(run_interactive("true", &[]), Ok(()));
+    }
+
+    #[test]
+    fn interativo_com_codigo_diferente_de_zero_e_falha_com_o_codigo() {
+        assert_eq!(
+            run_interactive("sh", &["-c", "exit 3"]),
+            Err(RunnerError::Failed {
+                program: "sh".into(),
+                code: Some(3)
+            })
+        );
+    }
+
+    #[test]
+    fn interativo_programa_inexistente_e_nao_encontrado() {
+        assert_eq!(
+            run_interactive("nodus-programa-que-nao-existe", &[]),
+            Err(RunnerError::NotFound {
+                program: "nodus-programa-que-nao-existe".into()
+            })
+        );
     }
 }

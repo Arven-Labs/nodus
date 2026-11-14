@@ -53,6 +53,7 @@ Regras gerais:
 - **Plano antes de executar** (SPEC §16.9): nada muda sem mostrar o que vai mudar.
 - Remover app ou dado, desativar serviço, alterar firewall, rede ou drivers e rodar comandos administrativos são sempre privilegiados (SPEC §10.3).
 - Sem modo "sim para tudo" na classe privilegiada.
+- **Implementado (preset fatia 2, `nodus preset apply`):** um único comando, `sudo pacman -S --needed -- <faltantes>`, mostrado por inteiro antes de `Executar? [s/N]` (só `s`/`sim` confirmam; sem terminal interativo, recusa). Nunca `--noconfirm` (o `[Y/n]` do pacman mostra as dependências) nem `-y` (atualização parcial). Nomes validados na leitura do preset e `--` antes deles (T7). `sudo` e `pacman` herdam o terminal: o nodus não vê a senha, só o status. Depois da execução o plano é recalculado para conferir. Flatpak ainda não é instalado.
 - Overclock, undervolt e scripts de otimização genéricos não existem no MVP (SPEC §15).
 
 ## 5. Segredos

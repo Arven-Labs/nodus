@@ -191,6 +191,20 @@ fn split_missing(wanted: &[String], have: &HashSet<&str>) -> (Vec<String>, usize
     (missing, present)
 }
 
+/// Comando exato para instalar o que falta do pacman, ou `None` se não falta nada. `--needed` pula o
+/// que já está instalado; `--` impede que um nome vire opção (além da validação). Nunca `--noconfirm`
+/// (o `[Y/n]` do pacman mostra as dependências) nem `-y` (`-Sy` sem `-u` é atualização parcial).
+pub fn pacman_install_command(plan: &Plan) -> Option<Vec<String>> {
+    if plan.pacman_missing.is_empty() {
+        return None;
+    }
+    let mut command: Vec<String> = ["sudo", "pacman", "-S", "--needed", "--"]
+        .map(String::from)
+        .to_vec();
+    command.extend(plan.pacman_missing.iter().cloned());
+    Some(command)
+}
+
 /// Plano contra a máquina. Usa `pacman -Q` (todos), não `-Qe`: pacote que veio como dependência
 /// também está presente, e contá-lo como faltante quebraria a idempotência.
 pub fn collect_plan(runner: &dyn CommandRunner, preset: &Preset) -> Result<Plan, MachineError> {
@@ -389,6 +403,34 @@ mod tests {
     fn to_toml_com_listas_vazias_volta_igual() {
         let p = preset(&[], &[]);
         assert_eq!(parse_preset(&to_toml(&p)).unwrap(), p);
+    }
+
+    // --- pacman_install_command ---
+
+    #[test]
+    fn comando_de_instalacao_e_exato() {
+        let p = preset(&["zsh", "git", "neovim"], &[]);
+        let plano = plan(&p, &[pacote("git")], Some(&[]));
+        assert_eq!(
+            pacman_install_command(&plano).unwrap(),
+            ["sudo", "pacman", "-S", "--needed", "--", "zsh", "neovim"]
+        );
+    }
+
+    #[test]
+    fn comando_nunca_pula_a_confirmacao_do_pacman_nem_sincroniza() {
+        let plano = plan(&preset(&["zsh"], &[]), &[], Some(&[]));
+        let comando = pacman_install_command(&plano).unwrap();
+        for proibido in ["--noconfirm", "-Sy", "-Syu", "-y", "--overwrite"] {
+            assert!(!comando.iter().any(|a| a == proibido), "{proibido}");
+        }
+    }
+
+    #[test]
+    fn sem_pacote_faltando_nao_ha_comando() {
+        let p = preset(&["git"], &["org.a.B"]);
+        let plano = plan(&p, &[pacote("git")], None);
+        assert_eq!(pacman_install_command(&plano), None);
     }
 
     // --- plan ---
