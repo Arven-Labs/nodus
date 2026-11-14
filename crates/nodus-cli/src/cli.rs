@@ -23,12 +23,14 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Mostra o que o nodus executou (hoje: cada `preset apply`), do mais antigo ao mais novo
-    /// (somente leitura).
+    /// Mostra o que o nodus executou (cada `preset apply` e cada reversão), do mais antigo ao mais
+    /// novo, com o número de cada entrada (somente leitura). `undo <n>` desfaz uma instalação.
     History {
-        /// Emite JSON em vez de texto.
+        /// Emite JSON em vez de texto (só vale para a listagem; o `undo` ignora).
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
     },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
     Repos {
@@ -45,6 +47,17 @@ pub enum Command {
     Preset {
         #[command(subcommand)]
         action: PresetAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HistoryAction {
+    /// Remove (`sudo pacman -Rs`) os pacotes que a entrada `n` instalou e ainda estão instalados
+    /// de propósito, depois de simular, mostrar o plano e pedir confirmação.
+    Undo {
+        /// Número da entrada, como mostrado por `nodus history` (a partir de 1).
+        #[arg(value_parser = clap::value_parser!(u32).range(1..))]
+        n: u32,
     },
 }
 
@@ -178,13 +191,62 @@ mod tests {
     #[test]
     fn history_sem_flag_e_texto() {
         let cli = Cli::try_parse_from(["nodus", "history"]).unwrap();
-        assert!(matches!(cli.command, Command::History { json: false }));
+        assert!(matches!(
+            cli.command,
+            Command::History {
+                json: false,
+                action: None
+            }
+        ));
     }
 
     #[test]
     fn history_com_json() {
         let cli = Cli::try_parse_from(["nodus", "history", "--json"]).unwrap();
-        assert!(matches!(cli.command, Command::History { json: true }));
+        assert!(matches!(
+            cli.command,
+            Command::History {
+                json: true,
+                action: None
+            }
+        ));
+    }
+
+    #[test]
+    fn history_undo_com_numero() {
+        let cli = Cli::try_parse_from(["nodus", "history", "undo", "3"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::History {
+                json: false,
+                action: Some(HistoryAction::Undo { n: 3 })
+            }
+        ));
+    }
+
+    #[test]
+    fn history_undo_exige_numero_a_partir_de_1() {
+        let sem = Cli::try_parse_from(["nodus", "history", "undo"]).unwrap_err();
+        assert_eq!(sem.kind(), ErrorKind::MissingRequiredArgument);
+        for ruim in ["0", "-1", "abc", "1.5", ""] {
+            let erro = Cli::try_parse_from(["nodus", "history", "undo", ruim]).unwrap_err();
+            assert!(
+                matches!(
+                    erro.kind(),
+                    ErrorKind::ValueValidation | ErrorKind::UnknownArgument
+                ),
+                "{ruim:?}: {:?}",
+                erro.kind()
+            );
+        }
+    }
+
+    #[test]
+    fn history_undo_nao_tem_modo_sim_para_tudo() {
+        for flag in ["--yes", "-y", "--noconfirm"] {
+            let erro = Cli::try_parse_from(["nodus", "history", "undo", "1", flag]).unwrap_err();
+            assert_eq!(erro.kind(), ErrorKind::UnknownArgument, "{flag}");
+        }
     }
 
     #[test]

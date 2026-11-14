@@ -5,6 +5,7 @@ pub mod inventory;
 pub mod preset;
 pub mod repos;
 pub mod runner;
+pub mod undo;
 pub mod updates;
 
 /// Versão do workspace, lida do `Cargo.toml` em tempo de compilação.
