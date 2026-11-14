@@ -12,6 +12,7 @@ mod process;
 mod render;
 #[cfg(test)]
 mod testutil;
+mod undo;
 
 fn main() -> Result<()> {
     match Cli::parse().command {

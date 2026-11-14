@@ -121,6 +121,45 @@ mod tests {
         );
     }
 
+    // --- run_capture: stdout capturado mesmo na falha; stderr herdado (não entra na captura) ---
+
+    #[test]
+    fn captura_so_a_saida_padrao() {
+        let c = run_capture("sh", &["-c", "echo out; echo err >&2"]).unwrap();
+        assert_eq!(
+            c,
+            Capture {
+                success: true,
+                code: Some(0),
+                stdout: "out\n".into()
+            }
+        );
+    }
+
+    #[test]
+    fn falha_nao_e_erro_e_devolve_codigo_e_saida() {
+        // O pacman escreve a lista de dependências quebradas no stdout mesmo ao falhar.
+        let c = run_capture("sh", &["-c", "echo detalhe; exit 3"]).unwrap();
+        assert_eq!(
+            c,
+            Capture {
+                success: false,
+                code: Some(3),
+                stdout: "detalhe\n".into()
+            }
+        );
+    }
+
+    #[test]
+    fn captura_programa_inexistente_e_nao_encontrado() {
+        assert_eq!(
+            run_capture("nodus-programa-que-nao-existe", &[]),
+            Err(RunnerError::NotFound {
+                program: "nodus-programa-que-nao-existe".into()
+            })
+        );
+    }
+
     #[test]
     fn interativo_programa_inexistente_e_nao_encontrado() {
         assert_eq!(

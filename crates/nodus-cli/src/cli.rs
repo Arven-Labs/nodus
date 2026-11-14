@@ -178,13 +178,62 @@ mod tests {
     #[test]
     fn history_sem_flag_e_texto() {
         let cli = Cli::try_parse_from(["nodus", "history"]).unwrap();
-        assert!(matches!(cli.command, Command::History { json: false }));
+        assert!(matches!(
+            cli.command,
+            Command::History {
+                json: false,
+                action: None
+            }
+        ));
     }
 
     #[test]
     fn history_com_json() {
         let cli = Cli::try_parse_from(["nodus", "history", "--json"]).unwrap();
-        assert!(matches!(cli.command, Command::History { json: true }));
+        assert!(matches!(
+            cli.command,
+            Command::History {
+                json: true,
+                action: None
+            }
+        ));
+    }
+
+    #[test]
+    fn history_undo_com_numero() {
+        let cli = Cli::try_parse_from(["nodus", "history", "undo", "3"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::History {
+                json: false,
+                action: Some(HistoryAction::Undo { n: 3 })
+            }
+        ));
+    }
+
+    #[test]
+    fn history_undo_exige_numero_a_partir_de_1() {
+        let sem = Cli::try_parse_from(["nodus", "history", "undo"]).unwrap_err();
+        assert_eq!(sem.kind(), ErrorKind::MissingRequiredArgument);
+        for ruim in ["0", "-1", "abc", "1.5", ""] {
+            let erro = Cli::try_parse_from(["nodus", "history", "undo", ruim]).unwrap_err();
+            assert!(
+                matches!(
+                    erro.kind(),
+                    ErrorKind::ValueValidation | ErrorKind::UnknownArgument
+                ),
+                "{ruim:?}: {:?}",
+                erro.kind()
+            );
+        }
+    }
+
+    #[test]
+    fn history_undo_nao_tem_modo_sim_para_tudo() {
+        for flag in ["--yes", "-y", "--noconfirm"] {
+            let erro = Cli::try_parse_from(["nodus", "history", "undo", "1", flag]).unwrap_err();
+            assert_eq!(erro.kind(), ErrorKind::UnknownArgument, "{flag}");
+        }
     }
 
     #[test]
