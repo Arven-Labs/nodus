@@ -141,13 +141,12 @@ pub fn render_repos(repos: &[RepoStatus]) -> String {
             }
         }
         match &repo.fetch {
-            Some(FetchResult::Done) => {
+            Some(FetchResult::Done) | None => {
                 let _ = write!(out, " [fetch ok]");
             }
             Some(FetchResult::Failed(motivo)) => {
                 let _ = write!(out, " [fetch falhou: {motivo}]");
             }
-            None => {}
         }
         let _ = writeln!(out);
     }
