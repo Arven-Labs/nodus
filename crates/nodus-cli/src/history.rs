@@ -100,13 +100,15 @@ pub fn read(path: &Path) -> Result<Vec<HistoryEntry>> {
 mod tests {
     use super::*;
     use crate::testutil::TmpDir;
-    use nodus_core::history::{ExecResult, HistoryEntry};
+    use nodus_core::history::{Action, ExecResult, HistoryEntry};
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     fn entrada(pacote: &str, at: u64) -> HistoryEntry {
         HistoryEntry {
-            version: 1,
+            version: 2,
+            action: Action::Install,
+            undoes: None,
             at_unix: at,
             command: ["sudo", "pacman", "-S", "--needed", "--", pacote]
                 .map(String::from)
