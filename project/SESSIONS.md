@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, status do README
+
+- **Pedido**: atualizar o `README.md`, que ainda dizia "pré-projeto" (lacuna anotada nas entradas da P-13 e P-17).
+- **Feito**: só o parágrafo de status. Lista os 5 comandos que existem (`inventory`, `updates`, `repos`, `preset init|plan|apply`, `history` e `history undo`), diz que não há tag nem canal de instalação, e aponta o ADR 0010. Conferi a lista contra o `enum Command` em `nodus-cli/src/main.rs` e o `OVERVIEW.md`.
+- **Não verificado**: não rodei os comandos (build e teste só no CI); as descrições vêm do `OVERVIEW.md`, não de execução; que o `preset plan` leia apps Flatpak (conferido só no `OVERVIEW.md`, não no código).
+- **Fica**: P-17 (bloqueada), P-14, P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, P-17 (decisão: esperar o provider Git)
 
 - **Pedido**: a decisão que ficou em aberto na P-17, storage permanente ou deletável para a segunda cópia da chave. Opções apresentadas: esperar o provider Git, Arweave agora, ou pendrive offline sem truthid. O dono escolheu a 1 (esperar o provider Git).

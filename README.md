@@ -2,7 +2,15 @@
 
 Plataforma open source e extensível para conhecer, configurar, padronizar, monitorar e administrar computadores, servidores, VPS, ambientes de desenvolvimento e aplicações em um único lugar. Local-first, self-hostable e independente de fabricante.
 
-**Status:** pré-projeto. Só a [spec inicial](project/SPEC.md) existe (ela ainda usa o nome provisório "Universal"); stack e fases serão decididas depois. Estado em [`project/OVERVIEW.md`](project/OVERVIEW.md).
+**Status:** em desenvolvimento, antes do primeiro release (nenhuma tag ainda). Há uma CLI em Rust (`nodus`) para Arch Linux, sem GUI, com estes comandos:
+
+- `nodus inventory`: sistema, hardware e pacotes (pacman e Flatpak), com `--json`.
+- `nodus updates`: atualizações pendentes (pacman e Flatpak).
+- `nodus repos <pasta>`: estado dos repositórios Git da pasta, lendo só refs.
+- `nodus preset init | plan | apply`: descrever os pacotes desejados em TOML, ver o que falta e instalar o que falta do pacman, com confirmação. Apps Flatpak entram no `plan`, mas o `apply` ainda não os instala.
+- `nodus history` e `nodus history undo <n>`: listar as execuções do `apply` (o que foi pedido, não as dependências que vieram junto) e desfazer uma instalação, com simulação e confirmação.
+
+Ainda não há canal de instalação: a distribuição será só por código-fonte, com tag assinada (ver abaixo e o [ADR 0010](project/adr/0010-distribuicao-e-integridade.md)). A [spec inicial](project/SPEC.md) ainda usa o nome provisório "Universal". Escopo e fases em [`project/OVERVIEW.md`](project/OVERVIEW.md) e [`project/MVP.md`](project/MVP.md).
 
 ## Documentação
 
