@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 14 (P-07: política de reporte de vulnerabilidade)
+
+- **Pedido**: resolver a P-07. Escolhas do dono no plano: private vulnerability reporting (PVR) do GitHub como canal (e-mail descartado); `SECURITY.md` em inglês curto; melhor esforço, sem SLA.
+- **Antes**: PR #18 (preset, fatia 2) mesclado em `efd3090`.
+- **Feito**: PVR ligado com `gh api -X PUT repos/Arven-Labs/nodus/private-vulnerability-reporting` (antes `enabled: false`; o GET depois deu `enabled: true`). `.github/SECURITY.md` novo; `project/SECURITY.md` §8 aponta para ele; P-07 resolvida no `PENDING.md`; `OVERVIEW.md` atualizado (PR #18 mesclado). Sem código.
+- **CI**: PR #19, no commit de código: `guard`, `Rust (clippy and tests)` e `cargo-deny` verdes (só docs; nenhum teste novo, então não há mutação a fazer).
+- **Não verificado**: a aba Security mostrar a política e o botão "Report a vulnerability" (UI; só o dono vê); as notificações de advisory do dono estarem ativas; se o GitHub reconhece o arquivo só depois do merge na `main`.
+- **Fica**: P-08, P-12, P-02, P-03; instalar Flatpak (formato v2); histórico e reversão (fatia 3); dotfiles; critérios 5 e 6; fechamento formal da Fase 0.
+
 ### 2026-11-13 — Sessão 13 (Fase 1: preset, fatia 2, `preset apply` do pacman)
 
 - **Pedido**: executar o plano do preset (critérios 4 e 9), a primeira operação privilegiada do nodus. Escolhas do dono no plano: só pacman (Flatpak fica para o formato v2, com remote e escopo); confirmação do nodus **e** a do pacman; histórico e reversão (critério 10) numa fatia própria.

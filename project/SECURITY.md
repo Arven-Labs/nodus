@@ -82,5 +82,5 @@ Lacuna conhecida da Fase 0: assinatura dos binários, verificação de integrida
 - **Plugins (SPEC §11):** isolamento, assinatura, permissões declaradas.
 - **Integração com IA (SPEC §7):** escopos, aprovação humana, prompt injection em logs e nomes.
 - **Atualização do agente:** canal e assinatura.
-- **Política pública de reporte de vulnerabilidade** (repo público): ainda não existe.
+- **Reporte de vulnerabilidade:** política em `.github/SECURITY.md` (private vulnerability reporting do GitHub, melhor esforço, sem SLA; P-07).
 - **Revisão externa:** nenhuma. O modelo foi escrito por IA e revisado só pelo dono.
