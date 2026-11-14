@@ -202,8 +202,8 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
                 }
             }
         }
+        out.push_str(HISTORY_NOTE);
     }
-    out.push_str(HISTORY_NOTE);
     out
 }
 
