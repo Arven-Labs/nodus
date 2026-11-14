@@ -1,5 +1,25 @@
 //! Leitura do arquivo de preset, com limite de tamanho (o preset pode vir de terceiro).
 
+use anyhow::{Context, Result, bail};
+use std::io::Read;
+use std::path::Path;
+
+/// Um preset de pacotes tem poucos KiB; 1 MiB barra arquivo gigante (ou `/dev/zero`) antes do parse.
+pub const MAX_PRESET_BYTES: u64 = 1024 * 1024;
+
+pub fn read_preset(path: &Path) -> Result<String> {
+    let file = std::fs::File::open(path).with_context(|| format!("abrindo {}", path.display()))?;
+    // Lê no máximo um byte além do limite: não confia no tamanho informado pelo sistema de arquivos.
+    let mut bytes = Vec::new();
+    file.take(MAX_PRESET_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("lendo {}", path.display()))?;
+    if bytes.len() as u64 > MAX_PRESET_BYTES {
+        bail!("{} é maior que 1 MiB", path.display());
+    }
+    String::from_utf8(bytes).with_context(|| format!("{} não é UTF-8", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

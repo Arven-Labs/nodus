@@ -1,5 +1,209 @@
 //! Preset declarativo de pacotes (fatia 1: só leitura). O preset é entrada não confiável (T1, T7).
 
+use crate::inventory::{FlatpakApp, InventoryError, Package, parse_pacman_q, read_flatpak_apps};
+use crate::runner::CommandRunner;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use thiserror::Error;
+
+/// Único formato aceito hoje. Outro número é recusado, nunca "adivinhado".
+const FORMAT_VERSION: i64 = 1;
+
+/// Estado desejado. Só existe passando por `parse_preset` ou por `preset_from_machine`, que validam
+/// todos os nomes: na fatia 2 eles viram argumentos do `pacman`, e um `-Rns` seria lido como opção.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preset {
+    pub pacman: Vec<String>,
+    pub flatpak: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum PresetError {
+    #[error("preset inválido: {0}")]
+    Toml(String),
+    #[error("formato de preset {0} não suportado (este nodus só lê o formato {FORMAT_VERSION})")]
+    UnsupportedVersion(i64),
+    #[error("nome inválido no item {number} de `{list}`: {name:?}")]
+    InvalidName {
+        list: &'static str,
+        number: usize,
+        name: String,
+    },
+    #[error("nome repetido em `{list}`: {name:?}")]
+    Duplicate { list: &'static str, name: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum MachineError {
+    #[error(transparent)]
+    Inventory(#[from] InventoryError),
+    #[error(transparent)]
+    Preset(#[from] PresetError),
+}
+
+/// Preset lido da máquina, mais o que o `init` precisa avisar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachinePreset {
+    pub preset: Preset,
+    pub flatpak_installed: bool,
+}
+
+/// O que faltaria instalar para a máquina ficar como o preset. Nada aqui executa.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Plan {
+    pub pacman_missing: Vec<String>,
+    pub pacman_present: usize,
+    pub flatpak_missing: Vec<String>,
+    pub flatpak_present: usize,
+    pub flatpak_installed: bool,
+}
+
+impl Plan {
+    pub fn is_empty(&self) -> bool {
+        self.pacman_missing.is_empty() && self.flatpak_missing.is_empty()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPreset {
+    version: i64,
+    #[serde(default)]
+    pacman: Vec<String>,
+    #[serde(default)]
+    flatpak: Vec<String>,
+}
+
+pub fn parse_preset(input: &str) -> Result<Preset, PresetError> {
+    let raw: RawPreset = toml::from_str(input).map_err(|e| PresetError::Toml(e.to_string()))?;
+    if raw.version != FORMAT_VERSION {
+        return Err(PresetError::UnsupportedVersion(raw.version));
+    }
+    validate("pacman", &raw.pacman, is_valid_pacman_name)?;
+    validate("flatpak", &raw.flatpak, is_valid_flatpak_id)?;
+    Ok(Preset {
+        pacman: raw.pacman,
+        flatpak: raw.flatpak,
+    })
+}
+
+fn validate(
+    list: &'static str,
+    names: &[String],
+    is_valid: fn(&str) -> bool,
+) -> Result<(), PresetError> {
+    let mut seen = HashSet::new();
+    for (index, name) in names.iter().enumerate() {
+        if !is_valid(name) {
+            return Err(PresetError::InvalidName {
+                list,
+                number: index + 1,
+                name: name.clone(),
+            });
+        }
+        if !seen.insert(name.as_str()) {
+            return Err(PresetError::Duplicate {
+                list,
+                name: name.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Regra de nome do pacman (`PKGBUILD(5)`): `[a-z0-9@._+-]`, sem começar por `-` ou `.`.
+fn is_valid_pacman_name(name: &str) -> bool {
+    let allowed = |c: char| matches!(c, 'a'..='z' | '0'..='9' | '@' | '.' | '_' | '+' | '-');
+    !name.is_empty() && !name.starts_with(['-', '.']) && name.chars().all(allowed)
+}
+
+/// ID de app Flatpak: segmentos `[A-Za-z0-9_-]` separados por `.`, pelo menos 2, nenhum vazio
+/// nem começando por `-`. O Flatpak pode exigir mais (3 segmentos); aqui basta barrar injeção.
+fn is_valid_flatpak_id(id: &str) -> bool {
+    let allowed = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let segment_ok = |s: &str| !s.is_empty() && !s.starts_with('-') && s.chars().all(allowed);
+    id.split('.').count() >= 2 && id.split('.').all(segment_ok)
+}
+
+/// Texto TOML de um preset, um nome por linha (fácil de editar e de ver no diff). Os nomes já foram
+/// validados e não têm aspas nem barra invertida, então podem ir entre aspas sem escapar.
+pub fn to_toml(preset: &Preset) -> String {
+    let mut out = format!(
+        "# Preset do nodus (formato {FORMAT_VERSION}). Gerado por `nodus preset init`; edite à vontade.\nversion = {FORMAT_VERSION}\n"
+    );
+    for (key, names) in [("pacman", &preset.pacman), ("flatpak", &preset.flatpak)] {
+        out.push_str(key);
+        out.push_str(" = [\n");
+        for name in names {
+            out.push_str(&format!("    \"{name}\",\n"));
+        }
+        out.push_str("]\n");
+    }
+    out
+}
+
+/// Preset com o que foi instalado de propósito (`pacman -Qe`) e os apps Flatpak.
+pub fn preset_from_machine(runner: &dyn CommandRunner) -> Result<MachinePreset, MachineError> {
+    let explicit = read_pacman(runner, "-Qe")?;
+    let apps = read_flatpak_apps(runner)?;
+    let pacman: Vec<String> = explicit.into_iter().map(|p| p.name).collect();
+    let flatpak: Vec<String> = apps
+        .iter()
+        .flatten()
+        .map(|a| a.application.clone())
+        .collect();
+    // O que veio da máquina também é entrada externa: passa pela mesma validação do arquivo.
+    validate("pacman", &pacman, is_valid_pacman_name)?;
+    validate("flatpak", &flatpak, is_valid_flatpak_id)?;
+    Ok(MachinePreset {
+        preset: Preset { pacman, flatpak },
+        flatpak_installed: apps.is_some(),
+    })
+}
+
+/// Compara o desejado com o instalado. `flatpak = None`: Flatpak não instalado, então todo app do
+/// preset falta. Pacote instalado fora do preset não entra: o plano nunca propõe remover.
+pub fn plan(preset: &Preset, installed: &[Package], flatpak: Option<&[FlatpakApp]>) -> Plan {
+    let installed: HashSet<&str> = installed.iter().map(|p| p.name.as_str()).collect();
+    let apps: HashSet<&str> = flatpak
+        .unwrap_or_default()
+        .iter()
+        .map(|a| a.application.as_str())
+        .collect();
+    let (pacman_missing, pacman_present) = split_missing(&preset.pacman, &installed);
+    let (flatpak_missing, flatpak_present) = split_missing(&preset.flatpak, &apps);
+    Plan {
+        pacman_missing,
+        pacman_present,
+        flatpak_missing,
+        flatpak_present,
+        flatpak_installed: flatpak.is_some(),
+    }
+}
+
+fn split_missing(wanted: &[String], have: &HashSet<&str>) -> (Vec<String>, usize) {
+    let missing: Vec<String> = wanted
+        .iter()
+        .filter(|name| !have.contains(name.as_str()))
+        .cloned()
+        .collect();
+    let present = wanted.len() - missing.len();
+    (missing, present)
+}
+
+/// Plano contra a máquina. Usa `pacman -Q` (todos), não `-Qe`: pacote que veio como dependência
+/// também está presente, e contá-lo como faltante quebraria a idempotência.
+pub fn collect_plan(runner: &dyn CommandRunner, preset: &Preset) -> Result<Plan, MachineError> {
+    let installed = read_pacman(runner, "-Q")?;
+    let apps = read_flatpak_apps(runner)?;
+    Ok(plan(preset, &installed, apps.as_deref()))
+}
+
+/// `pacman -Q` e `-Qe` saem no mesmo formato `nome versão` (medido em 2026-11-13).
+fn read_pacman(runner: &dyn CommandRunner, query: &str) -> Result<Vec<Package>, InventoryError> {
+    Ok(parse_pacman_q(&runner.run("pacman", &[query])?)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

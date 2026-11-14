@@ -34,6 +34,25 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Preset declarativo de pacotes (somente leitura nesta versão: nada é instalado).
+    Preset {
+        #[command(subcommand)]
+        action: PresetAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PresetAction {
+    /// Imprime um preset com os pacotes instalados de propósito e os apps Flatpak desta máquina.
+    Init,
+    /// Compara um preset com esta máquina e mostra o que faltaria instalar (não executa nada).
+    Plan {
+        /// Arquivo TOML do preset.
+        file: PathBuf,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[cfg(test)]

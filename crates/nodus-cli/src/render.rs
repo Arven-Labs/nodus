@@ -1,6 +1,7 @@
 //! Formatação do inventário para o terminal.
 
 use nodus_core::inventory::Inventory;
+use nodus_core::preset::Plan;
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
@@ -152,6 +153,45 @@ pub fn render_repos(repos: &[RepoStatus]) -> String {
         let _ = writeln!(out);
     }
     out
+}
+
+pub fn render_plan(plan: &Plan) -> String {
+    let mut out = String::from("Plano (nada foi executado):\n");
+    let _ = writeln!(
+        out,
+        "Pacman (instalar {}, já presentes {}):",
+        plan.pacman_missing.len(),
+        plan.pacman_present
+    );
+    for name in &plan.pacman_missing {
+        let _ = writeln!(out, "  {name}");
+    }
+    if plan.flatpak_installed {
+        let _ = writeln!(
+            out,
+            "Flatpak (instalar {}, já presentes {}):",
+            plan.flatpak_missing.len(),
+            plan.flatpak_present
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "Flatpak não instalado (apps do preset: {}):",
+            plan.flatpak_missing.len()
+        );
+    }
+    for id in &plan.flatpak_missing {
+        let _ = writeln!(out, "  {id}");
+    }
+    if plan.is_empty() {
+        out.push_str("Nada a fazer: a máquina já está como o preset.\n");
+    }
+    out
+}
+
+/// Aviso do `preset init` (vai para a saída de erro, para não sujar o TOML redirecionado).
+pub fn init_warning(flatpak_installed: bool) -> Option<&'static str> {
+    (!flatpak_installed).then_some("aviso: Flatpak não instalado; o preset saiu sem apps Flatpak")
 }
 
 /// Bytes em GiB (base 1024) com uma casa decimal.

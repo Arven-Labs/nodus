@@ -162,6 +162,18 @@ pub fn parse_flatpak_list(output: &str) -> Result<Vec<FlatpakApp>, ParseError> {
     Ok(apps)
 }
 
+/// Apps Flatpak instalados. Flatpak é opcional: só "programa não encontrado" vira `None`; outras
+/// falhas continuam erro.
+pub fn read_flatpak_apps(
+    runner: &dyn CommandRunner,
+) -> Result<Option<Vec<FlatpakApp>>, InventoryError> {
+    match runner.run("flatpak", &["list", "--app", FLATPAK_COLUMNS]) {
+        Ok(output) => Ok(Some(parse_flatpak_list(&output)?)),
+        Err(RunnerError::NotFound { .. }) => Ok(None),
+        Err(erro) => Err(erro.into()),
+    }
+}
+
 /// Monta o inventário. O conteúdo de `os-release` e do kernel vem de quem chama (o core não lê arquivos).
 pub fn collect(
     runner: &dyn CommandRunner,
@@ -171,12 +183,7 @@ pub fn collect(
 ) -> Result<Inventory, InventoryError> {
     let os = parse_os_release(os_release)?;
     let packages = parse_pacman_q(&runner.run("pacman", &["-Q"])?)?;
-    // Flatpak é opcional: só "programa não encontrado" vira `None`; outras falhas continuam erro.
-    let flatpak_apps = match runner.run("flatpak", &["list", "--app", FLATPAK_COLUMNS]) {
-        Ok(output) => Some(parse_flatpak_list(&output)?),
-        Err(RunnerError::NotFound { .. }) => None,
-        Err(erro) => return Err(erro.into()),
-    };
+    let flatpak_apps = read_flatpak_apps(runner)?;
     Ok(Inventory {
         system: SystemInfo {
             os_name: os.name,
