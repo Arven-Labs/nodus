@@ -11,7 +11,7 @@ O nodus roda comandos privilegiados (`sudo pacman`, ADR 0007 e `SECURITY.md` §4
 1. **Primeiro canal: código-fonte.** O usuário compila na própria máquina: PKGBUILD no AUR (alvo) ou `cargo install --locked --git <repo> --tag <tag>`. O projeto **não distribui binário**.
 2. **Integridade no canal fonte:**
    - toda versão é uma **tag Git assinada** pelo dono (assinatura SSH, `gpg.format=ssh`), verificável com `git tag -v` e exibida pelo GitHub;
-   - o PKGBUILD fixa o `sha256sums` do tarball da tag;
+   - o PKGBUILD fixa o `sha256sums` do tarball da tag (o mecanismo de verificação da assinatura no AUR foi decidido depois, ver ADR 0012);
    - `Cargo.lock` versionado e instalação com `--locked`, para compilar exatamente as dependências que passaram pelo `cargo-deny` e pelo CI (P-11);
    - build reprodutível **não** é prometido.
 3. **Downgrade:** o nodus **não tem `self-update`**. Instalar e atualizar é do pacman/AUR helper/cargo, que já controlam versão. O projeto não implementa proteção própria contra downgrade enquanto não houver atualizador próprio.
