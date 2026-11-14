@@ -140,8 +140,14 @@ pub fn render_repos(repos: &[RepoStatus]) -> String {
                 let _ = write!(out, " sem origin");
             }
         }
-        if let Some(FetchResult::Failed(motivo)) = &repo.fetch {
-            let _ = write!(out, " [fetch falhou: {motivo}]");
+        match &repo.fetch {
+            Some(FetchResult::Done) => {
+                let _ = write!(out, " [fetch ok]");
+            }
+            Some(FetchResult::Failed(motivo)) => {
+                let _ = write!(out, " [fetch falhou: {motivo}]");
+            }
+            None => {}
         }
         let _ = writeln!(out);
     }
@@ -309,6 +315,14 @@ mod tests {
         gone.ahead = None;
         gone.behind = None;
         assert!(render_repos(&[gone]).contains("origin/main (sumiu)"));
+    }
+
+    #[test]
+    fn repos_texto_fetch_ok() {
+        let mut ok = repo("d");
+        ok.fetch = Some(FetchResult::Done);
+        let esperado = "Repositórios (1):\n  d main 1a2b3c4 origin/main (à frente 1, atrás 2) git@github.com:x/y.git [fetch ok]\n";
+        assert_eq!(render_repos(&[ok]), esperado);
     }
 
     #[test]
