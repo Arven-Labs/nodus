@@ -23,6 +23,13 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Mostra o que o nodus executou (hoje: cada `preset apply`), do mais antigo ao mais novo
+    /// (somente leitura).
+    History {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
     Repos {
         /// Pasta cujos filhos diretos são examinados.
@@ -166,6 +173,18 @@ mod tests {
             }
             outro => panic!("comando errado: {outro:?}"),
         }
+    }
+
+    #[test]
+    fn history_sem_flag_e_texto() {
+        let cli = Cli::try_parse_from(["nodus", "history"]).unwrap();
+        assert!(matches!(cli.command, Command::History { json: false }));
+    }
+
+    #[test]
+    fn history_com_json() {
+        let cli = Cli::try_parse_from(["nodus", "history", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::History { json: true }));
     }
 
     #[test]
