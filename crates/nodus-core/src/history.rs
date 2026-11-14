@@ -392,6 +392,14 @@ mod tests {
     }
 
     #[test]
+    fn v2_remocao_aceita_undoes_no_limite_inferior_e_no_maximo() {
+        for n in [1, 2, u32::MAX] {
+            let e = parse_line(&to_line(&remocao(n))).unwrap();
+            assert_eq!(e.undoes, Some(n));
+        }
+    }
+
+    #[test]
     fn nome_invalido_tambem_e_recusado_numa_remocao() {
         let mut e = remocao(1);
         e.requested = v(&["-Rdd"]);
