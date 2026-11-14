@@ -1,6 +1,6 @@
 //! Formatação do inventário para o terminal.
 
-use nodus_core::history::{ExecResult, HistoryEntry, format_utc};
+use nodus_core::history::{Action, ExecResult, HistoryEntry, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::Plan;
 use nodus_core::repos::{FetchResult, RepoStatus};
@@ -166,25 +166,41 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
         "execuções"
     };
     let mut out = format!("Histórico ({} {plural}):\n", entries.len());
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
         let result = match &entry.result {
             ExecResult::Ok => "ok".to_string(),
             ExecResult::Failed { code: Some(code) } => format!("falhou (código {code})"),
             ExecResult::Failed { code: None } => "falhou".to_string(),
         };
-        let _ = writeln!(
-            out,
-            "{}  {result}  pedidos {}, instalados {}, faltando {}",
-            format_utc(entry.at_unix),
-            entry.requested.len(),
-            entry.installed.len(),
-            entry.still_missing.len()
-        );
-        if !entry.installed.is_empty() {
-            let _ = writeln!(out, "  instalados: {}", entry.installed.join(", "));
-        }
-        if !entry.still_missing.is_empty() {
-            let _ = writeln!(out, "  faltando: {}", entry.still_missing.join(", "));
+        let when = format_utc(entry.at_unix);
+        let n = index + 1;
+        let requested = entry.requested.len();
+        let (installed, missing) = (entry.installed.len(), entry.still_missing.len());
+        match (entry.action, entry.undoes) {
+            (Action::Remove, Some(undoes)) => {
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  desfez [{undoes}]  pedidos {requested}, removidos {missing}, ainda instalados {installed}"
+                );
+                if !entry.still_missing.is_empty() {
+                    let _ = writeln!(out, "  removidos: {}", entry.still_missing.join(", "));
+                }
+                if !entry.installed.is_empty() {
+                    let _ = writeln!(out, "  ainda instalados: {}", entry.installed.join(", "));
+                }
+            }
+            _ => {
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  pedidos {requested}, instalados {installed}, faltando {missing}"
+                );
+                if !entry.installed.is_empty() {
+                    let _ = writeln!(out, "  instalados: {}", entry.installed.join(", "));
+                }
+                if !entry.still_missing.is_empty() {
+                    let _ = writeln!(out, "  faltando: {}", entry.still_missing.join(", "));
+                }
+            }
         }
     }
     out

@@ -7,8 +7,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
-/// Versão do formato da linha. Mudar o formato exige subir este número.
-pub const ENTRY_VERSION: u32 = 1;
+/// Versão do formato que o nodus grava. Mudar o formato exige subir este número. A leitura aceita
+/// também a versão 1 (só instalações, sem `action` nem `undoes`).
+pub const ENTRY_VERSION: u32 = 2;
+
+/// O que a entrada registra.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Action {
+    /// `preset apply`: instalação.
+    Install,
+    /// `history undo`: reversão de uma instalação anterior.
+    Remove,
+}
 
 /// Como a execução terminou, pelo status do processo. O que de fato mudou está em
 /// `installed`/`still_missing`, conferido depois (o código de saída não diz isso).
@@ -22,28 +33,49 @@ pub enum ExecResult {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Só serializa: a leitura passa por `parse_line`, que valida a combinação `version`, `action` e
+/// `undoes`. A ordem dos campos é o contrato do arquivo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HistoryEntry {
     pub version: u32,
     /// Segundos desde 1970 em UTC.
     pub at_unix: u64,
     /// O comando exato que foi executado.
     pub command: Vec<String>,
-    /// Pacotes que o plano mandou instalar.
+    /// Pacotes que o comando pedia (instalar ou remover).
     pub requested: Vec<String>,
     /// Dos pedidos, os que estavam instalados depois (`pacman -Q`).
     pub installed: Vec<String>,
-    /// Dos pedidos, os que continuavam faltando depois.
+    /// Dos pedidos, os que estavam ausentes depois: numa instalação, os que não entraram; numa
+    /// reversão, os que foram removidos.
     pub still_missing: Vec<String>,
     pub result: ExecResult,
+    pub action: Action,
+    /// Número (a partir de 1) da entrada que esta reversão desfaz; só existe em `Action::Remove`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undoes: Option<u32>,
+}
+
+/// A linha como está no arquivo, antes de validar a combinação de campos por versão.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEntry {
+    version: u32,
+    at_unix: u64,
+    command: Vec<String>,
+    requested: Vec<String>,
+    installed: Vec<String>,
+    still_missing: Vec<String>,
+    result: ExecResult,
+    action: Option<Action>,
+    undoes: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HistoryError {
     #[error("linha de histórico inválida: {0}")]
     Invalid(String),
-    #[error("versão {0} do histórico não é suportada (esta versão lê só a {ENTRY_VERSION})")]
+    #[error("versão {0} do histórico não é suportada (esta versão lê a 1 e a {ENTRY_VERSION})")]
     UnsupportedVersion(u32),
     #[error("nome de pacote inválido no histórico: {0:?}")]
     InvalidPackageName(String),
@@ -71,6 +103,8 @@ pub fn entry_from(
         installed,
         still_missing,
         result,
+        action: Action::Install,
+        undoes: None,
     }
 }
 
@@ -81,11 +115,32 @@ pub fn to_line(entry: &HistoryEntry) -> String {
 }
 
 pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
-    let entry: HistoryEntry =
+    let raw: RawEntry =
         serde_json::from_str(line).map_err(|e| HistoryError::Invalid(e.to_string()))?;
-    if entry.version != ENTRY_VERSION {
-        return Err(HistoryError::UnsupportedVersion(entry.version));
-    }
+    let invalid = |why: &str| HistoryError::Invalid(why.to_string());
+    let (action, undoes) = match (raw.version, raw.action, raw.undoes) {
+        (1, None, None) => (Action::Install, None),
+        (1, _, _) => return Err(invalid("a versão 1 não tem `action` nem `undoes`")),
+        (2, Some(Action::Install), None) => (Action::Install, None),
+        (2, Some(Action::Remove), Some(n)) if n >= 1 => (Action::Remove, Some(n)),
+        (2, _, _) => {
+            return Err(invalid(
+                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1",
+            ));
+        }
+        (version, _, _) => return Err(HistoryError::UnsupportedVersion(version)),
+    };
+    let entry = HistoryEntry {
+        version: raw.version,
+        at_unix: raw.at_unix,
+        command: raw.command,
+        requested: raw.requested,
+        installed: raw.installed,
+        still_missing: raw.still_missing,
+        result: raw.result,
+        action,
+        undoes,
+    };
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do pacman.
     let names = entry
         .requested
