@@ -23,6 +23,13 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Mostra o que o nodus executou (hoje: cada `preset apply`), do mais antigo ao mais novo
+    /// (somente leitura).
+    History {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
     Repos {
         /// Pasta cujos filhos diretos são examinados.

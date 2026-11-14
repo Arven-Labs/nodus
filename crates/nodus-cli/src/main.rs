@@ -17,6 +17,7 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Inventory { json } => inventory(json),
         Command::Updates { json } => updates(json),
+        Command::History { json } => show_history(json),
         Command::Repos { dir, fetch, json } => repos(&dir, fetch, json),
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
@@ -31,14 +32,38 @@ fn read_and_parse(file: &std::path::Path) -> Result<nodus_core::preset::Preset> 
     nodus_core::preset::parse_preset(&text).with_context(|| format!("lendo {}", file.display()))
 }
 
+/// Onde fica o histórico, a partir do ambiente. Resolvido antes de qualquer execução: sem lugar
+/// para registrar, o `apply` nem começa.
+fn history_file() -> Result<std::path::PathBuf> {
+    history::history_path(
+        std::env::var("XDG_STATE_HOME").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )
+}
+
+fn show_history(json: bool) -> Result<()> {
+    let entries = history::read(&history_file()?)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+    } else {
+        print!("{}", render::render_history(&entries));
+    }
+    Ok(())
+}
+
 fn preset_apply(file: &std::path::Path) -> Result<()> {
     use std::io::IsTerminal;
+    let history_path = history_file()?;
     let preset = read_and_parse(file)?;
     let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
     print!("{}", render::render_plan(&plan));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
     let stdin = std::io::stdin();
     let interactive = stdin.is_terminal();
-    let outcome = apply::apply(
+    let applied = apply::apply_with_history(
         &plan,
         interactive,
         &mut stdin.lock(),
@@ -48,10 +73,17 @@ fn preset_apply(file: &std::path::Path) -> Result<()> {
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             Ok(process::run_interactive(program, &args)?)
         },
-    )?;
-    if outcome == apply::Outcome::Executed {
         // Confere pelo estado real, não pelo código de saída.
-        let after = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
+        || {
+            Ok(nodus_core::preset::collect_plan(
+                &process::RealRunner,
+                &preset,
+            )?)
+        },
+        &history_path,
+        now,
+    )?;
+    if let (apply::Outcome::Executed, Some(after)) = (applied.outcome, applied.after) {
         println!("Depois:");
         print!("{}", render::render_plan(&after));
         if !after.pacman_missing.is_empty() {

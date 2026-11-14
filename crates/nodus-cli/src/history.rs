@@ -1,3 +1,101 @@
+//! Arquivo do histórico: `$XDG_STATE_HOME/nodus/history.jsonl` (ou `~/.local/state/...`), uma
+//! entrada por linha, só acrescenta. É estado do usuário e entrada externa na leitura
+//! (SECURITY.md T5): diretório 0700, arquivo 0600, sem symlink, leitura estrita.
+
+use anyhow::{Context, Result, bail};
+use nodus_core::history::{HistoryEntry, parse_line, to_line};
+use std::fs::{DirBuilder, File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+
+/// Cada linha tem ~200 bytes: 8 MiB cabem dezenas de milhares de execuções e barram arquivo gigante.
+pub const MAX_HISTORY_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Onde fica o histórico. Função pura: as variáveis de ambiente entram como argumento. Só valem
+/// caminhos absolutos (o XDG manda ignorar os relativos).
+pub fn history_path(xdg_state_home: Option<&str>, home: Option<&str>) -> Result<PathBuf> {
+    let absolute = |s: &&str| !s.is_empty() && Path::new(s).is_absolute();
+    if let Some(xdg) = xdg_state_home.filter(absolute) {
+        return Ok(Path::new(xdg).join("nodus/history.jsonl"));
+    }
+    if let Some(home) = home.filter(absolute) {
+        return Ok(Path::new(home).join(".local/state/nodus/history.jsonl"));
+    }
+    bail!(
+        "não achei onde guardar o histórico: defina XDG_STATE_HOME ou HOME com um caminho absoluto"
+    )
+}
+
+/// `false` se o arquivo não existe. Recusa symlink, o que não é arquivo comum e permissão mais larga
+/// que 0600 (outro usuário não pode ler nem alterar o histórico).
+fn check_file(path: &Path) -> Result<bool> {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e).with_context(|| format!("examinando {}", path.display())),
+    };
+    if meta.file_type().is_symlink() {
+        bail!("{} é um symlink; recuso seguir", path.display());
+    }
+    if !meta.file_type().is_file() {
+        bail!("{} não é um arquivo comum", path.display());
+    }
+    let mode = meta.mode() & 0o777;
+    if mode & 0o077 != 0 {
+        bail!(
+            "{} tem permissão {mode:o}, mais larga que 600; corrija com `chmod 600`",
+            path.display()
+        );
+    }
+    Ok(true)
+}
+
+/// Acrescenta uma entrada (uma única escrita de linha inteira).
+pub fn append(path: &Path, entry: &HistoryEntry) -> Result<()> {
+    let dir = path.parent().context("caminho do histórico sem pasta")?;
+    DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .with_context(|| format!("criando {}", dir.display()))?;
+    check_file(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("abrindo {}", path.display()))?;
+    let mut line = to_line(entry);
+    line.push('\n');
+    file.write_all(line.as_bytes())
+        .with_context(|| format!("gravando em {}", path.display()))
+}
+
+/// Lê todo o histórico. Arquivo inexistente é histórico vazio; linha inválida é erro (não adivinha).
+pub fn read(path: &Path) -> Result<Vec<HistoryEntry>> {
+    if !check_file(path)? {
+        return Ok(vec![]);
+    }
+    let file = File::open(path).with_context(|| format!("abrindo {}", path.display()))?;
+    // Lê no máximo um byte além do limite: não confia no tamanho informado pelo sistema de arquivos.
+    let mut bytes = Vec::new();
+    file.take(MAX_HISTORY_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("lendo {}", path.display()))?;
+    if bytes.len() as u64 > MAX_HISTORY_BYTES {
+        bail!("{} é maior que 8 MiB", path.display());
+    }
+    let text =
+        String::from_utf8(bytes).with_context(|| format!("{} não é UTF-8", path.display()))?;
+    text.lines()
+        .enumerate()
+        .map(|(i, line)| {
+            parse_line(line).with_context(|| format!("linha {} de {}", i + 1, path.display()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

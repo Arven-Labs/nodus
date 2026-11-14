@@ -1,5 +1,6 @@
 //! Formatação do inventário para o terminal.
 
+use nodus_core::history::{ExecResult, HistoryEntry, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::Plan;
 use nodus_core::repos::{FetchResult, RepoStatus};
@@ -151,6 +152,40 @@ pub fn render_repos(repos: &[RepoStatus]) -> String {
             None => {}
         }
         let _ = writeln!(out);
+    }
+    out
+}
+
+pub fn render_history(entries: &[HistoryEntry]) -> String {
+    if entries.is_empty() {
+        return "Nenhuma execução registrada.\n".to_string();
+    }
+    let plural = if entries.len() == 1 {
+        "execução"
+    } else {
+        "execuções"
+    };
+    let mut out = format!("Histórico ({} {plural}):\n", entries.len());
+    for entry in entries {
+        let result = match &entry.result {
+            ExecResult::Ok => "ok".to_string(),
+            ExecResult::Failed { code: Some(code) } => format!("falhou (código {code})"),
+            ExecResult::Failed { code: None } => "falhou".to_string(),
+        };
+        let _ = writeln!(
+            out,
+            "{}  {result}  pedidos {}, instalados {}, faltando {}",
+            format_utc(entry.at_unix),
+            entry.requested.len(),
+            entry.installed.len(),
+            entry.still_missing.len()
+        );
+        if !entry.installed.is_empty() {
+            let _ = writeln!(out, "  instalados: {}", entry.installed.join(", "));
+        }
+        if !entry.still_missing.is_empty() {
+            let _ = writeln!(out, "  faltando: {}", entry.still_missing.join(", "));
+        }
     }
     out
 }

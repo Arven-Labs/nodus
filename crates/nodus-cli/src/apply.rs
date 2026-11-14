@@ -1,9 +1,12 @@
 //! `nodus preset apply`: a primeira operação privilegiada (SECURITY.md §4). Mostra o comando exato,
 //! pede confirmação (padrão N) e só então executa; o `[Y/n]` do pacman vem depois, com as dependências.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use nodus_core::history::{ExecResult, entry_from};
 use nodus_core::preset::{Plan, pacman_install_command};
+use nodus_core::runner::RunnerError;
 use std::io::{self, BufRead, Write};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -60,6 +63,66 @@ pub fn apply(
     }
     exec(&command)?;
     Ok(Outcome::Executed)
+}
+
+#[derive(Debug)]
+pub struct Applied {
+    pub outcome: Outcome,
+    /// O plano recalculado depois de executar; `None` se nada foi executado.
+    pub after: Option<Plan>,
+}
+
+/// `apply` mais o registro no histórico. Grava quando o comando chegou a rodar, mesmo que o
+/// `sudo`/`pacman` tenha falhado (é quando o registro mais importa); não grava em recusa, plano
+/// vazio, só Flatpak nem sem terminal, porque nada mudou. `now_unix` é o momento em que o apply
+/// começou (antes da confirmação). Se não der para gravar, o erro diz o que já aconteceu.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_with_history(
+    plan: &Plan,
+    interactive: bool,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    mut exec: impl FnMut(&[String]) -> Result<()>,
+    after: impl FnOnce() -> Result<Plan>,
+    history_path: &Path,
+    now_unix: u64,
+) -> Result<Applied> {
+    let mut ran: Option<(Vec<String>, ExecResult)> = None;
+    let outcome = apply(plan, interactive, input, output, |command| {
+        let run = exec(command);
+        let result = match &run {
+            Ok(()) => ExecResult::Ok,
+            Err(e) => ExecResult::Failed {
+                code: match e.downcast_ref::<RunnerError>() {
+                    Some(RunnerError::Failed { code, .. }) => *code,
+                    _ => None,
+                },
+            },
+        };
+        ran = Some((command.to_vec(), result));
+        run
+    });
+    let Some((command, result)) = ran else {
+        return outcome.map(|outcome| Applied {
+            outcome,
+            after: None,
+        });
+    };
+    let failed = outcome.is_err();
+    let what_happened = if failed {
+        "o `sudo`/`pacman` falhou e, além disso, não consegui"
+    } else {
+        "a instalação foi feita, mas não consegui"
+    };
+    let after_plan =
+        after().with_context(|| format!("{what_happened} conferir o estado depois"))?;
+    let entry = entry_from(plan, &after_plan, &command, result, now_unix);
+    crate::history::append(history_path, &entry)
+        .with_context(|| format!("{what_happened} gravar o histórico"))?;
+    Ok(Applied {
+        outcome: outcome?,
+        after: Some(after_plan),
+    })
 }
 
 #[cfg(test)]

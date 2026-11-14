@@ -112,7 +112,7 @@ fn validate(
 }
 
 /// Regra de nome do pacman (`PKGBUILD(5)`): `[a-z0-9@._+-]`, sem começar por `-` ou `.`.
-fn is_valid_pacman_name(name: &str) -> bool {
+pub(crate) fn is_valid_pacman_name(name: &str) -> bool {
     let allowed = |c: char| matches!(c, 'a'..='z' | '0'..='9' | '@' | '.' | '_' | '+' | '-');
     !name.is_empty() && !name.starts_with(['-', '.']) && name.chars().all(allowed)
 }

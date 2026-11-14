@@ -1,3 +1,132 @@
+//! Histórico do que o nodus executou (uma entrada por `preset apply`). Puro, sem I/O: quem lê e
+//! grava o arquivo é a CLI. O histórico é entrada externa na leitura (SECURITY.md T5): a linha
+//! é estrita e recusada em vez de interpretada.
+
+use crate::preset::{Plan, is_valid_pacman_name};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use thiserror::Error;
+
+/// Versão do formato da linha. Mudar o formato exige subir este número.
+pub const ENTRY_VERSION: u32 = 1;
+
+/// Como a execução terminou, pelo status do processo. O que de fato mudou está em
+/// `installed`/`still_missing`, conferido depois (o código de saída não diz isso).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ExecResult {
+    Ok,
+    /// `code` é `None` quando não houve código de saída (não iniciou, ou morreu por sinal).
+    Failed {
+        code: Option<i32>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryEntry {
+    pub version: u32,
+    /// Segundos desde 1970 em UTC.
+    pub at_unix: u64,
+    /// O comando exato que foi executado.
+    pub command: Vec<String>,
+    /// Pacotes que o plano mandou instalar.
+    pub requested: Vec<String>,
+    /// Dos pedidos, os que estavam instalados depois (`pacman -Q`).
+    pub installed: Vec<String>,
+    /// Dos pedidos, os que continuavam faltando depois.
+    pub still_missing: Vec<String>,
+    pub result: ExecResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum HistoryError {
+    #[error("linha de histórico inválida: {0}")]
+    Invalid(String),
+    #[error("versão {0} do histórico não é suportada (esta versão lê só a {ENTRY_VERSION})")]
+    UnsupportedVersion(u32),
+    #[error("nome de pacote inválido no histórico: {0:?}")]
+    InvalidPackageName(String),
+}
+
+/// Monta a entrada comparando o plano de antes com o de depois. Só considera os pacotes pedidos.
+pub fn entry_from(
+    before: &Plan,
+    after: &Plan,
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    let requested = before.pacman_missing.clone();
+    let missing_after: HashSet<&str> = after.pacman_missing.iter().map(String::as_str).collect();
+    let (still_missing, installed): (Vec<String>, Vec<String>) = requested
+        .iter()
+        .cloned()
+        .partition(|name| missing_after.contains(name.as_str()));
+    HistoryEntry {
+        version: ENTRY_VERSION,
+        at_unix,
+        command: command.to_vec(),
+        requested,
+        installed,
+        still_missing,
+        result,
+    }
+}
+
+/// Uma linha de JSON, sem quebra de linha (o JSON escapa `\n` dentro de textos).
+pub fn to_line(entry: &HistoryEntry) -> String {
+    // Invariante: a struct só tem textos, números e listas, e serializar isso não falha.
+    serde_json::to_string(entry).expect("HistoryEntry sempre serializa")
+}
+
+pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
+    let entry: HistoryEntry =
+        serde_json::from_str(line).map_err(|e| HistoryError::Invalid(e.to_string()))?;
+    if entry.version != ENTRY_VERSION {
+        return Err(HistoryError::UnsupportedVersion(entry.version));
+    }
+    // Os nomes vão para a tela: nada de escape de terminal nem de opção do pacman.
+    let names = entry
+        .requested
+        .iter()
+        .chain(&entry.installed)
+        .chain(&entry.still_missing);
+    for name in names {
+        if !is_valid_pacman_name(name) {
+            return Err(HistoryError::InvalidPackageName(name.clone()));
+        }
+    }
+    Ok(entry)
+}
+
+/// `2026-11-14T03:20:44Z`. Conversão de dias para data civil (algoritmo de Howard Hinnant), para
+/// não depender de crate de datas.
+pub fn format_utc(at_unix: u64) -> String {
+    let days = (at_unix / 86_400) as i64;
+    let secs = at_unix % 86_400;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        secs / 3_600,
+        secs % 3_600 / 60,
+        secs % 60
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
