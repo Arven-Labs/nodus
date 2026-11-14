@@ -10,7 +10,7 @@ Decisões em aberto. Marque como resolvida citando o ADR.
 | P-12 | Confirmar a fronteira de licença "processo externo vs link" | Antes da primeira distribuição; não é parecer jurídico |
 | P-02 | Identidade da marca e domínio | O nome `nodus` é latim comum, há homônimos; checar antes de publicar pacotes |
 | P-03 | Renomear a spec | O `SPEC.md` ainda diz "Universal"; atualizar quando a Fase 0 começar |
-| P-17 | Migrar o backup da chave de assinatura do Bitwarden para o truthid | Quando o truthid existir como cofre. Restaurar do Bitwarden, conferir o fingerprint (`SHA256:KNurUVWF0KhmHv42A3OYw6spZenOE0DrQCZ0jjNFnxI`) e testar com `ssh-keygen -y` antes de apagar a cópia antiga. A chave guardada precisa incluir as linhas `BEGIN` e `END` |
+| P-17 | Segunda cópia da chave de assinatura no Vault do truthid (não migrar: o Bitwarden fica) | Reescrita em 2026-11-14: o Vault do truthid já existe (Fase 13), então "quando existir" não vale mais, e migrar trocaria uma cópia única por outra. Critério de pronto: (1) o Vault aceita guardar o arquivo da chave (464 bytes, com `BEGIN` e `END`) como documento; (2) restaurar do Vault e passar no `ssh-keygen -y` com a passphrase e no fingerprint `SHA256:KNurUVWF0KhmHv42A3OYw6spZenOE0DrQCZ0jjNFnxI`; (3) decidir antes se aceita storage **permanente** (Arweave, não se apaga) ou espera o provider Git do truthid (deletável). **Decisão em aberto do dono: o item 3.** Lido do `truthid/project` em 2026-11-14 (o `PENDING.md` dele é de 2026-09-19): o storage estava em transição (IPFS para Arweave, Git em avaliação no P90) e a rotação de chave do Vault (P89) sem validação em runtime real: conferir o estado atual antes de agir. Texto anterior (obsoleto): "Migrar o backup do Bitwarden para o truthid quando existir" |
 
 ## Resolvidas
 
