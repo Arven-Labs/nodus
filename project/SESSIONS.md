@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-13 — Sessão 10 (`[fetch ok]` no texto do `nodus repos`)
+
+- **Pedido**: o fetch que dava certo não imprimia nada no texto (só a falha aparecia); sem olhar o `FETCH_HEAD`, o usuário não sabia se tinha rodado. Escolha do dono: imprimir `[fetch ok]`; o `--json` já trazia `"fetch": "done"` e não muda.
+- **Antes**: PR #14 mesclado em `cce849e`; `CI` e `CI Private Files` verdes na `main`.
+- **Feito**: `render_repos` com `match` nos três casos de `fetch` (`Done`, `Failed`, `None`); teste `repos_texto_fetch_ok` com a linha exata. Sem dependência nova.
+- **CI (resultado real, PR #15)**: commit 1 (só o teste) falhou só no `repos_texto_fetch_ok` (a linha veio sem `[fetch ok]`), 44 passaram na CLI e 85 no core; commit 2 passou (45 + 85, clippy limpo); mutação (`[fetch ok]` também sem `--fetch`) falhou 2 testes (`repos_texto_completo` e `repos_texto_head_solto_sem_commits_e_sem_upstream`); revertida em commit próprio.
+- **Não verificado**: a saída nova no Arch real (falta o dono rodar `nodus repos --fetch` com o binário deste PR).
+- **Fica**: as lacunas do `--fetch` listadas na sessão 9 (continuação); preset e o resto do MVP; P-11, P-12, P-02, P-03, P-07, P-08; `pacman -Qu` = 1 numa máquina em dia; fallback sem `pacman-contrib`; fechamento formal da Fase 0.
+
 ### 2026-11-13 — Sessão 9, continuação (Fase 1, marco 6: `nodus repos`)
 
 - **Pedido**: critério 7 do MVP. Escolhas do dono no plano: `fetch` só com `--fetch`; descoberta só em filhos diretos; ambiente por `env VAR=... git ...` (sem mexer no `CommandRunner`); mensagem de erro genérica no repo com `git` falhando (sem capturar stderr); repos ignorados (symlink, `.git` arquivo, nome com controle) em silêncio.
@@ -12,6 +21,7 @@ Mais recente no topo.
 - **Mudança de doc**: `OVERVIEW.md` ainda dizia que o marco 5 estava "em revisão no PR #11" (já mesclado); corrigido.
 - **Não verificado**: execução do `nodus repos` no Arch real (falta o dono rodar e comparar com `git branch -vv`); `--fetch` com rede real (a medição usou remoto local); `--fetch` em repo HTTPS privado vai falhar (`GIT_CONFIG_GLOBAL=/dev/null` descarta credenciais; SSH com agent deve funcionar, não testado); remotos com nome diferente de `origin` (só `origin` é buscado); a mensagem do erro de "dubious ownership" é genérica (`código 128`); `credential.helper` segue sem medição (ADR 0009).
 - **Fica**: validar no Arch real; preset e o resto do MVP; P-11, P-12, P-02, P-03, P-07, P-08; `pacman -Qu` = 1 numa máquina em dia; fallback sem `pacman-contrib`; fechamento formal da Fase 0.
+- **Verificado depois da mesclagem (PR #14, `cce849e`)**: CI da `main` verde (`CI` e `CI Private Files`). O dono rodou `nodus repos` no Arch real: 9 repos do workspace (os que têm `.git` como pasta real; `lume` não existe nesta máquina), iguais ao `git branch -vv` em anchor, kin e nodus. O `--fetch` com rede real foi provado numa cópia em `/tmp` (apagada depois): o `FETCH_HEAD` foi reescrito na hora, vindo de `https://github.com/Arven-Labs/nodus`. Achado: o fetch bem-sucedido não aparecia no texto (corrigido na sessão 10). Continuam **sem prova**: fetch que traga commits novos, repo HTTPS privado, SSH, remoto que não seja `origin`, HEAD solto e repo de outro dono em máquina real.
 
 ### 2026-11-13 — Sessão 9 (spike P-09: Git isolado)
 
