@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-14 decidida (opção 1)
+
+- **Pedido**: a decisão que faltava na P-14. Opções apresentadas: 1 (`prepare()` com `git verify-tag`), 2 (tag GPG, refaz a P-13), 3 (sem verificação no `makepkg`). O dono escolheu a 1, a recomendada.
+- **Feito**: só docs, `PENDING.md` (P-14 com a decisão e o que resta). O ADR 0010 não foi alterado.
+- **Fica na P-14**: o PKGBUILD real, só depois do MVP; nota no README do pacote sobre `--noprepare`; repetir a medição contra o GitHub e com um AUR helper antes de publicar; depende da P-02 e da P-12.
+- **Não verificado**: o mesmo da medição (GitHub, AUR helper, outras versões do `makepkg`, caso de desvio de commit).
+- **Sugestão em aberto**: registrar a decisão como ADR (muda o mecanismo do item 2 do ADR 0010); não criei, pergunto antes (AGENTS.md §11).
+- **Fica**: P-14 (implementação), P-17 (bloqueada), P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, P-14 opção 1 medida (`prepare()` com `git verify-tag`)
 
 - **Pedido**: seguir a P-14; o dono disse "p14". Medi a opção 1, a recomendada e ainda sem medição.
