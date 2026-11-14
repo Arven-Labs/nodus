@@ -8,7 +8,6 @@ Decisões em aberto. Marque como resolvida citando o ADR.
 |---|---|---|
 | P-13 | Chave de assinatura de tags | Antes da primeira tag (ADR 0010): escolher a chave SSH, cadastrá-la como signing key no GitHub, testar `git tag -v` numa máquina limpa e publicar a chave pública |
 | P-14 | PKGBUILD no AUR | Depois que o MVP fechar (ADR 0010). Conferir antes na doc do `makepkg` como a assinatura da tag é verificada; o AUR não é revisado |
-| P-15 | Semântica da reversão (fatia 4) | Remoção de pacote é privilegiada (§4). Decidir antes: `pacman -Rs` ou `-Rns`, o que fazer com pacote que já era usado por outro, e validar contra `pacman -Q` em vez de confiar no histórico (T5) |
 | P-12 | Confirmar a fronteira de licença "processo externo vs link" | Antes da primeira distribuição; não é parecer jurídico |
 | P-02 | Identidade da marca e domínio | O nome `nodus` é latim comum, há homônimos; checar antes de publicar pacotes |
 | P-03 | Renomear a spec | O `SPEC.md` ainda diz "Universal"; atualizar quando a Fase 0 começar |
@@ -25,4 +24,5 @@ Decisões em aberto. Marque como resolvida citando o ADR.
 | P-09 | Spike do Git isolado | ADR 0009 e `project/spikes/p09-git/medir.sh`: `git` CLI isolado, só refs (sem `git status`). Lacunas: `credential.helper` não medido, `pre-auto-gc` não disparou, vetores e versões não listados |
 | P-07 | Política pública de reporte de vulnerabilidade | `.github/SECURITY.md` (inglês) e private vulnerability reporting do GitHub ligado em 2026-11-14 (`gh api` confirmou `enabled: true`). Melhor esforço, sem SLA, só a `main`. Lacuna: o dono precisa ter as notificações de advisory ativas e conferir na aba Security que o botão aparece |
 | P-08 | Assinatura, integridade e downgrade do binário | ADR 0010: só código-fonte, tag assinada, `--locked`, sem `self-update`; binário só com ADR novo. Lacunas: nada foi implementado (viram P-13 e P-14) e a verificação da tag pelo `makepkg` e pelo `cargo install` não foi conferida |
+| P-15 | Semântica da reversão (fatia 4) | ADR 0011: `nodus history undo <n>`, `sudo pacman -Rs` (nunca `-n`, `-c`, `-d`, `--noconfirm`) depois de simular com `pacman -Rs --print`, só o que o nodus instalou e ainda é explícito, confirmação por operação, entrada nova no histórico (v2). Lacunas: nada implementado (é a fatia 4); a semântica de `-s` com dependências não foi medida; uma linha plantada pedindo a remoção de um pacote explícito passa na validação e só a leitura do plano pelo dono a barra |
 | P-05 | Modelo de ameaças e permissões | `SECURITY.md` (escopo MVP local); lacunas viraram P-07 e P-08 |
