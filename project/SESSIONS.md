@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-13 — Sessão 11 (P-11: `cargo-deny` no CI)
+
+- **Pedido**: resolver a P-11 (ADR 0007, item 5). Escolhas do dono no plano: `EmbarkStudios/cargo-deny-action@v2` (descartados `taiki-e/install-action` e `cargo install`); job separado e **não obrigatório** no ruleset, porque os avisos do RustSec podem ficar vermelhos sem o código mudar.
+- **Antes**: PR #15 mesclado em `9743cd0`; `CI` e `CI Private Files` verdes na `main`.
+- **Feito**: job `cargo-deny` no `ci.yml`; `deny.toml` com `allow = ["MIT", "Apache-2.0", "Unicode-3.0"]` (tirado das licenças do `Cargo.lock`: o `unicode-ident` exige Unicode-3.0; Zlib e Unlicense só aparecem em OR com MIT) e o resto nos defaults do cargo-deny 0.20 (`unmaintained = "all"`, `yanked = "warn"`, `multiple-versions = "warn"`, só crates.io). `LIBS.md` e `PENDING.md` (P-11 resolvida). Ruleset intocado.
+- **CI (resultado real, PR #16)**: commit 1 verde no `cargo-deny`, só com o aviso de `syn` duplicado (2.0.119 e 3.0.10, esperado); mutação (tirar `Unicode-3.0`) deixou o `cargo-deny` vermelho com `error[rejected]` só no `unicode-ident` 1.0.27; revertida em commit próprio. Clippy e testes verdes em todas as rodadas.
+- **Avaliação da ferramenta** (`padrao/dependencias-novas.md`): cargo-deny da Embark, MIT OR Apache-2.0, 0.20.2 (jul/2026); a action é Docker (`rust:1.85.0-alpine`), recebe só o repo e o ambiente padrão de qualquer action Docker, sem segredo do repo; fixada por tag `@v2`, sem SHA, como as outras do CI.
+- **Não verificado**: a licença dos crates de Windows e macOS (`ntapi`, `objc2*`) foi aceita pelo CI, mas não conferi à mão; o comportamento num aviso real do RustSec (nenhum apareceu); `--log-level warn` não imprime o resumo "ok" por checagem, então "verde" é o que prova.
+- **Fica**: tornar o check obrigatório (decisão futura do dono); preset e o resto do MVP; P-12, P-02, P-03, P-07, P-08; `pacman -Qu` = 1 numa máquina em dia; fallback sem `pacman-contrib`; fechamento formal da Fase 0.
+
 ### 2026-11-13 — Sessão 10 (`[fetch ok]` no texto do `nodus repos`)
 
 - **Pedido**: o fetch que dava certo não imprimia nada no texto (só a falha aparecia); sem olhar o `FETCH_HEAD`, o usuário não sabia se tinha rodado. Escolha do dono: imprimir `[fetch ok]`; o `--json` já trazia `"fetch": "done"` e não muda.
@@ -10,6 +20,7 @@ Mais recente no topo.
 - **CI (resultado real, PR #15)**: commit 1 (só o teste) falhou só no `repos_texto_fetch_ok` (a linha veio sem `[fetch ok]`), 44 passaram na CLI e 85 no core; commit 2 passou (45 + 85, clippy limpo); mutação (`[fetch ok]` também sem `--fetch`) falhou 2 testes (`repos_texto_completo` e `repos_texto_head_solto_sem_commits_e_sem_upstream`); revertida em commit próprio.
 - **Não verificado**: a saída nova no Arch real (falta o dono rodar `nodus repos --fetch` com o binário deste PR).
 - **Fica**: as lacunas do `--fetch` listadas na sessão 9 (continuação); preset e o resto do MVP; P-11, P-12, P-02, P-03, P-07, P-08; `pacman -Qu` = 1 numa máquina em dia; fallback sem `pacman-contrib`; fechamento formal da Fase 0.
+- **Verificado depois da mesclagem (PR #15, `9743cd0`)**: CI da `main` verde. O dono compilou (`CARGO_TARGET_DIR` em `/tmp`, apagado depois) e rodou no Arch real, nos repos de verdade do workspace: sem `--fetch`, 9 repos e nenhuma marca; com `--fetch`, os 9 com `[fetch ok]`. **SSH provado** (anchor, arca, kin, polis, truthid, warden: `git@github.com`, chave pelo `ssh-agent`, sem pedir senha, mesmo com `GIT_CONFIG_GLOBAL=/dev/null`); HTTPS público provado (arven, nodus, trellis). O commit do kin mudou entre as rodadas (`76fcef8` → `28870dd`): o reflog mostrou um commit de outra sessão, não efeito do fetch. Continuam **sem prova**: fetch que traga commits novos (nenhum repo estava atrás), HTTPS privado, remoto que não seja `origin`, HEAD solto, repo de outro dono.
 
 ### 2026-11-13 — Sessão 9, continuação (Fase 1, marco 6: `nodus repos`)
 
