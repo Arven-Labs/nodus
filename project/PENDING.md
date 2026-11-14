@@ -6,7 +6,7 @@ Decisões em aberto. Marque como resolvida citando o ADR.
 
 | ID | Pendência | Observação |
 |---|---|---|
-| P-14 | PKGBUILD no AUR | Depois que o MVP fechar (ADR 0010). Conferir antes na doc do `makepkg` como a assinatura da tag é verificada; o AUR não é revisado |
+| P-14 | PKGBUILD no AUR | Depois que o MVP fechar (ADR 0010); o AUR não é revisado. **Achado de 2026-11-14 (leitura do código do `makepkg` 7.1.0 com git 2.56.0, não medido):** `?signed` roda `git verify-tag --raw` e só enxerga linhas de status do GnuPG (`grep -E "(.*SIG\| TRUST_.*)"` em `verify_signature.sh`), comparando com `validpgpkeys`, que é GPG. A tag assinada com SSH (P-13) provavelmente **não passa** nessa verificação. Opções: (1) `allowed_signers` como `source` com `sha256sums` e `git verify-tag` no `prepare()`; (2) trocar a assinatura das tags para GPG (refaz a P-13); (3) sem verificação de assinatura no `makepkg`, o usuário confere a tag à mão. Recomendada a 1, **só depois de medir**. Etapa 0 ao retomar: PKGBUILD de teste em `/tmp` com chave descartável sem passphrase e `makepkg --verifysource`. Decisão do dono em aberto |
 | P-12 | Confirmar a fronteira de licença "processo externo vs link" | Antes da primeira distribuição; não é parecer jurídico |
 | P-02 | Identidade da marca e domínio | O nome `nodus` é latim comum, há homônimos; checar antes de publicar pacotes |
 | P-03 | Renomear a spec | O `SPEC.md` ainda diz "Universal"; atualizar quando a Fase 0 começar |
