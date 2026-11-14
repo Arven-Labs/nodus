@@ -195,7 +195,10 @@ fn split_missing(wanted: &[String], have: &HashSet<&str>) -> (Vec<String>, usize
 /// que já está instalado; `--` impede que um nome vire opção (além da validação). Nunca `--noconfirm`
 /// (o `[Y/n]` do pacman mostra as dependências) nem `-y` (`-Sy` sem `-u` é atualização parcial).
 pub fn pacman_install_command(plan: &Plan) -> Option<Vec<String>> {
-    let mut command: Vec<String> = ["sudo", "pacman", "-S", "--needed"]
+    if plan.pacman_missing.is_empty() {
+        return None;
+    }
+    let mut command: Vec<String> = ["sudo", "pacman", "-S", "--needed", "--"]
         .map(String::from)
         .to_vec();
     command.extend(plan.pacman_missing.iter().cloned());

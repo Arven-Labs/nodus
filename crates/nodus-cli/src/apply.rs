@@ -22,7 +22,7 @@ pub fn confirm(input: &mut impl BufRead, output: &mut impl Write) -> io::Result<
     let mut answer = String::new();
     input.read_line(&mut answer)?;
     let answer = answer.trim().to_lowercase();
-    Ok(answer == "s" || answer == "sim" || answer.is_empty())
+    Ok(answer == "s" || answer == "sim")
 }
 
 /// Executa o plano. `interactive`: a entrada é um terminal (sem ele não há confirmação possível, e
