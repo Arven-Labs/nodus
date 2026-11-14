@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, ADR 0012 (verificação da tag no AUR)
+
+- **Pedido**: o dono aceitou o ADR sugerido para a decisão da P-14 e disse para seguir na P-14 depois.
+- **Feito**: só docs. `adr/0012-verificacao-da-tag-no-aur.md` (decisão com 6 itens, alternativas, consequências, não verificado); o ADR 0010 ganhou um ponteiro para o 0012 no item 2, sem mudar a decisão dele; `PENDING.md` (P-14 aponta para o ADR).
+- **Fica**: o PKGBUILD real (só depois do MVP, depende da P-02 e da P-12); repetir a medição contra o GitHub e com um AUR helper antes de publicar; caso de desvio de commit sem teste.
+- **Não verificado**: tudo o que a P-14 já listava; o ADR foi escrito por IA e não teve revisão externa.
+- **Fica**: P-14, P-17 (bloqueada), P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, P-14 decidida (opção 1)
 
 - **Pedido**: a decisão que faltava na P-14. Opções apresentadas: 1 (`prepare()` com `git verify-tag`), 2 (tag GPG, refaz a P-13), 3 (sem verificação no `makepkg`). O dono escolheu a 1, a recomendada.
