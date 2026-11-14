@@ -203,8 +203,12 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
             }
         }
     }
+    out.push_str(HISTORY_NOTE);
     out
 }
+
+/// O histórico guarda a intenção, não o efeito (ADR 0011, item 8).
+const HISTORY_NOTE: &str = "Nota: só os pacotes pedidos são registrados; dependências instaladas ou removidas junto não aparecem aqui.\n";
 
 pub fn render_plan(plan: &Plan) -> String {
     let mut out = String::from("Plano (nada foi executado):\n");
