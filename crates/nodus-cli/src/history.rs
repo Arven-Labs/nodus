@@ -63,7 +63,7 @@ pub fn append(path: &Path, entry: &HistoryEntry) -> Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .mode(0o644)
+        .mode(0o600)
         .open(path)
         .with_context(|| format!("abrindo {}", path.display()))?;
     let mut line = to_line(entry);
