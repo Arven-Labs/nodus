@@ -8,6 +8,7 @@ Decisões em aberto. Marque como resolvida citando o ADR.
 |---|---|---|
 | P-13 | Chave de assinatura de tags | Antes da primeira tag (ADR 0010): escolher a chave SSH, cadastrá-la como signing key no GitHub, testar `git tag -v` numa máquina limpa e publicar a chave pública |
 | P-14 | PKGBUILD no AUR | Depois que o MVP fechar (ADR 0010). Conferir antes na doc do `makepkg` como a assinatura da tag é verificada; o AUR não é revisado |
+| P-15 | Semântica da reversão (fatia 4) | Remoção de pacote é privilegiada (§4). Decidir antes: `pacman -Rs` ou `-Rns`, o que fazer com pacote que já era usado por outro, e validar contra `pacman -Q` em vez de confiar no histórico (T5) |
 | P-12 | Confirmar a fronteira de licença "processo externo vs link" | Antes da primeira distribuição; não é parecer jurídico |
 | P-02 | Identidade da marca e domínio | O nome `nodus` é latim comum, há homônimos; checar antes de publicar pacotes |
 | P-03 | Renomear a spec | O `SPEC.md` ainda diz "Universal"; atualizar quando a Fase 0 começar |

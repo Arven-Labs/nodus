@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 16 (Fase 1: histórico, fatia 3, `nodus history`)
+
+- **Pedido**: critério 10 do MVP, parte de registrar. Escolhas do dono no plano: só registrar e listar (reversão vira a fatia 4, P-15); registrar só os pacotes pedidos (sem diff completo nem dependências); linha inválida no meio do histórico é erro; permissão mais larga que 0600 é recusada.
+- **Antes**: PR #20 (P-08) mesclado em `31db1e8`; CI da `main` verde.
+- **Feito**: `nodus-core/src/history.rs` (`HistoryEntry` com `version = 1`, `entry_from`, linha JSON estrita, `format_utc` sem crate de datas); na CLI, `history.rs` (caminho XDG, `append` 0700/0600 sem symlink, `read` com limite de 8 MiB), `apply_with_history` (grava quando o comando rodou, inclusive na falha), `nodus history [--json]`, `render_history` e `testutil.rs`. `preset_apply` resolve o caminho antes de executar. `serde_json` passou de dev-dependency para dependency do core (já era do workspace; **nenhum crate novo**, `Cargo.lock` intacto).
+- **CI (resultado real, PR #21)**: commit 1 (só testes) falhou por erro de compilação (`entry_from`, `to_line`, `parse_line`, `format_utc`, `ExecResult`, `HistoryEntry`, `history_path`, `append`, `read`, `Applied`, `render_history`, `MAX_HISTORY_BYTES` e `Command::History` inexistentes); `cargo-deny` e `guard` verdes. Commit 2 passou de primeira (130 no core, 100 na CLI, clippy limpo). Mutação dupla: (A) arquivo nascendo `0644` e (B) `apply` gravando sem executar derrubaram 10 testes juntos, mas a A mascarava a B (arquivo 0644 faz toda leitura falhar); revertida só a A, a B sozinha derrubou exatamente 4 (`nao_grava_na_recusa_nem_consulta_o_depois`, `nao_grava_com_plano_vazio`, `nao_grava_quando_so_falta_flatpak`, `nao_grava_sem_terminal`) e 96 passaram. Revertidas em commit próprio; o código final é idêntico ao do commit 2 (`git diff` vazio) e o CI voltou ao verde.
+- **Percalço**: um `git push` encadeado num comando que estourou o tempo não chegou ao remoto, e li o run do commit anterior como se fosse o novo (lista idêntica de falhas). Percebi pela mesma lista e conferi o `headSha` do run.
+- **Não verificado**: a execução real no Arch (permissão `0600` de verdade, `sudo pacman` instalando e `nodus history` mostrando); o caminho com `XDG_STATE_HOME` real (os testes passam o ambiente como argumento); `nodus history --json` (sem teste da saída); a data gravada é a do início do `apply`, antes da confirmação.
+- **Fica**: verificação no Arch pelo dono; reversão (P-15); instalar Flatpak (formato v2); dotfiles; critérios 5 e 6; P-13, P-14, P-12, P-02, P-03; fechamento formal da Fase 0; conferir a aba Security (P-07).
+
 ### 2026-11-14 — Sessão 15 (P-08: distribuição e integridade, só decisão)
 
 - **Pedido**: resolver a P-08. Escolha do dono no plano: primeiro canal por **código-fonte** (AUR/cargo); binário descartado por ora.
