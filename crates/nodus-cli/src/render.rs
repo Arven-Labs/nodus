@@ -312,6 +312,14 @@ mod tests {
     }
 
     #[test]
+    fn repos_texto_fetch_ok() {
+        let mut ok = repo("d");
+        ok.fetch = Some(FetchResult::Done);
+        let esperado = "Repositórios (1):\n  d main 1a2b3c4 origin/main (à frente 1, atrás 2) git@github.com:x/y.git [fetch ok]\n";
+        assert_eq!(render_repos(&[ok]), esperado);
+    }
+
+    #[test]
     fn repos_texto_sem_repositorios() {
         assert_eq!(render_repos(&[]), "Repositórios (0):\n");
     }
