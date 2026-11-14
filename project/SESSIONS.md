@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-17 reescrita (segunda cópia, não migração)
+
+- **Pedido**: seguir a P-17 (migrar o backup da chave de assinatura para o truthid). Escolha do dono: opção A, reescrever como segunda cópia.
+- **Achado (leitura do `truthid/project`)**: o Vault já existe (Fase 13, concluída, validada em hardware; guarda senhas, campos de cartão e documentos), então "quando existir" não valia mais. O storage estava em transição (IPFS para Arweave; `GitStorageProvider` em avaliação no P90) e a rotação de chave do Vault (P89) tinha correção no código mas "não validada em runtime real".
+- **Decisão**: não migrar. Migrar trocaria uma cópia única por outra, criaria dependência circular (a raiz de confiança das releases dependeria de um sistema ainda em mudança) e o Arweave é permanente (não se apaga um blob cifrado publicado). O Bitwarden fica e o Vault vira segunda cópia, com critério de pronto na P-17.
+- **Aberto**: o dono não respondeu se aceita storage permanente (Arweave) ou espera o provider Git; ficou registrado como decisão em aberto na P-17.
+- **Não verificado**: se o Vault aceita guardar o arquivo da chave como documento; restauração a partir dele; o estado atual do truthid (li só os docs, com `PENDING.md` de 2026-09-19; não abri o app nem o código).
+- **Fica**: P-17 (agora com critério), P-14, P-12, P-02, P-03; `README.md` ainda diz "pré-projeto".
+
 ### 2026-11-14 — Sessão 18, backup da chave de assinatura (P-13)
 
 - **Pedido**: o backup da chave privada, lacuna deixada na P-13. Escolha do dono: Bitwarden agora (usa o gerenciador), migrar para o truthid depois.
