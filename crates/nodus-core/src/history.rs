@@ -122,7 +122,7 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         (1, None, None) => (Action::Install, None),
         (1, _, _) => return Err(invalid("a versão 1 não tem `action` nem `undoes`")),
         (2, Some(Action::Install), None) => (Action::Install, None),
-        (2, Some(Action::Remove), Some(n)) if n >= 1 => (Action::Remove, Some(n)),
+        (2, Some(Action::Remove), Some(n)) if n >= 0 => (Action::Remove, Some(n)),
         (2, _, _) => {
             return Err(invalid(
                 "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1",
