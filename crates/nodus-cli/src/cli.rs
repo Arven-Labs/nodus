@@ -23,12 +23,14 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Mostra o que o nodus executou (hoje: cada `preset apply`), do mais antigo ao mais novo
-    /// (somente leitura).
+    /// Mostra o que o nodus executou (cada `preset apply` e cada reversão), do mais antigo ao mais
+    /// novo, com o número de cada entrada (somente leitura). `undo <n>` desfaz uma instalação.
     History {
-        /// Emite JSON em vez de texto.
+        /// Emite JSON em vez de texto (só vale para a listagem; o `undo` ignora).
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        action: Option<HistoryAction>,
     },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
     Repos {
@@ -45,6 +47,17 @@ pub enum Command {
     Preset {
         #[command(subcommand)]
         action: PresetAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HistoryAction {
+    /// Remove (`sudo pacman -Rs`) os pacotes que a entrada `n` instalou e ainda estão instalados
+    /// de propósito, depois de simular, mostrar o plano e pedir confirmação.
+    Undo {
+        /// Número da entrada, como mostrado por `nodus history` (a partir de 1).
+        #[arg(value_parser = clap::value_parser!(u32).range(1..))]
+        n: u32,
     },
 }
 

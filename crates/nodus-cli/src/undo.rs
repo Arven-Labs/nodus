@@ -1,3 +1,134 @@
+//! `nodus history undo <n>`: a segunda operação privilegiada (ADR 0011, SECURITY.md T5). Simula com
+//! o pacman, mostra o plano inteiro e o comando exato, pede confirmação (padrão N) e só então
+//! executa. O histórico não é assinado: o que barra uma linha plantada é o dono ler este plano.
+
+use crate::apply::confirm;
+use crate::process::Capture;
+use anyhow::{Context, Result, bail};
+use nodus_core::history::{ExecResult, HistoryEntry};
+use nodus_core::runner::RunnerError;
+use nodus_core::undo::{
+    check_plan_covers, entry_for_undo, parse_remove_plan, remove_command, remove_print_command,
+    select_entry, undo_candidates,
+};
+use std::io::{BufRead, Write};
+use std::path::Path;
+
+/// Quantas linhas da saída de uma simulação que falhou vão para a tela (o pacman lista uma linha por
+/// dependência quebrada: 979 com `glibc`). O stderr dele já aparece inteiro no terminal.
+const FAILED_PREVIEW_LINES: usize = 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    NothingToDo,
+    Declined,
+    Executed,
+}
+
+pub struct Request<'a> {
+    pub entries: &'a [HistoryEntry],
+    /// Número da entrada, a partir de 1.
+    pub n: u32,
+    /// `pacman -Q` (nomes).
+    pub installed: &'a [String],
+    /// `pacman -Qe` (nomes).
+    pub explicit: &'a [String],
+    /// A entrada é um terminal (sem ele não há como confirmar, e não existe "sim para tudo").
+    pub interactive: bool,
+    pub now_unix: u64,
+}
+
+/// Desfaz a entrada `n` e registra a reversão. `simulate` roda o `pacman -Rs --print` (sem root),
+/// `exec` roda o comando real com o terminal herdado e `after_installed` devolve o `pacman -Q` de
+/// depois. Só grava no histórico quando o comando de remoção chegou a rodar, mesmo que tenha falhado.
+pub fn undo(
+    req: &Request,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    simulate: impl FnOnce(&[String]) -> Result<Capture>,
+    mut exec: impl FnMut(&[String]) -> Result<()>,
+    after_installed: impl FnOnce() -> Result<Vec<String>>,
+    history_path: &Path,
+) -> Result<Outcome> {
+    let entry = select_entry(req.entries, req.n)?;
+    let candidates = undo_candidates(entry, req.installed, req.explicit);
+    for skipped in &candidates.skipped {
+        writeln!(output, "ignorado: {} ({})", skipped.name, skipped.reason)?;
+    }
+    let (Some(print_command), Some(command)) = (
+        remove_print_command(&candidates.remove),
+        remove_command(&candidates.remove),
+    ) else {
+        writeln!(
+            output,
+            "nada a desfazer: nenhum pacote da entrada pode ser removido"
+        )?;
+        return Ok(Outcome::NothingToDo);
+    };
+
+    let capture = simulate(&print_command).context("não consegui rodar a simulação do pacman")?;
+    if !capture.success {
+        let lines: Vec<&str> = capture.stdout.lines().collect();
+        for line in lines.iter().take(FAILED_PREVIEW_LINES) {
+            writeln!(output, "{line}")?;
+        }
+        if lines.len() > FAILED_PREVIEW_LINES {
+            writeln!(output, "(+{} linhas)", lines.len() - FAILED_PREVIEW_LINES)?;
+        }
+        let code = capture
+            .code
+            .map_or("sem código".to_string(), |code| code.to_string());
+        bail!("a simulação do pacman falhou (código {code}); nada foi removido");
+    }
+    let plan = parse_remove_plan(&capture.stdout)?;
+    check_plan_covers(&candidates.remove, &plan)?;
+
+    writeln!(output, "Plano da remoção (simulação do pacman):")?;
+    for removal in &plan {
+        writeln!(output, "  {} {}", removal.name, removal.version)?;
+    }
+    writeln!(output, "Comando: {}", command.join(" "))?;
+    if !req.interactive {
+        bail!(
+            "`history undo` precisa de terminal interativo para confirmar (não há modo automático)"
+        );
+    }
+    if !confirm(input, output)? {
+        writeln!(output, "Nada foi executado.")?;
+        return Ok(Outcome::Declined);
+    }
+
+    let run = exec(&command);
+    let result = match &run {
+        Ok(()) => ExecResult::Ok,
+        Err(e) => ExecResult::Failed {
+            code: match e.downcast_ref::<RunnerError>() {
+                Some(RunnerError::Failed { code, .. }) => *code,
+                _ => None,
+            },
+        },
+    };
+    let what_happened = if run.is_err() {
+        "o `sudo`/`pacman` falhou e, além disso, não consegui"
+    } else {
+        "a remoção foi feita, mas não consegui"
+    };
+    let after =
+        after_installed().with_context(|| format!("{what_happened} conferir o estado depois"))?;
+    let entry = entry_for_undo(
+        req.n,
+        &candidates.remove,
+        &after,
+        &command,
+        result,
+        req.now_unix,
+    );
+    crate::history::append(history_path, &entry)
+        .with_context(|| format!("{what_happened} gravar o histórico"))?;
+    run?;
+    Ok(Outcome::Executed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

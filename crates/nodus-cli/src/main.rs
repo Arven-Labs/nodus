@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Command, PresetAction};
+use cli::{Cli, Command, HistoryAction, PresetAction};
+use nodus_core::runner::CommandRunner;
 
 mod apply;
 mod cli;
@@ -18,7 +19,10 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Inventory { json } => inventory(json),
         Command::Updates { json } => updates(json),
-        Command::History { json } => show_history(json),
+        Command::History { json, action } => match action {
+            None => show_history(json),
+            Some(HistoryAction::Undo { n }) => history_undo(n),
+        },
         Command::Repos { dir, fetch, json } => repos(&dir, fetch, json),
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
@@ -49,6 +53,54 @@ fn show_history(json: bool) -> Result<()> {
     } else {
         print!("{}", render::render_history(&entries));
     }
+    Ok(())
+}
+
+/// Nomes dos pacotes de `pacman -Q` (todos) ou `-Qe` (instalados de propósito).
+fn pacman_names(query: &str) -> Result<Vec<String>> {
+    let output = process::RealRunner.run("pacman", &[query])?;
+    Ok(nodus_core::inventory::parse_pacman_q(&output)?
+        .into_iter()
+        .map(|package| package.name)
+        .collect())
+}
+
+fn history_undo(n: u32) -> Result<()> {
+    use std::io::IsTerminal;
+    let history_path = history_file()?;
+    let entries = history::read(&history_path)?;
+    let installed = pacman_names("-Q")?;
+    let explicit = pacman_names("-Qe")?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
+    let stdin = std::io::stdin();
+    let request = undo::Request {
+        entries: &entries,
+        n,
+        installed: &installed,
+        explicit: &explicit,
+        interactive: stdin.is_terminal(),
+        now_unix,
+    };
+    undo::undo(
+        &request,
+        &mut stdin.lock(),
+        &mut std::io::stdout(),
+        |command| {
+            let (program, args) = command.split_first().context("comando vazio")?;
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            Ok(process::run_capture(program, &args)?)
+        },
+        |command| {
+            let (program, args) = command.split_first().context("comando vazio")?;
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            Ok(process::run_interactive(program, &args)?)
+        },
+        || pacman_names("-Q"),
+        &history_path,
+    )?;
     Ok(())
 }
 

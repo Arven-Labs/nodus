@@ -2,7 +2,7 @@
 
 use nodus_core::runner::{CommandRunner, RunnerError};
 use std::io::ErrorKind;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 pub struct RealRunner;
 
@@ -32,6 +32,31 @@ pub fn run_interactive(program: &str, args: &[&str]) -> Result<(), RunnerError> 
         });
     }
     Ok(())
+}
+
+/// Resultado de um processo cuja saída padrão foi capturada, mesmo quando ele falha.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capture {
+    pub success: bool,
+    pub code: Option<i32>,
+    pub stdout: String,
+}
+
+/// Captura o stdout e deixa o stderr herdado (a mensagem do pacman aparece direto no terminal). Falhar
+/// não é erro aqui: o `pacman -Rs --print` lista no stdout as dependências quebradas (medido: 979
+/// linhas com `glibc`), e quem chama precisa ver isso junto do código de saída. `Err` só se o
+/// processo nem iniciou.
+pub fn run_capture(program: &str, args: &[&str]) -> Result<Capture, RunnerError> {
+    let output = Command::new(program)
+        .args(args)
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| spawn_error(program, e))?;
+    Ok(Capture {
+        success: output.status.success(),
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+    })
 }
 
 impl CommandRunner for RealRunner {

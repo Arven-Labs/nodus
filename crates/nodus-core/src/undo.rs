@@ -1,3 +1,209 @@
+//! Lógica pura da reversão (`nodus history undo`, ADR 0011): quais pacotes de uma entrada ainda
+//! podem sair, os comandos do pacman, a leitura do plano simulado e a entrada que a reversão grava.
+//! Sem I/O: quem consulta o pacman, pergunta e executa é a CLI. Remover pacote é classe
+//! privilegiada (SECURITY.md §4) e o histórico não é assinado (T5), então tudo que vem dele ou do
+//! pacman é validado antes de ir para a tela ou para um comando.
+
+use crate::history::{Action, ENTRY_VERSION, ExecResult, HistoryEntry};
+use crate::preset::is_valid_pacman_name;
+use std::collections::HashSet;
+use std::fmt;
+use thiserror::Error;
+
+/// Por que um pacote da entrada não entra na remoção.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipReason {
+    NotInstalled,
+    /// Está instalado, mas como dependência de outro pacote (`pacman -Qe` não o lista).
+    NotExplicit,
+}
+
+impl fmt::Display for SkipReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            SkipReason::NotInstalled => "não está instalado",
+            SkipReason::NotExplicit => "instalado como dependência, não explícito",
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Skipped {
+    pub name: String,
+    pub reason: SkipReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Candidates {
+    /// O que pode ser removido, na ordem da entrada e sem repetição.
+    pub remove: Vec<String>,
+    pub skipped: Vec<Skipped>,
+}
+
+/// Do `installed` da entrada, fica só o que segue instalado (`pacman -Q`) e foi instalado de propósito
+/// (`pacman -Qe`). Os outros campos da entrada nunca viram alvo: `still_missing` nunca foi instalado.
+pub fn undo_candidates(
+    entry: &HistoryEntry,
+    installed: &[String],
+    explicit: &[String],
+) -> Candidates {
+    let installed: HashSet<&str> = installed.iter().map(String::as_str).collect();
+    let explicit: HashSet<&str> = explicit.iter().map(String::as_str).collect();
+    let mut seen = HashSet::new();
+    let mut remove = Vec::new();
+    let mut skipped = Vec::new();
+    for name in &entry.installed {
+        if !seen.insert(name.as_str()) {
+            continue;
+        }
+        if !installed.contains(name.as_str()) {
+            skipped.push(Skipped {
+                name: name.clone(),
+                reason: SkipReason::NotInstalled,
+            });
+        } else if !explicit.contains(name.as_str()) {
+            skipped.push(Skipped {
+                name: name.clone(),
+                reason: SkipReason::NotExplicit,
+            });
+        } else {
+            remove.push(name.clone());
+        }
+    }
+    Candidates { remove, skipped }
+}
+
+/// Simulação: roda sem root e lista tudo o que sairia, inclusive dependências arrastadas (medido).
+pub fn remove_print_command(candidates: &[String]) -> Option<Vec<String>> {
+    command(
+        &["pacman", "-Rs", "--print", "--print-format", "%n %v"],
+        candidates,
+    )
+}
+
+/// Remoção real. Nunca `-n` (apaga os `.pacsave`), `-c`, `-d` nem `--noconfirm` (ADR 0011).
+pub fn remove_command(candidates: &[String]) -> Option<Vec<String>> {
+    command(&["sudo", "pacman", "-Rs"], candidates)
+}
+
+fn command(head: &[&str], candidates: &[String]) -> Option<Vec<String>> {
+    if candidates.is_empty() {
+        return None;
+    }
+    let mut command: Vec<String> = head.iter().map(|s| s.to_string()).collect();
+    command.push("--".to_string());
+    command.extend(candidates.iter().cloned());
+    Some(command)
+}
+
+/// Uma linha do plano simulado (`%n %v`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Removal {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum UndoError {
+    #[error("entrada {n} fora do intervalo (o histórico tem {len})")]
+    OutOfRange { n: u32, len: usize },
+    #[error("a entrada {0} não é uma instalação; só se desfaz instalação")]
+    NotAnInstall(u32),
+    #[error("a simulação do pacman não listou nada")]
+    EmptyPlan,
+    #[error("linha do plano fora do formato `nome versão`: {0:?}")]
+    InvalidPlanLine(String),
+    #[error("{0} não aparece no plano da simulação")]
+    MissingFromPlan(String),
+}
+
+fn is_valid_version(version: &str) -> bool {
+    !version.is_empty()
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '_' | ':' | '~' | '-'))
+}
+
+/// A saída da simulação é entrada externa e vai para a tela: cada linha é exatamente `nome versão`,
+/// com o nome pela regra do pacman e a versão em caracteres de versão (a época usa `:`).
+pub fn parse_remove_plan(stdout: &str) -> Result<Vec<Removal>, UndoError> {
+    if stdout.trim().is_empty() {
+        return Err(UndoError::EmptyPlan);
+    }
+    let body = stdout.strip_suffix('\n').unwrap_or(stdout);
+    body.split('\n')
+        .map(|line| {
+            let invalid = || UndoError::InvalidPlanLine(line.to_string());
+            let mut parts = line.split(' ');
+            match (parts.next(), parts.next(), parts.next()) {
+                (Some(name), Some(version), None)
+                    if is_valid_pacman_name(name) && is_valid_version(version) =>
+                {
+                    Ok(Removal {
+                        name: name.to_string(),
+                        version: version.to_string(),
+                    })
+                }
+                _ => Err(invalid()),
+            }
+        })
+        .collect()
+}
+
+/// Todo candidato tem de estar no plano; se não estiver, algo está errado e não se chama o `sudo`.
+pub fn check_plan_covers(candidates: &[String], plan: &[Removal]) -> Result<(), UndoError> {
+    for name in candidates {
+        if !plan.iter().any(|removal| &removal.name == name) {
+            return Err(UndoError::MissingFromPlan(name.clone()));
+        }
+    }
+    Ok(())
+}
+
+/// A entrada escolhida pelo número que `nodus history` mostra (a partir de 1).
+pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
+    let entry = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .ok_or(UndoError::OutOfRange {
+            n,
+            len: entries.len(),
+        })?;
+    if entry.action != Action::Install {
+        return Err(UndoError::NotAnInstall(n));
+    }
+    Ok(entry)
+}
+
+/// A entrada que a reversão acrescenta ao histórico. `still_installed` é o `pacman -Q` de depois:
+/// dos pedidos, o que segue instalado vai em `installed` e o que saiu em `still_missing`.
+pub fn entry_for_undo(
+    undoes: u32,
+    requested: &[String],
+    still_installed: &[String],
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    let present: HashSet<&str> = still_installed.iter().map(String::as_str).collect();
+    let (installed, still_missing): (Vec<String>, Vec<String>) = requested
+        .iter()
+        .cloned()
+        .partition(|name| present.contains(name.as_str()));
+    HistoryEntry {
+        version: ENTRY_VERSION,
+        at_unix,
+        command: command.to_vec(),
+        requested: requested.to_vec(),
+        installed,
+        still_missing,
+        result,
+        action: Action::Remove,
+        undoes: Some(undoes),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
