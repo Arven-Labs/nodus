@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 15 (P-08: distribuição e integridade, só decisão)
+
+- **Pedido**: resolver a P-08. Escolha do dono no plano: primeiro canal por **código-fonte** (AUR/cargo); binário descartado por ora.
+- **Antes**: PR #19 (P-07) mesclado em `28579c0`; os 3 checks do PR passaram. O run do CI na `main` ainda estava em andamento quando conferi.
+- **Levantamento**: não existe workflow de release, tag nem binário; o git local não assina nada (`commit.gpgsign` e `tag.gpgsign` vazios, último commit sem assinatura).
+- **Feito**: ADR 0010 (tag Git assinada por SSH, `sha256sums` no PKGBUILD, `Cargo.lock` com `--locked`, sem `self-update`, binário só com ADR novo). `SECURITY.md` T9 e §7, `PENDING.md` (P-08 resolvida; P-13 chave de assinatura e P-14 PKGBUILD abertas), `MVP.md` critério 1 e `OVERVIEW.md`. Sem código.
+- **CI**: _preencher com o resultado real do PR antes de mesclar._
+- **Não verificado**: como `makepkg` e `cargo install --tag` verificam a assinatura da tag; se o GitHub aceita a chave SSH do dono como signing key; revisão externa (nenhuma).
+- **Fica**: P-13, P-14, P-12, P-02, P-03; instalar Flatpak (formato v2); histórico e reversão (fatia 3); dotfiles; critérios 5 e 6; fechamento formal da Fase 0; conferir a aba Security (P-07).
+
 ### 2026-11-14 — Sessão 14 (P-07: política de reporte de vulnerabilidade)
 
 - **Pedido**: resolver a P-07. Escolhas do dono no plano: private vulnerability reporting (PVR) do GitHub como canal (e-mail descartado); `SECURITY.md` em inglês curto; melhor esforço, sem SLA.
