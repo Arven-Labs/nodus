@@ -140,8 +140,14 @@ pub fn render_repos(repos: &[RepoStatus]) -> String {
                 let _ = write!(out, " sem origin");
             }
         }
-        if let Some(FetchResult::Failed(motivo)) = &repo.fetch {
-            let _ = write!(out, " [fetch falhou: {motivo}]");
+        match &repo.fetch {
+            Some(FetchResult::Done) => {
+                let _ = write!(out, " [fetch ok]");
+            }
+            Some(FetchResult::Failed(motivo)) => {
+                let _ = write!(out, " [fetch falhou: {motivo}]");
+            }
+            None => {}
         }
         let _ = writeln!(out);
     }
