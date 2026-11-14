@@ -1,6 +1,7 @@
 //! Núcleo do nodus. Por enquanto só expõe a versão; o domínio entra nos próximos marcos da Fase 1.
 
 pub mod inventory;
+pub mod preset;
 pub mod repos;
 pub mod runner;
 pub mod updates;

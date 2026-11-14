@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-13 — Sessão 12 (Fase 1: preset, fatia 1, `init` e `plan` só leitura)
+
+- **Pedido**: começar o preset (critérios 3, 4 e 9). Escolhas do dono no plano: fatia 1 só com pacotes e só leitura (execução na fatia 2); formato TOML; `init` com os explícitos (`pacman -Qe`) e os apps Flatpak; `init` avisa na saída de erro quando falta o Flatpak.
+- **Antes**: PR #16 (P-11) mesclado em `6402f21`; `CI` (com `cargo-deny`) e `CI Private Files` verdes na `main`.
+- **Medição (etapa 0)**: `pacman -Qe` sai no mesmo formato `nome versão` do `-Q` (154 explícitos contra 1244 no total, exit 0), e todos os nomes reais batem com a regra de validação; nenhum app Flatpak instalado na máquina.
+- **Feito**: `nodus-core/src/preset.rs` (`Preset`, `parse_preset` com `deny_unknown_fields`, `version = 1` obrigatório e validação de nomes, `to_toml` com um nome por linha, `preset_from_machine`, `plan` puro, `collect_plan`); `read_flatpak_apps` extraído de `inventory::collect` sem mudar comportamento; CLI `preset init` e `preset plan <arquivo> [--json]`, `preset_file.rs` (limite de 1 MiB lido com `take`), `render_plan` e `init_warning`. Dependência nova: `toml` 1.2.1 (só no core; o dono atualizou o lock com `cargo metadata`, que só adicionou os 9 pacotes da árvore do `toml`).
+- **CI (resultado real, PR #17)**: commit 1 (só testes) falhou por erro de compilação (`parse_preset`, `plan`, `read_preset`, `render_plan`, `PresetAction` e outros inexistentes), com o `cargo-deny` já verde com o `toml`; commit 2 passou de primeira (111 no core, 58 na CLI, clippy limpo). Mutação dupla: `plan` com `-Qe` falhou 2 testes (`plan_da_maquina_considera_todos_os_pacotes_instalados`, `falha_do_pacman_vira_erro`); **aceitar `-` no começo do nome não foi pego**, porque `-Rns` e `--overwrite=*` já eram recusados por maiúscula e `=`. Acrescentei `--noconfirm` e `-rdd` ao teste ainda com a mutação aplicada, e o CI falhou com `"--noconfirm" deveria ser recusado`; depois as mutações foram revertidas e o CI voltou ao verde.
+- **Achado de passagem**: o `cargo metadata` baixou `ntapi` e `objc2*`, e as licenças deles, que tinham ficado sem conferência na P-11, cabem no `allow` (anotado no `PENDING.md`).
+- **Não verificado**: `init` e `plan` no Arch real (falta o dono rodar `init > /tmp/p.toml`, `plan /tmp/p.toml`, que deve dar plano vazio, e o mesmo com um pacote inexistente acrescentado); a regra exata de ID do Flatpak (aceito 2 segmentos ou mais, e o Flatpak pode exigir 3); app Flatpak real no `init` (não há nenhum instalado); repositório `[ignored]`/`IgnorePkg` e grupos de pacotes no preset.
+- **Fica**: fatia 2 (executar o plano: `sudo pacman -S` e `flatpak install`, classe privilegiada, confirmação por operação); dotfiles; critérios 5, 6 e 10; P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+
 ### 2026-11-13 — Sessão 11 (P-11: `cargo-deny` no CI)
 
 - **Pedido**: resolver a P-11 (ADR 0007, item 5). Escolhas do dono no plano: `EmbarkStudios/cargo-deny-action@v2` (descartados `taiki-e/install-action` e `cargo install`); job separado e **não obrigatório** no ruleset, porque os avisos do RustSec podem ficar vermelhos sem o código mudar.

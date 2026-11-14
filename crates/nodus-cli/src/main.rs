@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Command};
+use cli::{Cli, Command, PresetAction};
 
 mod cli;
 mod discovery;
 mod hardware;
+mod preset_file;
 mod process;
 mod render;
 
@@ -13,7 +14,33 @@ fn main() -> Result<()> {
         Command::Inventory { json } => inventory(json),
         Command::Updates { json } => updates(json),
         Command::Repos { dir, fetch, json } => repos(&dir, fetch, json),
+        Command::Preset { action } => match action {
+            PresetAction::Init => preset_init(),
+            PresetAction::Plan { file, json } => preset_plan(&file, json),
+        },
     }
+}
+
+fn preset_init() -> Result<()> {
+    let machine = nodus_core::preset::preset_from_machine(&process::RealRunner)?;
+    if let Some(aviso) = render::init_warning(machine.flatpak_installed) {
+        eprintln!("{aviso}");
+    }
+    print!("{}", nodus_core::preset::to_toml(&machine.preset));
+    Ok(())
+}
+
+fn preset_plan(file: &std::path::Path, json: bool) -> Result<()> {
+    let text = preset_file::read_preset(file)?;
+    let preset = nodus_core::preset::parse_preset(&text)
+        .with_context(|| format!("lendo {}", file.display()))?;
+    let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+    } else {
+        print!("{}", render::render_plan(&plan));
+    }
+    Ok(())
 }
 
 fn repos(dir: &std::path::Path, fetch: bool, json: bool) -> Result<()> {

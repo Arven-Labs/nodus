@@ -1,6 +1,7 @@
 //! Formatação do inventário para o terminal.
 
 use nodus_core::inventory::Inventory;
+use nodus_core::preset::Plan;
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
@@ -154,6 +155,45 @@ pub fn render_repos(repos: &[RepoStatus]) -> String {
     out
 }
 
+pub fn render_plan(plan: &Plan) -> String {
+    let mut out = String::from("Plano (nada foi executado):\n");
+    let _ = writeln!(
+        out,
+        "Pacman (instalar {}, já presentes {}):",
+        plan.pacman_missing.len(),
+        plan.pacman_present
+    );
+    for name in &plan.pacman_missing {
+        let _ = writeln!(out, "  {name}");
+    }
+    if plan.flatpak_installed {
+        let _ = writeln!(
+            out,
+            "Flatpak (instalar {}, já presentes {}):",
+            plan.flatpak_missing.len(),
+            plan.flatpak_present
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "Flatpak não instalado (apps do preset: {}):",
+            plan.flatpak_missing.len()
+        );
+    }
+    for id in &plan.flatpak_missing {
+        let _ = writeln!(out, "  {id}");
+    }
+    if plan.is_empty() {
+        out.push_str("Nada a fazer: a máquina já está como o preset.\n");
+    }
+    out
+}
+
+/// Aviso do `preset init` (vai para a saída de erro, para não sujar o TOML redirecionado).
+pub fn init_warning(flatpak_installed: bool) -> Option<&'static str> {
+    (!flatpak_installed).then_some("aviso: Flatpak não instalado; o preset saiu sem apps Flatpak")
+}
+
 /// Bytes em GiB (base 1024) com uma casa decimal.
 fn gib(bytes: u64) -> String {
     format!("{:.1} GiB", bytes as f64 / (1u64 << 30) as f64)
@@ -163,6 +203,7 @@ fn gib(bytes: u64) -> String {
 mod tests {
     use super::*;
     use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
+    use nodus_core::preset::Plan;
     use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
 
     fn inventario(os_version: Option<&str>) -> Inventory {
@@ -323,6 +364,49 @@ mod tests {
         ok.fetch = Some(FetchResult::Done);
         let esperado = "Repositórios (1):\n  d main 1a2b3c4 origin/main (à frente 1, atrás 2) git@github.com:x/y.git [fetch ok]\n";
         assert_eq!(render_repos(&[ok]), esperado);
+    }
+
+    fn plano(pacman: &[&str], flatpak: &[&str], flatpak_installed: bool) -> Plan {
+        Plan {
+            pacman_missing: pacman.iter().map(|s| s.to_string()).collect(),
+            pacman_present: 2,
+            flatpak_missing: flatpak.iter().map(|s| s.to_string()).collect(),
+            flatpak_present: 1,
+            flatpak_installed,
+        }
+    }
+
+    #[test]
+    fn plano_texto_com_faltantes() {
+        let esperado = "Plano (nada foi executado):\nPacman (instalar 2, já presentes 2):\n  zsh\n  neovim\nFlatpak (instalar 1, já presentes 1):\n  org.a.B\n";
+        assert_eq!(
+            render_plan(&plano(&["zsh", "neovim"], &["org.a.B"], true)),
+            esperado
+        );
+    }
+
+    #[test]
+    fn plano_texto_vazio_diz_que_nada_a_fazer() {
+        let esperado = "Plano (nada foi executado):\nPacman (instalar 0, já presentes 2):\nFlatpak (instalar 0, já presentes 1):\nNada a fazer: a máquina já está como o preset.\n";
+        assert_eq!(render_plan(&plano(&[], &[], true)), esperado);
+    }
+
+    #[test]
+    fn plano_texto_sem_flatpak_instalado() {
+        let mut p = plano(&[], &["org.a.B"], false);
+        p.flatpak_present = 0;
+        assert!(
+            render_plan(&p).ends_with("Flatpak não instalado (apps do preset: 1):\n  org.a.B\n")
+        );
+    }
+
+    #[test]
+    fn aviso_do_init_so_quando_falta_o_flatpak() {
+        assert_eq!(
+            init_warning(false),
+            Some("aviso: Flatpak não instalado; o preset saiu sem apps Flatpak")
+        );
+        assert_eq!(init_warning(true), None);
     }
 
     #[test]
