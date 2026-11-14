@@ -1,6 +1,6 @@
 # nodus: Estado do Projeto
 
-> Última atualização: 2026-11-12 (Fase 1, marco 4: apps Flatpak no `nodus inventory`)
+> Última atualização: 2026-11-14 (Fase 1, marco 6: `nodus repos` validado no Arch real)
 
 ## Como usar este arquivo
 

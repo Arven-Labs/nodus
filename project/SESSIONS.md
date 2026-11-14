@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 10 (validação real do `nodus repos`)
+
+- **Pedido**: rodar o `nodus repos` no Arch real e comparar com `git branch -vv` (pendência da sessão 9).
+- **Antes**: PR #14 mesclado, `main` em `cce849e`, sem PR aberto, 0 alertas do Dependabot.
+- **Feito**: rodei o binário já compilado (`target/debug/nodus`, de 13/11 12:15, logo após `cce849e`; nada compilado localmente, ADR 0009 do workspace) com `nodus repos .` na raiz do workspace, sem `--fetch`. Nenhum código mudou.
+- **Resultado real**: 9 repos listados; branch, hash curto, upstream, à frente/atrás (0/0 nos 9) e URL de origem batem com `git branch -vv`. Exit code 0.
+- **Observação (decisão de escopo, não é bug)**: só o branch atual aparece. Branches locais extras (`spike/busca`, `spike/nextjs` no polis; `arca-secret-class` no warden, com upstream `gone`) não são listados.
+- **Não verificado**: `--fetch` com rede real; repo com à frente/atrás diferente de 0; repo hostil real (só os 10 vetores do spike); o binário não foi provado idêntico ao `main` por build reproduzível (só pela data).
+- **Fica**: decidir se o critério 7 deve listar branches extras e upstream `gone`; `--fetch` real; preset e o resto do MVP; P-11, P-12, P-02, P-03, P-07, P-08; `pacman -Qu` = 1 numa máquina em dia; fallback sem `pacman-contrib`; fechamento formal da Fase 0.
+
 ### 2026-11-13 — Sessão 9, continuação (Fase 1, marco 6: `nodus repos`)
 
 - **Pedido**: critério 7 do MVP. Escolhas do dono no plano: `fetch` só com `--fetch`; descoberta só em filhos diretos; ambiente por `env VAR=... git ...` (sem mexer no `CommandRunner`); mensagem de erro genérica no repo com `git` falhando (sem capturar stderr); repos ignorados (symlink, `.git` arquivo, nome com controle) em silêncio.
