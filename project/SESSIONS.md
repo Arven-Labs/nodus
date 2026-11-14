@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-13 — Sessão 13 (Fase 1: preset, fatia 2, `preset apply` do pacman)
+
+- **Pedido**: executar o plano do preset (critérios 4 e 9), a primeira operação privilegiada do nodus. Escolhas do dono no plano: só pacman (Flatpak fica para o formato v2, com remote e escopo); confirmação do nodus **e** a do pacman; histórico e reversão (critério 10) numa fatia própria.
+- **Antes**: PR #17 (fatia 1) mesclado em `ecb315b`, CI verde na `main` e verificado no Arch (ver a sessão 12).
+- **Feito**: `pacman_install_command` no core (`sudo pacman -S --needed -- <faltantes>`; nunca `--noconfirm` nem `-y`); `apply.rs` na CLI (`confirm`, que só aceita `s`/`sim` e trata vazio e fim da entrada como não; `apply`, com o executor como closure, sem trait); `run_interactive` em `process.rs` (terminal herdado, só o status); `preset apply <arquivo>`, que recusa sem terminal interativo e recalcula o plano depois de executar. Sem dependência nova. `SECURITY.md` §4 registra o que foi implementado.
+- **CI (resultado real, PR #18)**: commit 1 (só testes) falhou por erro de compilação (`Outcome`, `confirm`, `apply`, `run_interactive`, `pacman_install_command` e a variante `Apply` inexistentes); commit 2 passou de primeira (114 no core, 74 na CLI). Mutação tripla, as três pegas por testes diferentes: resposta vazia confirmando (`qualquer_outra_resposta_e_nao`, `recusado_nao_executa`, `fim_da_entrada_e_recusa`); comando sem `--` (`comando_de_instalacao_e_exato`, `confirmado_executa_o_comando_exato_uma_vez`); plano vazio gerando comando (`sem_pacote_faltando_nao_ha_comando`, `plano_vazio_nao_pergunta_nem_executa`, `so_flatpak_faltando_avisa_e_nao_executa`). Revertida em commit próprio.
+- **Não verificado**: **a execução real** (`sudo` e `pacman` não existem no CI; os testes cobrem o comando montado, a confirmação e o fluxo com um executor falso). Falta o dono, no Arch e com um pacote pequeno que não esteja instalado: `apply` respondendo `n` (nada instalado), `apply` respondendo `s` (instala, e o "Depois" dá "Nada a fazer"), `apply` de novo ("Nada a fazer" sem perguntar nem pedir senha) e `sudo pacman -Rns <pacote>` para desfazer. Também sem prova: recusa no `[Y/n]` do pacman e banco do pacman travado (os dois devem virar erro com código).
+- **Fica**: verificar no Arch; instalar Flatpak (formato v2); histórico e reversão (fatia 3, critério 10); dotfiles; critérios 5 e 6; P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+
 ### 2026-11-13 — Sessão 12 (Fase 1: preset, fatia 1, `init` e `plan` só leitura)
 
 - **Pedido**: começar o preset (critérios 3, 4 e 9). Escolhas do dono no plano: fatia 1 só com pacotes e só leitura (execução na fatia 2); formato TOML; `init` com os explícitos (`pacman -Qe`) e os apps Flatpak; `init` avisa na saída de erro quando falta o Flatpak.
@@ -12,6 +21,7 @@ Mais recente no topo.
 - **Achado de passagem**: o `cargo metadata` baixou `ntapi` e `objc2*`, e as licenças deles, que tinham ficado sem conferência na P-11, cabem no `allow` (anotado no `PENDING.md`).
 - **Não verificado**: `init` e `plan` no Arch real (falta o dono rodar `init > /tmp/p.toml`, `plan /tmp/p.toml`, que deve dar plano vazio, e o mesmo com um pacote inexistente acrescentado); a regra exata de ID do Flatpak (aceito 2 segmentos ou mais, e o Flatpak pode exigir 3); app Flatpak real no `init` (não há nenhum instalado); repositório `[ignored]`/`IgnorePkg` e grupos de pacotes no preset.
 - **Fica**: fatia 2 (executar o plano: `sudo pacman -S` e `flatpak install`, classe privilegiada, confirmação por operação); dotfiles; critérios 5, 6 e 10; P-12, P-02, P-03, P-07, P-08; fechamento formal da Fase 0.
+- **Verificado depois da mesclagem (PR #17, `ecb315b`)**: CI da `main` verde. O dono compilou (`CARGO_TARGET_DIR` em `/tmp`, apagado depois) e rodou no Arch real: `preset init > /tmp/p.toml` saiu com 154 pacotes (igual a `pacman -Qe | wc -l`), cabeçalho e um nome por linha, e `flatpak = []` **sem aviso**, o que está correto (o Flatpak está instalado, só não tem apps; minha previsão de que avisaria estava errada); `preset plan` deu `instalar 0, já presentes 154` e "Nada a fazer"; com `pacote-que-nao-existe` acrescentado, `instalar 1, já presentes 154`, só ele listado. Continuam **sem prova**: app Flatpak real, o caminho "Flatpak não instalado" numa máquina real, a regra exata de ID do Flatpak, `IgnorePkg` e grupos.
 
 ### 2026-11-13 — Sessão 11 (P-11: `cargo-deny` no CI)
 
