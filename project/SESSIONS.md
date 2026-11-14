@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, backup da chave de assinatura (P-13)
+
+- **Pedido**: o backup da chave privada, lacuna deixada na P-13. Escolha do dono: Bitwarden agora (usa o gerenciador), migrar para o truthid depois.
+- **Feito**: o dono guardou a chave no Bitwarden e restaurou num terminal. Só docs: `PENDING.md` (P-13 atualizada, P-17 nova). A chave privada nunca passou pela conversa.
+- **Medido (rodado pelo dono)**: a 1ª cópia só tinha o corpo da chave, sem as linhas `BEGIN` e `END` (6 linhas, 394 bytes; o original tem 8 linhas, 464 bytes), e o `ssh-keygen -l` deu `not a public key file`. Com as bordas, `-l` deu o fingerprint esperado e `ssh-keygen -y` (pede a passphrase) devolveu a chave pública do README.
+- **Achado**: o `-l` lê só a parte pública, sem cifra; ele sozinho não prova que a privada chegou inteira. O `-y` com a passphrase é o teste que vale.
+- **Percalço**: `cat > arquivo` com `!` não tem entrada interativa e ficou preso; o dono saiu com Ctrl+C. Meu diagnóstico com `tail -1` imprimiu um trecho do corpo cifrado da chave (sem as bordas a última linha não era texto fixo); sem risco prático, mas não repetir.
+- **Não verificado**: se o item do Bitwarden foi corrigido para guardar as bordas (o dono disse "tudo certo"); recuperação da conta do Bitwarden; qualquer cópia fora dele.
+- **Fica**: P-17, P-14, P-12, P-02, P-03; `README.md` ainda diz "pré-projeto"; primeira tag só depois do MVP.
+
 ### 2026-11-14 — Sessão 18, P-13 (chave de assinatura de tags)
 
 - **Pedido**: resolver a P-13 antes da primeira tag (ADR 0010). Escolhas do dono: chave nova só para assinar (não reusar a do GitHub); o dono roda os comandos de chave e eu guio.
