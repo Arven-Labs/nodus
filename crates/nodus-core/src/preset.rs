@@ -114,7 +114,7 @@ fn validate(
 /// Regra de nome do pacman (`PKGBUILD(5)`): `[a-z0-9@._+-]`, sem começar por `-` ou `.`.
 fn is_valid_pacman_name(name: &str) -> bool {
     let allowed = |c: char| matches!(c, 'a'..='z' | '0'..='9' | '@' | '.' | '_' | '+' | '-');
-    !name.is_empty() && !name.starts_with('.') && name.chars().all(allowed)
+    !name.is_empty() && !name.starts_with(['-', '.']) && name.chars().all(allowed)
 }
 
 /// ID de app Flatpak: segmentos `[A-Za-z0-9_-]` separados por `.`, pelo menos 2, nenhum vazio
@@ -194,7 +194,7 @@ fn split_missing(wanted: &[String], have: &HashSet<&str>) -> (Vec<String>, usize
 /// Plano contra a máquina. Usa `pacman -Q` (todos), não `-Qe`: pacote que veio como dependência
 /// também está presente, e contá-lo como faltante quebraria a idempotência.
 pub fn collect_plan(runner: &dyn CommandRunner, preset: &Preset) -> Result<Plan, MachineError> {
-    let installed = read_pacman(runner, "-Qe")?;
+    let installed = read_pacman(runner, "-Q")?;
     let apps = read_flatpak_apps(runner)?;
     Ok(plan(preset, &installed, apps.as_deref()))
 }
