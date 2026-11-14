@@ -91,7 +91,6 @@ fn command(head: &[&str], candidates: &[String]) -> Option<Vec<String>> {
         return None;
     }
     let mut command: Vec<String> = head.iter().map(|s| s.to_string()).collect();
-    command.push("--".to_string());
     command.extend(candidates.iter().cloned());
     Some(command)
 }
