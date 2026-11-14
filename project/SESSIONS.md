@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, continuação (fatia 4, PR 2 de 2: `nodus history undo <n>`)
+
+- **Pedido**: o comando privilegiado do ADR 0011. Escolhas do dono: stderr por função nova em `process.rs`; 5 linhas de saída quando a simulação falha; `--json` ignorado no `undo`. PR #24 (formato v2) já mesclado.
+- **Etapa 0 (medição, dono rodou `preset apply` e eu li o resto)**: `abi-dumper` arrasta `ctags` e `vtable-dumper`; `-Rs --print` lista os 3 (ADR 0011 item 5 confirmado). Achado: com dependência quebrada as 979 linhas saem no **stdout**, não no stderr; o desenho do ADR (stdout capturado, stderr herdado) escondia o motivo, então a CLI mostra 5 linhas do stdout e `(+N linhas)`. Versão com época (`1:6.2.1-1`).
+- **Feito**: `nodus-core/src/undo.rs` (candidatos, comandos, parser do plano, `entry_for_undo`), `nodus-cli/src/undo.rs` (orquestração), `process::run_capture`, subcomando `history undo <n>`. Sem dependência nova.
+- **CI (resultado real, PR #25)**: commit 1 (só testes) falhou por erro de compilação (módulos inexistentes); commit 2 passou de primeira. Mutação 1 (tirar o `--` dos comandos) falhou 5 testes (2 + 3); mutação 2 (ignorar `-Qe`) falhou 2 (1 + 1); ambas revertidas em commits próprios.
+- **Não verificado**: a **remoção real** pelo `history undo` no Arch (precisa de terminal interativo; o `!` do prompt não serve); banco do pacman travado; `--json` junto de `undo` é aceito e ignorado; o `-Rs` real remove o que o `--print` listou (assumido).
+- **Fica**: verificação real do `undo` com `abi-dumper` (instalado agora, é o pacote de teste); Flatpak no `preset apply`; decisão sobre listar branches extras no `repos`; P-13, P-14, P-12, P-02, P-03; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18 (fatia 4, PR 1 de 2: histórico v2 e número de linha)
 
 - **Pedido**: começar o `history undo` (ADR 0011). Escolhas do dono no plano: 2 PRs (formato primeiro, comando privilegiado depois); stderr da simulação por função nova em `process.rs` (vale para o PR 2). Aceitou gravar instalações também em v2.

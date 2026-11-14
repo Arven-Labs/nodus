@@ -17,7 +17,7 @@ Medido em 2026-11-14 (pacman 7.1.0, Arch, só leitura):
 ## Decisão
 1. **Comando (a implementar na fatia 4):** `nodus history undo <n>`, com `n` o número da linha mostrado por `nodus history`. Uma entrada por vez; não existe "desfazer tudo".
 2. **Candidatos à remoção** = pacotes de `installed` da entrada **que ainda estão instalados** (`pacman -Q`), **com razão de instalação explícita** (`pacman -Qe`) e com nome válido pela regra do pacman. O que cair fora aparece como `ignorado: <motivo>`. Sem candidatos: "nada a desfazer", sem `sudo`.
-3. **Plano = resultado real da simulação:** `pacman -Rs --print --print-format '%n %v' -- <candidatos>`, que roda sem root e lista tudo o que sairia, inclusive dependências arrastadas. Se a simulação falhar (dependência quebrada, alvo inexistente), o nodus mostra a mensagem do pacman e **para, sem chamar o `sudo`**.
+3. **Plano = resultado real da simulação:** `pacman -Rs --print --print-format '%n %v' -- <candidatos>`, que roda sem root e lista tudo o que sairia, inclusive dependências arrastadas. Se a simulação falhar (dependência quebrada, alvo inexistente), o nodus **para, sem chamar o `sudo`**. Emenda da fatia 4 (medida): o stderr do pacman fica herdado (aparece no terminal), mas a lista de dependências quebradas sai no **stdout** (979 linhas com `glibc`), então o nodus captura o stdout e mostra só as 5 primeiras linhas e `(+N linhas)`. O plano é lido linha a linha (`nome versão`, com época na versão) e todo candidato tem de aparecer nele.
 4. **Execução:** `sudo pacman -Rs -- <candidatos>`, com o comando exato à vista e `Executar? [s/N]` do nodus (só `s`/`sim`), depois o `[Y/n]` do próprio pacman. Sem terminal interativo, recusa. **Nunca** `-n` (apagaria os `.pacsave`, único rastro das configurações do pacote), `-c` (cascata), `-d`/`-dd` (ignora dependências) nem `--noconfirm`.
 5. **Dependências que vieram junto na instalação:** a fatia 3 não as registrou. O `-Rs` remove apenas as que ficam sem uso e não são explícitas; o que outro pacote passou a usar fica. Essa semântica de `-s` vem do conhecimento do pacman, **não** foi medida aqui (ver "Não verificado").
 6. **Registro, sempre acrescentando:** a reversão grava uma **entrada nova** (formato `version = 2`, com `action = "remove"` e `undoes = <n>`); `version = 1` continua sendo lida como instalação. Nenhuma linha existente é editada. Falha do `sudo`/`pacman` também é gravada, como na fatia 3.
@@ -38,8 +38,19 @@ Medido em 2026-11-14 (pacman 7.1.0, Arch, só leitura):
 - `nodus history` passa a mostrar o número de cada linha (necessário para `undo <n>`).
 - A segurança contra histórico adulterado continua dependendo de o dono ler o plano. Isso fica registrado em `SECURITY.md` (T5), não escondido.
 
+## Medido na fatia 4 (2026-11-14, pacman 7.1.0, só leitura)
+Pacote de teste `abi-dumper` (explícito), instalado com `nodus preset apply`; `ctags` e `vtable-dumper` vieram como dependência (`pacman -Qi`: "Installed as a dependency").
+
+| Caso | Resultado |
+|---|---|
+| `-Rs --print --print-format '%n %v' -- abi-dumper` | exit 0, 3 linhas: `abi-dumper 1.4-2`, `vtable-dumper 1.2-3`, `ctags 1:6.2.1-1` (a época usa `:`) |
+| 2 alvos válidos | exit 0, união sem duplicata |
+| alvo repetido, ou alvo que é dependência de outro alvo | exit 0, deduplicado |
+| um válido + `glibc` | exit 1; 979 linhas `removing glibc breaks dependency …` no **stdout**, 1 linha no stderr |
+| um válido + pacote inexistente | exit 1; `error: target not found` só no stderr, stdout vazio |
+
 ## Não verificado
-- **Semântica exata de `-s`:** "remove também as dependências que ninguém mais usa e que não foram instaladas explicitamente". Vem do conhecimento do pacman; a man page não está instalada nesta máquina. A fatia 4 deve medir com um pacote real que tenha dependência (instalar com `preset apply`, depois `pacman -Rs --print` e a remoção) e conferir o que sai.
-- A simulação `--print` foi medida só com um pacote sem dependências e com os casos de erro; **não** com um alvo que arrasta dependências órfãs.
-- Como a simulação se comporta com vários alvos de uma vez e com o banco do pacman travado por outra execução.
+- A **remoção real** com dependência órfã (`sudo pacman -Rs`): só a simulação foi medida; a verificação real pelo `history undo` fica para depois do merge.
+- Como a simulação se comporta com o banco do pacman travado por outra execução.
+- O `-Rs` real remove exatamente o que o `--print` listou: assumido (mesmo resolvedor), não comparado.
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.
