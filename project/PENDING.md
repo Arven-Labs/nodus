@@ -20,6 +20,6 @@ Decisões em aberto. Marque como resolvida citando o ADR.
 | P-04 | Monorepo vs múltiplos repos | ADR 0006: monorepo com Cargo workspace |
 | P-06 | Libs e licenças | `LIBS.md` e ADR 0007: Rust confirmado; pacman e Flatpak por processo externo (`alpm` é GPL-3.0); Git por processo externo isolado (P-09, ADR 0009) |
 | P-10 | Spike de parsing de `pacman` e `flatpak` | ADR 0008 e amostras em `crates/nodus-core/tests/fixtures/`; `alpm-types` fora do MVP. Lacunas: nenhum app Flatpak medido, sem `pt_BR`, exit code sem atualizações não medido |
-| P-11 | `cargo-deny` no CI | Job `cargo-deny` (não obrigatório) e `deny.toml` com `allow = MIT, Apache-2.0, Unicode-3.0`; ver `LIBS.md`. Lacuna: a regra de avisos depende da base do RustSec do dia |
+| P-11 | `cargo-deny` no CI | Job `cargo-deny` (não obrigatório) e `deny.toml` com `allow = MIT, Apache-2.0, Unicode-3.0`; ver `LIBS.md`. Lacuna: a regra de avisos depende da base do RustSec do dia. As licenças de `ntapi` e `objc2*` foram conferidas no registry em 2026-11-13 (MIT, Apache-2.0 ou Zlib, sempre com MIT ou Apache como opção) |
 | P-09 | Spike do Git isolado | ADR 0009 e `project/spikes/p09-git/medir.sh`: `git` CLI isolado, só refs (sem `git status`). Lacunas: `credential.helper` não medido, `pre-auto-gc` não disparou, vetores e versões não listados |
 | P-05 | Modelo de ameaças e permissões | `SECURITY.md` (escopo MVP local); lacunas viraram P-07 e P-08 |

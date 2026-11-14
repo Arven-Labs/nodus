@@ -11,7 +11,7 @@ Critério: (1) licença compatível com MIT (ADR 0002); (2) publicada nos últim
 | Necessidade (MVP.md) | Candidata | Versão | Licença | Última publicação | Veredito |
 |---|---|---|---|---|---|
 | CLI | `clap` | 4.6.7 | MIT OR Apache-2.0 | 2026-09 | Adotar |
-| Preset e serialização | `serde`, `toml` | 1.0.229 / 1.2.1 | MIT OR Apache-2.0 | 2026-07 / 2026-11 | Adotar |
+| Preset e serialização | `serde`, `toml` | 1.0.229 / 1.2.1 | MIT OR Apache-2.0 | 2026-07 / 2026-11 | `serde` adotado no marco 2; `toml` adotado na fatia 1 do preset (1.2.1+spec-1.1.0, só no `nodus-core`, features padrão; o lock ganhou 9 pacotes da árvore do `toml`, todos MIT ou Apache-2.0, aceitos pelo `cargo-deny`) |
 | Saída `--json` (contrato da CLI, marco 2) | `serde_json` | 1.0.154 (`Cargo.lock`) | MIT OR Apache-2.0 | 2026-10 | Adotada no marco 2, fora do levantamento original; licença e data conferidas no crates.io em 2026-11-12 (só metadados) |
 | Erros | `thiserror`, `anyhow` | 2.0.21 / 1.0.104 | MIT OR Apache-2.0 | 2026-09 / 2026-07 | Adotar |
 | Estado e histórico locais (critério 10) | `rusqlite` | 0.42.0 | MIT | 2026-11 | Adotar, a confirmar no spike |
