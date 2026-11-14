@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-14 opção 1 medida (`prepare()` com `git verify-tag`)
+
+- **Pedido**: seguir a P-14; o dono disse "p14". Medi a opção 1, a recomendada e ainda sem medição.
+- **Medido** (PKGBUILD de teste em `/tmp`, `git+file://`, chaves descartáveis, `makepkg --nobuild --nodeps`, script no scratchpad; makepkg 7.1.0, git 2.56.0): tag da chave confiada, `prepare()` passa e o `HEAD` confere, exit 0; tag de outra chave, `No principal matched`, exit 4; tag sem assinatura, `no signature found`, exit 4. Diretório temporário apagado pelo script.
+- **Achado**: a opção 1 verifica de verdade, mas `makepkg --noprepare` pula o `prepare()` (confirmado em `makepkg --help`) e `--verifysource` sozinho não verifica; o `?signed` nativo não tem esse furo, mas não aceita a chave SSH. A raiz de confiança fica no PKGBUILD do AUR.
+- **Percalço**: a 1ª versão do script tinha dois defeitos (o `PIPESTATUS` dentro do subshell não devolvia o exit do `makepkg`, e um caso de "desvio de commit" que eu não montava de fato); corrigi antes de rodar. O caso de desvio ficou sem teste, pois o `makepkg` faz checkout da própria tag.
+- **Feito**: só docs, `PENDING.md` (P-14). A decisão do ADR 0010 não mudou; a escolha entre as 3 opções segue com o dono.
+- **Não verificado**: contra o GitHub (clone local), AUR helper, outras versões do `makepkg`; o PKGBUILD real; a opção 2 (GPG) não foi medida (o controle GPG da medição anterior mostra que o `?signed` nativo funciona com ela).
+- **Fica**: P-14 (decidir; PKGBUILD real só depois do MVP), P-17 (bloqueada), P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, P-14 medida (`makepkg` e tag SSH)
 
 - **Pedido**: seguir a P-14 depois do achado por leitura de código; fiz a etapa 0 (medir). O dono disse só "p14"; assumi que era o aval para medir, já que eu tinha avisado que pediria aprovação, e o prompt de permissão do `Bash` cobriu a execução.
