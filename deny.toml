@@ -5,4 +5,4 @@
 [licenses]
 # Mínimo que cobre o Cargo.lock: o `unicode-ident` exige Unicode-3.0 (com AND); Zlib e Unlicense
 # só aparecem em OR com MIT, então não precisam entrar.
-allow = ["MIT", "Apache-2.0"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
