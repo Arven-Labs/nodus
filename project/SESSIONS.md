@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-17 (decisão: esperar o provider Git)
+
+- **Pedido**: a decisão que ficou em aberto na P-17, storage permanente ou deletável para a segunda cópia da chave. Opções apresentadas: esperar o provider Git, Arweave agora, ou pendrive offline sem truthid. O dono escolheu a 1 (esperar o provider Git).
+- **Feito**: só docs, `PENDING.md` (P-17 bloqueada até o `GitStorageProvider` do truthid existir, critério 3 reescrito).
+- **Motivo**: um blob publicado no Arweave não se apaga, e a chave é a raiz de confiança das releases sem rotação desenhada; uma passphrase fraca ou vazada não teria remédio. O blob estaria cifrado duas vezes (passphrase da chave e chave do Vault), o que reduz o risco, mas não medi quanto nem auditei o Vault.
+- **Não verificado**: o estado atual do provider Git no truthid (só li os docs); o Vault aceitar o arquivo da chave.
+- **Fica**: P-17 (bloqueada), P-14, P-12, P-02, P-03; `README.md` ainda diz "pré-projeto". A chave segue com uma cópia só, no Bitwarden.
+
 ### 2026-11-14 — Sessão 18, P-17 reescrita (segunda cópia, não migração)
 
 - **Pedido**: seguir a P-17 (migrar o backup da chave de assinatura para o truthid). Escolha do dono: opção A, reescrever como segunda cópia.
