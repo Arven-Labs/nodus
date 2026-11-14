@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 17 (P-15: semântica da reversão, só decisão)
+
+- **Pedido**: resolver a P-15. Escolhas do dono no plano: só a decisão em ADR agora, com o código (`history undo`) no PR seguinte; validação por confirmar + simular + só o que o nodus instalou (sem cruzar com o `pacman.log`).
+- **Antes**: PR #21 (fatia 3) mesclado em `c24d184`; CI da `main` verde.
+- **Medido (pacman 7.1.0, só leitura)**: `pacman -Rs --print --print-format '%n %v' -- alsa-firmware` roda sem root e dá exit 0 com `alsa-firmware 1.2.4-4`; `glibc` falha com exit ≠ 0 (`breaks dependency … required by 7zip`); pacote inexistente dá `target not found`, exit 1; `pacman -Qi` mostra `Install Reason : Explicitly installed`.
+- **Feito**: ADR 0011 (`history undo <n>`; candidatos = `installed` ∩ ainda instalado ∩ explícito; plano = `--print`; execução `sudo pacman -Rs --`, nunca `-n`/`-c`/`-d`/`--noconfirm`; entrada nova no histórico, formato v2). `SECURITY.md` (§4 e T5), `PENDING.md` (P-15 resolvida), `MVP.md` e `OVERVIEW.md`. Sem código.
+- **CI**: _preencher com o resultado real do PR antes de mesclar._
+- **Não verificado**: a semântica de `-s` com um pacote que arrasta dependências órfãs (a man page não está instalada; só medi pacote sem dependências); a simulação com vários alvos e com o banco do pacman travado; revisão externa (nenhuma).
+- **Resíduo aceito**: o histórico não é assinado, então uma linha plantada pedindo a remoção de um pacote explícito passa na validação; só a leitura do plano pelo dono a barra.
+- **Fica**: fatia 4 (implementar `history undo`, medindo `-s` com dependências antes); verificação da fatia 3 no Arch pelo dono; instalar Flatpak; dotfiles; critérios 5 e 6; P-13, P-14, P-12, P-02, P-03; fechamento formal da Fase 0; conferir a aba Security (P-07).
+
 ### 2026-11-14 — Sessão 16 (Fase 1: histórico, fatia 3, `nodus history`)
 
 - **Pedido**: critério 10 do MVP, parte de registrar. Escolhas do dono no plano: só registrar e listar (reversão vira a fatia 4, P-15); registrar só os pacotes pedidos (sem diff completo nem dependências); linha inválida no meio do histórico é erro; permissão mais larga que 0600 é recusada.

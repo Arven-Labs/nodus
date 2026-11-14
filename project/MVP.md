@@ -12,7 +12,7 @@ CLI + agente local, só Arch Linux (ADR 0004). Base: SPEC §16.
 7. Descobrir repositórios Git e exibir o estado (somente leitura, mais `fetch`). (Marco 6: `nodus repos <pasta> [--fetch] [--json]` lista os filhos diretos com branch, commit, upstream, ahead/behind e URL do `origin`, só por refs com o isolamento do ADR 0009; sem "sujo/limpo", sem `status`. `--fetch` só do `origin`.)
 8. Verificar atualizações de pacotes (pacman) e apps (Flatpak).
 9. Exibir um plano antes de qualquer mudança; nada executa sem confirmação. (`preset apply`: plano, comando exato, `Executar? [s/N]` e o `[Y/n]` do pacman; sem terminal interativo, recusa.)
-10. Registrar o que mudou e permitir reversão quando suportada. (Fatia 3: o registro existe, `nodus history` lista cada `preset apply` executado. A reversão ainda não, ver P-15.)
+10. Registrar o que mudou e permitir reversão quando suportada. (Fatia 3: o registro existe, `nodus history` lista cada `preset apply` executado. A reversão está decidida no ADR 0011 (P-15) e ainda não existe: é a fatia 4.)
 
 ## Fora do MVP
 Desktop (Fase 1.5), Windows, Core e multi-device (Fase 2), outras distros, periféricos, overclock, pull/reset de Git, sincronização de segredos, IA, métricas e empresa.
