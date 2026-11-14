@@ -61,7 +61,7 @@ pub fn undo_candidates(
                 name: name.clone(),
                 reason: SkipReason::NotInstalled,
             });
-        } else if false && !explicit.contains(name.as_str()) {
+        } else if !explicit.contains(name.as_str()) {
             skipped.push(Skipped {
                 name: name.clone(),
                 reason: SkipReason::NotExplicit,
