@@ -5,6 +5,7 @@ use cli::{Cli, Command};
 mod cli;
 mod discovery;
 mod hardware;
+mod preset_file;
 mod process;
 mod render;
 

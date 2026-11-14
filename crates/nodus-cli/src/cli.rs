@@ -119,6 +119,46 @@ mod tests {
     }
 
     #[test]
+    fn preset_init() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "init"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Preset {
+                action: PresetAction::Init
+            }
+        ));
+    }
+
+    #[test]
+    fn preset_plan_com_arquivo_e_json() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "plan", "p.toml", "--json"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Plan { file, json },
+            } => {
+                assert_eq!(file, std::path::PathBuf::from("p.toml"));
+                assert!(json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn preset_plan_exige_o_arquivo() {
+        let erro = Cli::try_parse_from(["nodus", "preset", "plan"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn preset_sem_acao_mostra_a_ajuda() {
+        let erro = Cli::try_parse_from(["nodus", "preset"]).unwrap_err();
+        assert_eq!(
+            erro.kind(),
+            ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+    }
+
+    #[test]
     fn sem_subcomando_mostra_a_ajuda() {
         let erro = Cli::try_parse_from(["nodus"]).unwrap_err();
         assert_eq!(
