@@ -22,7 +22,7 @@ Critério: (1) licença compatível com MIT (ADR 0002); (2) publicada nos últim
 | Git: descoberta e `fetch` (critério 7) | `git` CLI isolado (processo externo) | n/a | n/a | n/a | Decidido no ADR 0009; `gix` 0.90.0 (MIT OR Apache-2.0) fora do MVP |
 | Git, alternativa | `git2` (libgit2, C) | 0.21.0 | MIT OR Apache-2.0 | 2026-10 | Descartar: liga código C nativo e aumenta a superfície |
 | Testes de arquivo | `tempfile` | 3.27.0 | MIT OR Apache-2.0 | 2026-03 | Adotar (só dev) |
-| Auditoria de licenças e avisos (CI) | `cargo-deny` | 0.20.2 | MIT OR Apache-2.0 | 2026-07 | Adotar no CI quando houver código |
+| Auditoria de licenças e avisos (CI) | `cargo-deny` | 0.20.2 | MIT OR Apache-2.0 | 2026-07 | Adotado (P-11): job `cargo-deny` no CI com `EmbarkStudios/cargo-deny-action@v2` (v2.1.1, cargo-deny 0.20.2, imagem Docker com Rust 1.85), regras em `deny.toml`; não obrigatório no ruleset |
 
 ## Achado principal: `alpm` é GPL-3.0
 

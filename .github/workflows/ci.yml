@@ -63,3 +63,15 @@ jobs:
             grep -E '^test .* FAILED$|panicked at ' cargo-test.log | sort -u | head -80 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Licenças, avisos do RustSec, bans e fontes (P-11; regras em deny.toml). Não é obrigatório no ruleset:
+  # os avisos vêm da base do RustSec baixada na hora e podem ficar vermelhos sem o código mudar.
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
