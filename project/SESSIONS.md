@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-14 medida (`makepkg` e tag SSH)
+
+- **Pedido**: seguir a P-14 depois do achado por leitura de código; fiz a etapa 0 (medir). O dono disse só "p14"; assumi que era o aval para medir, já que eu tinha avisado que pediria aprovação, e o prompt de permissão do `Bash` cobriu a execução.
+- **Medido**: PKGBUILD de teste em `/tmp` (`git+file://`, chaves descartáveis sem passphrase, `GNUPGHOME` temporário, script no scratchpad da sessão; `makepkg` 7.1.0, git 2.56.0, gpg 2.4.9). Controle com tag GPG: `makepkg --verifysource` deu `Passed`, exit 0. Tag SSH (o `git verify-tag` direto dá exit 0): `SIGNATURE NOT FOUND` e `ERROR: One or more PGP signatures could not be verified!`, exit 1. Confirma a leitura do código; o diretório temporário foi apagado pelo script.
+- **Feito**: só docs. `PENDING.md` (P-14 com o medido) e ADR 0010 (item "Não verificado"). A decisão do ADR não mudou.
+- **Não verificado**: a opção 1 (`prepare()` com `git verify-tag` e `allowed_signers` como `source`) não foi medida; contra o GitHub (só clone local), AUR helper (`yay`, `paru`) e outras versões do `makepkg`; o AUR continua sem revisão.
+- **Fica**: P-14 (escolher entre as 3 opções e, se for a 1, medir; o PKGBUILD real só depois do MVP), P-17 (bloqueada), P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, P-14 (achado: `makepkg` não verifica tag SSH)
 
 - **Pedido**: começar a P-14. O MVP ainda não fechou, então só o item de leitura da P-14 ("conferir como o `makepkg` verifica a assinatura da tag") foi feito.
