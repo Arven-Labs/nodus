@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-13 (chave de assinatura de tags)
+
+- **Pedido**: resolver a P-13 antes da primeira tag (ADR 0010). Escolhas do dono: chave nova só para assinar (não reusar a do GitHub); o dono roda os comandos de chave e eu guio.
+- **Feito**: chave `~/.ssh/id_ed25519_nodus_signing` (fingerprint `SHA256:KNurUVWF0KhmHv42A3OYw6spZenOE0DrQCZ0jjNFnxI`), cadastrada como signing key (`gh api user/ssh_signing_keys` listou, igual à `.pub`); config local do repo (`gpg.format=ssh`, `user.signingkey`, `tag.gpgsign=true`, global vazia); `README.md` com a chave, o segundo canal (API pública do GitHub) e como verificar. Só docs e config, sem código.
+- **Percalço**: o `!` não tem TTY, então o `ssh-keygen` gerou a chave **sem passphrase** (`ssh_askpass: No such file`); confirmei com `ssh-keygen -y -P ""`. O dono adicionou a passphrase num terminal (`ssh-keygen -p`, mesmo fingerprint) antes de qualquer cadastro; reconferido.
+- **Medido (repo descartável, `HOME` limpo, rodado pelo dono)**: chave publicada, `Good "git" signature`, exit 0; `allowed_signers` com outra chave e vazio, `Good signature ... No principal matched`, exit 1; tag com mensagem trocada, `incorrect signature`, exit 1. Achado: o git imprime `Good` mesmo recusando, então o README manda olhar o exit code.
+- **Não verificado**: máquina realmente limpa; nenhuma tag real; o trecho de verificação do README rodou só na parte que gera o `allowed_signers` (formato e fingerprint conferidos), não de ponta a ponta contra uma tag real; verificação pelo `makepkg`/`cargo install --tag` (P-14); rotação e revogação; backup da chave privada.
+- **Fica**: P-14, P-12, P-02, P-03; o `README.md` ainda diz "pré-projeto" (desatualizado, fora do escopo); fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, nota no `nodus history` (PR #28)
 
 - **Pedido**: o aviso de que as dependências não aparecem no histórico (seguimento da P-16). Assumi: uma linha no fim, só no texto (não no `--json`), só com histórico não vazio.
