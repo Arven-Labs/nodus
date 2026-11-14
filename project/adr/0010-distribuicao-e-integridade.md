@@ -32,5 +32,5 @@ O nodus roda comandos privilegiados (`sudo pacman`, ADR 0007 e `SECURITY.md` §4
 
 ## Não verificado
 - Não testei como o AUR helper, o `makepkg` ou o `cargo install --tag` verificam (ou não) a assinatura da tag: o `makepkg` checa o `sha256sums`, e a verificação da assinatura exige `validpgpkeys` ou fonte `git+...#tag=...?signed` conforme o caso. **Conferir na documentação do `makepkg` e do PKGBUILD antes do P-14.**
-- Assinatura SSH de tags no GitHub depende da chave estar cadastrada como "signing key" na conta; não conferi.
+- Assinatura SSH de tags no GitHub depende da chave estar cadastrada como "signing key" na conta. Conferido em 2026-11-14 (P-13): a chave está cadastrada e listada pela API pública. **Não** conferi o selo "Verified" numa tag real, porque nenhuma tag foi criada.
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.
