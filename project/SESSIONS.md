@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, nota no `nodus history` (PR #28)
+
+- **Pedido**: o aviso de que as dependências não aparecem no histórico (seguimento da P-16). Assumi: uma linha no fim, só no texto (não no `--json`), só com histórico não vazio.
+- **Feito**: `HISTORY_NOTE` em `render_history` (`nodus-cli/src/render.rs`). Sem dependência nova, sem mudança de formato.
+- **CI (resultado real, PR #28)**: commit 1 (só testes, `b016571`) falhou 7 testes (2 novos e 5 ajustados) e passaram 117, sem erro de compilação; commit 2 (`044263d`) passou de primeira. Mutação (nota dentro do laço, `2ff8246`): falhou 3 testes (121 passaram), o de "uma vez só" entre eles; os de uma entrada só passaram, então só os de várias entradas pegam essa mutação. Revertida em commit próprio (`d7c4e21`), código idêntico ao de `044263d`.
+- **Percalço**: na reversão, o `git revert -q` não rodou e o `--amend` seguinte reescreveu o commit da mutação só localmente; o push foi recusado, então o remoto não foi afetado. Voltei a local ao remoto e refiz o revert.
+- **Não verificado**: a saída real de `nodus history` no Arch (só o CI rodou os testes).
+
 ### 2026-11-14 — Sessão 18, P-16 (histórico é log de intenção)
 
 - **Pedido**: decidir a P-16. Opções apresentadas: A aceitar e documentar, B `also_removed` só na remoção (v3), C efeito real nos dois lados (v3). O dono respondeu "sim" à recomendação (A); assumi isso e ele pode corrigir.
