@@ -37,7 +37,7 @@ Confiável por definição: o binário do nodus instalado pelo usuário e o usu�
 | T6 | Repositório Git hostil ao rodar `fetch` | Seção 6: sem hooks, sem config do repo que execute código | SPEC §6.6, §15 |
 | T7 | Nome de pacote ou repositório injeta argumento (`-x`, `;`) | Executar processos com lista de argumentos, nunca por string de shell; validar nomes contra padrão estrito | SPEC §10.1 |
 | T8 | Reaplicação duplica ou corrompe configuração | Idempotência com plano (desejado vs atual) antes de executar; teste de reaplicação | SPEC §16.4 |
-| T9 | Binário do nodus adulterado ou rebaixado | Assinatura e proteção contra downgrade: **lacuna** (seção 7) | SPEC §10.1 |
+| T9 | Binário do nodus adulterado ou rebaixado | Só código-fonte, tag Git assinada e `--locked`; sem binário nem `self-update` até um ADR novo (seção 7, ADR 0010) | SPEC §10.1 |
 
 ## 4. Modelo de permissões
 
@@ -74,7 +74,7 @@ Rodar `git` num repositório que não é seu não é automaticamente seguro: o G
 
 ## 7. Supply chain do próprio nodus
 
-Lacuna conhecida da Fase 0: assinatura dos binários, verificação de integridade e proteção contra downgrade (SPEC §10.1) ainda não têm desenho. Devem ser decididas antes da primeira versão distribuída. Dependências Rust passam pela triagem do workspace (ADR 0006) e pelo CI.
+Decidido no ADR 0010 (P-08): o primeiro canal é código-fonte (PKGBUILD no AUR ou `cargo install --locked --tag`); cada versão é uma tag Git assinada pelo dono, com `sha256sums` no PKGBUILD e `Cargo.lock` versionado. O nodus não tem `self-update`, então downgrade fica com o gerenciador de pacotes. **Binário distribuído, instalador ou agente que se atualiza estão proibidos sem ADR novo** (assinatura, chaves, rotação, revogação, downgrade). Ainda **não existe** chave de assinatura configurada nem tag (P-13), nem PKGBUILD (P-14). Dependências Rust passam pela triagem do workspace (ADR 0006) e pelo CI.
 
 ## 8. Fora deste modelo (lacunas conhecidas)
 

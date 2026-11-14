@@ -3,7 +3,7 @@
 CLI + agente local, só Arch Linux (ADR 0004). Base: SPEC §16.
 
 ## Critérios de pronto
-1. Instalar a CLI em um Arch Linux.
+1. Instalar a CLI em um Arch Linux (por código-fonte, ADR 0010).
 2. `inventory`: hardware, sistema e aplicativos instalados. (Marcos 2 a 4: sistema, hardware (CPU, RAM, discos), pacotes pacman e apps Flatpak, texto e `--json`. Critério 2 completo no código; falta o dono validar no Arch real.)
 3. Criar um preset declarativo (apps e configurações). (Fatia 1: `nodus preset init` imprime um preset TOML com os pacotes explícitos, `pacman -Qe`, e os apps Flatpak; só pacotes, sem configurações.)
 4. Reaplicar o preset sem duplicar nem quebrar configurações (idempotência). (Fatia 1: `nodus preset plan <arquivo>` mostra o que falta, comparando com `pacman -Q`; `init` seguido de `plan` dá plano vazio. Fatia 2: `nodus preset apply <arquivo>` instala o que falta do pacman com `sudo pacman -S --needed`; plano vazio não executa nada. Flatpak ainda não.)
