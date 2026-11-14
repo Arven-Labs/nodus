@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-14 (achado: `makepkg` não verifica tag SSH)
+
+- **Pedido**: começar a P-14. O MVP ainda não fechou, então só o item de leitura da P-14 ("conferir como o `makepkg` verifica a assinatura da tag") foi feito.
+- **Achado (leitura de `/usr/share/makepkg/integrity/verify_signature.sh`, pacman 7.1.0, git 2.56.0)**: `git+...#tag=X?signed` roda `git verify-tag --raw X` e filtra a saída com `grep -E "(.*SIG| TRUST_.*)"`; só linhas de status do GnuPG passam, e o resultado é comparado com `validpgpkeys` (GPG). A saída da assinatura SSH (`Good "git" signature ...`) não tem esse formato, então a tag da P-13 provavelmente não passa. O ADR 0010 já marcava esse ponto como não verificado.
+- **Feito**: só docs. `PENDING.md` (P-14 com o achado, 3 opções e a recomendação) e ADR 0010 (item "Não verificado" atualizado; a decisão do ADR não mudou). O dono respondeu "sim" ao registro do achado; assumi que não pediu a medição agora.
+- **Não verificado**: tudo acima é leitura de código, **não rodei o `makepkg`**; o comportamento real com tag SSH precisa da medição (etapa 0 da P-14, PKGBUILD de teste com chave descartável em `/tmp`).
+- **Fica**: P-14 (decisão sobre as 3 opções e a medição), P-17 (bloqueada), P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, status do README
 
 - **Pedido**: atualizar o `README.md`, que ainda dizia "pré-projeto" (lacuna anotada nas entradas da P-13 e P-17).
