@@ -102,12 +102,7 @@ pub fn apply_with_history(
         ran = Some((command.to_vec(), result));
         run
     });
-    let Some((command, result)) = ran else {
-        return outcome.map(|outcome| Applied {
-            outcome,
-            after: None,
-        });
-    };
+    let (command, result) = ran.unwrap_or_else(|| (Vec::new(), ExecResult::Ok));
     let failed = outcome.is_err();
     let what_happened = if failed {
         "o `sudo`/`pacman` falhou e, além disso, não consegui"
