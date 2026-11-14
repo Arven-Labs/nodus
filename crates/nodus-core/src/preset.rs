@@ -391,6 +391,34 @@ mod tests {
         assert_eq!(parse_preset(&to_toml(&p)).unwrap(), p);
     }
 
+    // --- pacman_install_command ---
+
+    #[test]
+    fn comando_de_instalacao_e_exato() {
+        let p = preset(&["zsh", "git", "neovim"], &[]);
+        let plano = plan(&p, &[pacote("git")], Some(&[]));
+        assert_eq!(
+            pacman_install_command(&plano).unwrap(),
+            ["sudo", "pacman", "-S", "--needed", "--", "zsh", "neovim"]
+        );
+    }
+
+    #[test]
+    fn comando_nunca_pula_a_confirmacao_do_pacman_nem_sincroniza() {
+        let plano = plan(&preset(&["zsh"], &[]), &[], Some(&[]));
+        let comando = pacman_install_command(&plano).unwrap();
+        for proibido in ["--noconfirm", "-Sy", "-Syu", "-y", "--overwrite"] {
+            assert!(!comando.iter().any(|a| a == proibido), "{proibido}");
+        }
+    }
+
+    #[test]
+    fn sem_pacote_faltando_nao_ha_comando() {
+        let p = preset(&["git"], &["org.a.B"]);
+        let plano = plan(&p, &[pacote("git")], None);
+        assert_eq!(pacman_install_command(&plano), None);
+    }
+
     // --- plan ---
 
     #[test]

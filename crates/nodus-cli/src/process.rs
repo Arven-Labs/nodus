@@ -82,4 +82,32 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(matches!(erro, RunnerError::Spawn { .. }));
     }
+
+    // --- run_interactive (stdio herdado: só o status importa) ---
+
+    #[test]
+    fn interativo_com_sucesso_e_ok() {
+        assert_eq!(run_interactive("true", &[]), Ok(()));
+    }
+
+    #[test]
+    fn interativo_com_codigo_diferente_de_zero_e_falha_com_o_codigo() {
+        assert_eq!(
+            run_interactive("sh", &["-c", "exit 3"]),
+            Err(RunnerError::Failed {
+                program: "sh".into(),
+                code: Some(3)
+            })
+        );
+    }
+
+    #[test]
+    fn interativo_programa_inexistente_e_nao_encontrado() {
+        assert_eq!(
+            run_interactive("nodus-programa-que-nao-existe", &[]),
+            Err(RunnerError::NotFound {
+                program: "nodus-programa-que-nao-existe".into()
+            })
+        );
+    }
 }

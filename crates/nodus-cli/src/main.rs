@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Command, PresetAction};
 
+mod apply;
 mod cli;
 mod discovery;
 mod hardware;
