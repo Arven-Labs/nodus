@@ -1,6 +1,67 @@
 //! `nodus preset apply`: a primeira operação privilegiada (SECURITY.md §4). Mostra o comando exato,
 //! pede confirmação (padrão N) e só então executa; o `[Y/n]` do pacman vem depois, com as dependências.
 
+use anyhow::{Result, bail};
+use nodus_core::preset::{Plan, pacman_install_command};
+use std::io::{self, BufRead, Write};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    NothingToDo,
+    /// Só faltam apps Flatpak, que esta versão ainda não instala.
+    FlatpakOnly,
+    Declined,
+    Executed,
+}
+
+/// Pergunta `Executar? [s/N]`. Só `s` ou `sim` (sem diferenciar maiúscula) confirmam; vazio, fim da
+/// entrada e qualquer outra coisa são "não".
+pub fn confirm(input: &mut impl BufRead, output: &mut impl Write) -> io::Result<bool> {
+    write!(output, "Executar? [s/N] ")?;
+    output.flush()?;
+    let mut answer = String::new();
+    input.read_line(&mut answer)?;
+    let answer = answer.trim().to_lowercase();
+    Ok(answer == "s" || answer == "sim")
+}
+
+/// Executa o plano. `interactive`: a entrada é um terminal (sem ele não há confirmação possível, e
+/// não existe "sim para tudo"). `exec` recebe o comando exato; no programa real ele herda o terminal.
+pub fn apply(
+    plan: &Plan,
+    interactive: bool,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    mut exec: impl FnMut(&[String]) -> Result<()>,
+) -> Result<Outcome> {
+    if !plan.flatpak_missing.is_empty() {
+        writeln!(
+            output,
+            "aviso: Flatpak ainda não é instalado pelo nodus: {} app(s) do preset ficam de fora",
+            plan.flatpak_missing.len()
+        )?;
+    }
+    let Some(command) = pacman_install_command(plan) else {
+        return Ok(if plan.flatpak_missing.is_empty() {
+            Outcome::NothingToDo
+        } else {
+            Outcome::FlatpakOnly
+        });
+    };
+    writeln!(output, "Comando: {}", command.join(" "))?;
+    if !interactive {
+        bail!(
+            "`preset apply` precisa de terminal interativo para confirmar (não há modo automático)"
+        );
+    }
+    if !confirm(input, output)? {
+        writeln!(output, "Nada foi executado.")?;
+        return Ok(Outcome::Declined);
+    }
+    exec(&command)?;
+    Ok(Outcome::Executed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

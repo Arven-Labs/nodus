@@ -18,8 +18,44 @@ fn main() -> Result<()> {
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
             PresetAction::Plan { file, json } => preset_plan(&file, json),
+            PresetAction::Apply { file } => preset_apply(&file),
         },
     }
+}
+
+fn read_and_parse(file: &std::path::Path) -> Result<nodus_core::preset::Preset> {
+    let text = preset_file::read_preset(file)?;
+    nodus_core::preset::parse_preset(&text).with_context(|| format!("lendo {}", file.display()))
+}
+
+fn preset_apply(file: &std::path::Path) -> Result<()> {
+    use std::io::IsTerminal;
+    let preset = read_and_parse(file)?;
+    let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
+    print!("{}", render::render_plan(&plan));
+    let stdin = std::io::stdin();
+    let interactive = stdin.is_terminal();
+    let outcome = apply::apply(
+        &plan,
+        interactive,
+        &mut stdin.lock(),
+        &mut std::io::stdout(),
+        |command| {
+            let (program, args) = command.split_first().context("comando vazio")?;
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            Ok(process::run_interactive(program, &args)?)
+        },
+    )?;
+    if outcome == apply::Outcome::Executed {
+        // Confere pelo estado real, não pelo código de saída.
+        let after = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
+        println!("Depois:");
+        print!("{}", render::render_plan(&after));
+        if !after.pacman_missing.is_empty() {
+            anyhow::bail!("ainda faltam pacotes do pacman depois da instalação");
+        }
+    }
+    Ok(())
 }
 
 fn preset_init() -> Result<()> {
@@ -32,9 +68,7 @@ fn preset_init() -> Result<()> {
 }
 
 fn preset_plan(file: &std::path::Path, json: bool) -> Result<()> {
-    let text = preset_file::read_preset(file)?;
-    let preset = nodus_core::preset::parse_preset(&text)
-        .with_context(|| format!("lendo {}", file.display()))?;
+    let preset = read_and_parse(file)?;
     let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&plan)?);

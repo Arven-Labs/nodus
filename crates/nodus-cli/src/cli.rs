@@ -53,6 +53,12 @@ pub enum PresetAction {
         #[arg(long)]
         json: bool,
     },
+    /// Instala os pacotes pacman que faltam (`sudo pacman -S --needed`), depois de mostrar o comando
+    /// e pedir confirmação. Apps Flatpak ainda não são instalados.
+    Apply {
+        /// Arquivo TOML do preset.
+        file: PathBuf,
+    },
 }
 
 #[cfg(test)]

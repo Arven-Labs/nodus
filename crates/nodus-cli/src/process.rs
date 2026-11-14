@@ -6,20 +6,40 @@ use std::process::Command;
 
 pub struct RealRunner;
 
+fn spawn_error(program: &str, e: std::io::Error) -> RunnerError {
+    match e.kind() {
+        ErrorKind::NotFound => RunnerError::NotFound {
+            program: program.to_string(),
+        },
+        _ => RunnerError::Spawn {
+            program: program.to_string(),
+            reason: e.to_string(),
+        },
+    }
+}
+
+/// Executa com o terminal herdado (stdin, stdout e stderr do nodus): `sudo` e `pacman` falam direto
+/// com o usuário (senha, `[Y/n]`). O nodus não vê nem guarda o que passa por ali; só o status.
+pub fn run_interactive(program: &str, args: &[&str]) -> Result<(), RunnerError> {
+    let status = Command::new(program)
+        .args(args)
+        .status()
+        .map_err(|e| spawn_error(program, e))?;
+    if !status.success() {
+        return Err(RunnerError::Failed {
+            program: program.to_string(),
+            code: status.code(),
+        });
+    }
+    Ok(())
+}
+
 impl CommandRunner for RealRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<String, RunnerError> {
         let output = Command::new(program)
             .args(args)
             .output()
-            .map_err(|e| match e.kind() {
-                ErrorKind::NotFound => RunnerError::NotFound {
-                    program: program.to_string(),
-                },
-                _ => RunnerError::Spawn {
-                    program: program.to_string(),
-                    reason: e.to_string(),
-                },
-            })?;
+            .map_err(|e| spawn_error(program, e))?;
         if !output.status.success() {
             return Err(RunnerError::Failed {
                 program: program.to_string(),
