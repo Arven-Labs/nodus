@@ -542,9 +542,28 @@ mod tests {
         }
     }
 
+    /// A nota que fecha o histórico (ADR 0011, item 8): só o pedido é registrado.
+    const NOTA: &str = "Nota: só os pacotes pedidos são registrados; dependências instaladas ou removidas junto não aparecem aqui.\n";
+
     #[test]
     fn historico_vazio_diz_que_nao_ha_execucoes() {
         assert_eq!(render_history(&[]), "Nenhuma execução registrada.\n");
+    }
+
+    #[test]
+    fn historico_com_entradas_termina_com_a_nota_uma_vez_so() {
+        let entradas: Vec<_> = (0..3)
+            .map(|i| execucao(i, &["sl"], &["sl"], &[], ExecResult::Ok))
+            .collect();
+        let texto = render_history(&entradas);
+        assert!(texto.ends_with(NOTA), "{texto}");
+        assert_eq!(texto.matches("Nota:").count(), 1, "{texto}");
+    }
+
+    #[test]
+    fn historico_de_remocao_tambem_termina_com_a_nota() {
+        let e = remocao(0, 1, &["sl"], &[], &["sl"], ExecResult::Ok);
+        assert!(render_history(&[e]).ends_with(NOTA));
     }
 
     #[test]
@@ -558,8 +577,10 @@ mod tests {
         );
         assert_eq!(
             render_history(&[e]),
-            "Histórico (1 execução):\n\
-             [1] 2026-11-14T03:20:44Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n"
+            format!(
+                "Histórico (1 execução):\n\
+                 [1] 2026-11-14T03:20:44Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n{NOTA}"
+            )
         );
     }
 
@@ -588,9 +609,11 @@ mod tests {
         );
         assert_eq!(
             render_history(&[instalou, desfez]),
-            "Histórico (2 execuções):\n\
-             [1] 1970-01-01T00:00:00Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n\
-             [2] 2026-11-14T03:20:44Z  falhou (código 1)  desfez [1]  pedidos 2, removidos 1, ainda instalados 1\n  removidos: sl\n  ainda instalados: cowsay\n"
+            format!(
+                "Histórico (2 execuções):\n\
+                 [1] 1970-01-01T00:00:00Z  ok  pedidos 2, instalados 2, faltando 0\n  instalados: sl, cowsay\n\
+                 [2] 2026-11-14T03:20:44Z  falhou (código 1)  desfez [1]  pedidos 2, removidos 1, ainda instalados 1\n  removidos: sl\n  ainda instalados: cowsay\n{NOTA}"
+            )
         );
     }
 
@@ -602,7 +625,10 @@ mod tests {
             texto.contains("[1] 1970-01-01T00:00:00Z  ok  desfez [3]  pedidos 1, removidos 1, ainda instalados 0\n"),
             "{texto}"
         );
-        assert!(texto.ends_with("  removidos: sl\n"), "{texto}");
+        assert!(
+            texto.ends_with(&format!("  removidos: sl\n{NOTA}")),
+            "{texto}"
+        );
         assert!(!texto.contains("ainda instalados:"), "{texto}");
     }
 
@@ -618,9 +644,11 @@ mod tests {
         );
         assert_eq!(
             render_history(&[ok, falha]),
-            "Histórico (2 execuções):\n\
-             [1] 1970-01-01T00:00:00Z  ok  pedidos 1, instalados 1, faltando 0\n  instalados: sl\n\
-             [2] 2026-11-14T03:20:44Z  falhou (código 1)  pedidos 2, instalados 1, faltando 1\n  instalados: sl\n  faltando: cowsay\n"
+            format!(
+                "Histórico (2 execuções):\n\
+                 [1] 1970-01-01T00:00:00Z  ok  pedidos 1, instalados 1, faltando 0\n  instalados: sl\n\
+                 [2] 2026-11-14T03:20:44Z  falhou (código 1)  pedidos 2, instalados 1, faltando 1\n  instalados: sl\n  faltando: cowsay\n{NOTA}"
+            )
         );
     }
 
@@ -633,7 +661,7 @@ mod tests {
                 && texto.starts_with("Histórico (1 execução):\n[1] "),
             "{texto}"
         );
-        assert!(texto.ends_with("  faltando: sl\n"));
+        assert!(texto.ends_with(&format!("  faltando: sl\n{NOTA}")));
         assert!(!texto.contains("instalados:"));
     }
 }
