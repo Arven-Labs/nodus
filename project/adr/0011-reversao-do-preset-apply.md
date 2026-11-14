@@ -31,6 +31,7 @@ Medido em 2026-11-14 (pacman 7.1.0, Arch, só leitura):
 - **Desfazer por cache (downgrade) ou snapshots de sistema (btrfs, timeshift):** dependem de configuração da máquina e saem do escopo do MVP.
 - **Reverter o preset inteiro:** o histórico é por execução; "desfazer tudo" mistura intenções e amplia o raio de dano.
 - **Confiar só no histórico, sem `pacman -Qe`:** a linha plantada poderia apontar para qualquer dependência de base.
+8. **O histórico é um log de intenção, não de efeito (emenda de 2026-11-14, P-16):** `requested`, `installed` e `still_missing` falam só dos pacotes pedidos. Medido no Arch real: `preset apply` de `abi-dumper` instalou também `ctags` e `vtable-dumper`, e `history undo 1` removeu os 3 (igual ao plano da simulação), mas a entrada de remoção diz `removidos 1`. Mantido assim no MVP porque o `undo` não precisa das dependências (elas nunca são candidatas, senão uma linha plantada ampliaria o raio de dano, T5). **Descartadas:** gravar `also_removed` só na remoção (formato v3, assimétrico com a instalação) e comparar `pacman -Q` antes e depois nos dois lados (v3, duas chamadas extras). Reabrir com ADR novo se o histórico virar trilha de auditoria.
 
 ## Consequências
 - A fatia 4 tem contrato fechado: candidatos, simulação, comando e registro. Falta medir a semântica de `-s` com um pacote que tenha dependência antes de confiar nela.

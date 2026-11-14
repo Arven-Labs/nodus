@@ -62,7 +62,7 @@ Regras gerais:
 
 - O preset referencia um segredo por nome; o valor nunca entra no arquivo.
 - Caminhos proibidos para leitura e cópia (lista inicial, a ampliar): `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.config/gcloud`, `.env*`, arquivos de token de CLIs.
-- Logs e histórico registram **o que mudou**, não o conteúdo dos arquivos.
+- Logs e histórico registram **o que foi pedido** (nomes de pacote e comando), não o conteúdo dos arquivos nem o efeito completo: dependências instaladas ou removidas junto não aparecem (ADR 0011, item 8, P-16). Não use o histórico como trilha de auditoria.
 - Integração com gerenciador de segredos fica para depois do MVP (SPEC §10.2).
 
 ## 6. Git: somente leitura e `fetch`

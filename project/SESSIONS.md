@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-14 — Sessão 18, P-16 (histórico é log de intenção)
+
+- **Pedido**: decidir a P-16. Opções apresentadas: A aceitar e documentar, B `also_removed` só na remoção (v3), C efeito real nos dois lados (v3). O dono respondeu "sim" à recomendação (A); assumi isso e ele pode corrigir.
+- **Feito**: só docs. ADR 0011 ganhou o item 8 (log de intenção, B e C descartadas); `SECURITY.md` deixou de dizer que o histórico registra "o que mudou"; P-16 movida para resolvidas. Sem código nem teste, então sem mutação.
+- **Não verificado**: nenhuma opção de log de efeito foi medida ou implementada; a saída de `nodus history` não avisa que as dependências não aparecem (ficou fora do escopo, é mudança de código).
+- **Fica**: banco do pacman travado; `--json` com `undo`; Flatpak; P-13, P-14, P-12, P-02, P-03; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, verificação real do `history undo`
 
 - **Pedido**: registrar a verificação que o dono fez no Arch (o terminal dele caiu depois; o log foi colado na conversa).
