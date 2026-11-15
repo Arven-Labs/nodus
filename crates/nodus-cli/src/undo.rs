@@ -1,4 +1,4 @@
-//! `nodus history undo <n>`: a segunda operação privilegiada (ADR 0011, SECURITY.md T5). Simula com
+//! `nodusctl history undo <n>`: a segunda operação privilegiada (ADR 0011, SECURITY.md T5). Simula com
 //! o pacman, mostra o plano inteiro e o comando exato, pede confirmação (padrão N) e só então
 //! executa. O histórico não é assinado: o que barra uma linha plantada é o dono ler este plano.
 
