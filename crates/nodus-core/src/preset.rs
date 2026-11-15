@@ -334,8 +334,8 @@ fn split_unavailable(
     let (mut installable, mut unavailable) = (vec![], vec![]);
     for name in missing {
         match simulate_install(runner, std::slice::from_ref(&name)) {
-            Ok(()) => installable.push(name),
-            Err(RunnerError::Failed { .. }) => unavailable.push(name),
+            Ok(()) => unavailable.push(name),
+            Err(RunnerError::Failed { .. }) => installable.push(name),
             Err(other) => return Err(other.into()),
         }
     }
