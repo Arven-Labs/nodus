@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Command, HistoryAction, PresetAction};
+use nodus_core::history::Manager;
 use nodus_core::runner::CommandRunner;
 
 mod apply;
@@ -121,12 +122,18 @@ fn preset_apply(file: &std::path::Path) -> Result<()> {
         interactive,
         &mut stdin.lock(),
         &mut std::io::stdout(),
+        || {
+            Ok(nodus_core::preset::flathub_configured(
+                &process::RealRunner,
+            )?)
+        },
         |command| {
             let (program, args) = command.split_first().context("comando vazio")?;
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             Ok(process::run_interactive(program, &args)?)
         },
-        // Confere pelo estado real, não pelo código de saída.
+        // Confere pelo estado real, não pelo código de saída (no Flatpak, recusar o prompt e falhar
+        // saem os dois com exit 1).
         || {
             Ok(nodus_core::preset::collect_plan(
                 &process::RealRunner,
@@ -139,8 +146,12 @@ fn preset_apply(file: &std::path::Path) -> Result<()> {
     if let (apply::Outcome::Executed, Some(after)) = (applied.outcome, applied.after) {
         println!("Depois:");
         print!("{}", render::render_plan(&after));
-        if !after.pacman_missing.is_empty() {
+        // Só cobra o que foi executado: um passo recusado continua faltando por escolha do dono.
+        if applied.executed.contains(&Manager::Pacman) && !after.pacman_missing.is_empty() {
             anyhow::bail!("ainda faltam pacotes do pacman depois da instalação");
+        }
+        if applied.executed.contains(&Manager::Flatpak) && !after.flatpak_missing.is_empty() {
+            anyhow::bail!("ainda faltam apps Flatpak depois da instalação");
         }
     }
     Ok(())

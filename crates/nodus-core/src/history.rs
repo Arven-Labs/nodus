@@ -94,7 +94,8 @@ pub enum HistoryError {
     InvalidPackageName(String),
 }
 
-/// Monta a entrada comparando o plano de antes com o de depois. Só considera os pacotes pedidos.
+/// Monta a entrada do passo do pacman comparando o plano de antes com o de depois. Só considera os
+/// pacotes pedidos.
 pub fn entry_from(
     before: &Plan,
     after: &Plan,
@@ -102,8 +103,44 @@ pub fn entry_from(
     result: ExecResult,
     at_unix: u64,
 ) -> HistoryEntry {
-    let requested = before.pacman_missing.clone();
-    let missing_after: HashSet<&str> = after.pacman_missing.iter().map(String::as_str).collect();
+    install_entry(
+        Manager::Pacman,
+        &before.pacman_missing,
+        &after.pacman_missing,
+        command,
+        result,
+        at_unix,
+    )
+}
+
+/// Igual a `entry_from`, para o passo do Flatpak: lê só `flatpak_missing`.
+pub fn entry_from_flatpak(
+    before: &Plan,
+    after: &Plan,
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    install_entry(
+        Manager::Flatpak,
+        &before.flatpak_missing,
+        &after.flatpak_missing,
+        command,
+        result,
+        at_unix,
+    )
+}
+
+fn install_entry(
+    manager: Manager,
+    missing_before: &[String],
+    missing_after: &[String],
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    let requested = missing_before.to_vec();
+    let missing_after: HashSet<&str> = missing_after.iter().map(String::as_str).collect();
     let (still_missing, installed): (Vec<String>, Vec<String>) = requested
         .iter()
         .cloned()
@@ -118,7 +155,7 @@ pub fn entry_from(
         result,
         action: Action::Install,
         undoes: None,
-        manager: Manager::Pacman,
+        manager,
     }
 }
 

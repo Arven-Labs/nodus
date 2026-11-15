@@ -1,7 +1,7 @@
 //! Preset declarativo de pacotes (fatia 1: só leitura). O preset é entrada não confiável (T1, T7).
 
 use crate::inventory::{FlatpakApp, InventoryError, Package, parse_pacman_q, read_flatpak_apps};
-use crate::runner::CommandRunner;
+use crate::runner::{CommandRunner, RunnerError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
@@ -203,6 +203,34 @@ pub fn pacman_install_command(plan: &Plan) -> Option<Vec<String>> {
         .to_vec();
     command.extend(plan.pacman_missing.iter().cloned());
     Some(command)
+}
+
+/// Remote fixo da instalação Flatpak (ADR 0015). Outros remotes ficam fora do MVP.
+const FLATHUB: &str = "flathub";
+
+/// Comando exato para instalar os apps Flatpak que faltam, ou `None` se não falta nenhum. `--user`
+/// (sem privilégio), `--` antes do remote e dos IDs (nenhum ID vira opção, T7; aceito pelo Flatpak,
+/// medido em 2026-11-15). Nunca `-y` nem `--noninteractive`: o prompt do Flatpak mostra runtimes e
+/// dependências, e pode perguntar mais de uma vez.
+pub fn flatpak_install_command(plan: &Plan) -> Option<Vec<String>> {
+    if plan.flatpak_missing.is_empty() {
+        return None;
+    }
+    let mut command: Vec<String> = ["flatpak", "install", "--user", "--", FLATHUB]
+        .map(String::from)
+        .to_vec();
+    command.extend(plan.flatpak_missing.iter().cloned());
+    Some(command)
+}
+
+/// O remote `flathub` existe na instalação do usuário? Nome exato, uma linha por remote. Sem
+/// `flatpak` no sistema não há remote: `false`, não erro.
+pub fn flathub_configured(runner: &dyn CommandRunner) -> Result<bool, InventoryError> {
+    match runner.run("flatpak", &["remotes", "--user", "--columns=name"]) {
+        Ok(output) => Ok(output.lines().any(|line| line.trim() == FLATHUB)),
+        Err(RunnerError::NotFound { .. }) => Ok(false),
+        Err(erro) => Err(erro.into()),
+    }
 }
 
 /// Plano contra a máquina. Usa `pacman -Q` (todos), não `-Qe`: pacote que veio como dependência

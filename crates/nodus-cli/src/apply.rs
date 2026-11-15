@@ -1,9 +1,10 @@
-//! `nodusctl preset apply`: a primeira operação privilegiada (SECURITY.md §4). Mostra o comando exato,
-//! pede confirmação (padrão N) e só então executa; o `[Y/n]` do pacman vem depois, com as dependências.
+//! `nodusctl preset apply`: a primeira operação privilegiada (SECURITY.md §4). Dois passos em
+//! sequência, pacman e depois Flatpak. Cada um mostra o comando exato, pede confirmação (padrão N) e
+//! só então executa; o `[Y/n]` do pacman e o prompt do Flatpak vêm depois, com as dependências.
 
 use anyhow::{Context, Result, bail};
-use nodus_core::history::{ExecResult, entry_from};
-use nodus_core::preset::{Plan, pacman_install_command};
+use nodus_core::history::{ExecResult, Manager, entry_from, entry_from_flatpak};
+use nodus_core::preset::{Plan, flatpak_install_command, pacman_install_command};
 use nodus_core::runner::RunnerError;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -11,9 +12,9 @@ use std::path::Path;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     NothingToDo,
-    /// Só faltam apps Flatpak, que esta versão ainda não instala.
-    FlatpakOnly,
+    /// Havia o que instalar e todos os passos foram recusados.
     Declined,
+    /// Pelo menos um passo foi executado (o outro pode ter sido recusado).
     Executed,
 }
 
@@ -28,100 +29,132 @@ pub fn confirm(input: &mut impl BufRead, output: &mut impl Write) -> io::Result<
     Ok(answer == "s" || answer == "sim")
 }
 
-/// Executa o plano. `interactive`: a entrada é um terminal (sem ele não há confirmação possível, e
-/// não existe "sim para tudo"). `exec` recebe o comando exato; no programa real ele herda o terminal.
+/// Executa o plano em dois passos, pacman e depois Flatpak, cada um com o comando exato e a sua
+/// confirmação. Recusar um passo não impede o outro; a falha de um passo interrompe o resto.
+/// `interactive`: a entrada é um terminal (sem ele não há confirmação possível, e não existe "sim
+/// para tudo"). `flathub` diz se o remote existe e só é consultado se há app Flatpak a instalar; sem
+/// ele (ou sem Flatpak) o apply para **antes de qualquer pergunta**, para não instalar o pacman e só
+/// então descobrir que o segundo passo é inviável. `exec` recebe o gerenciador e o comando exato;
+/// no programa real ele herda o terminal.
 pub fn apply(
     plan: &Plan,
     interactive: bool,
     input: &mut impl BufRead,
     output: &mut impl Write,
-    mut exec: impl FnMut(&[String]) -> Result<()>,
+    flathub: impl FnOnce() -> Result<bool>,
+    mut exec: impl FnMut(Manager, &[String]) -> Result<()>,
 ) -> Result<Outcome> {
-    if !plan.flatpak_missing.is_empty() {
-        writeln!(
-            output,
-            "aviso: Flatpak ainda não é instalado pelo nodus: {} app(s) do preset ficam de fora",
-            plan.flatpak_missing.len()
-        )?;
+    let flatpak_command = flatpak_install_command(plan);
+    if flatpak_command.is_some() {
+        if !plan.flatpak_installed {
+            bail!(
+                "Flatpak não está instalado, e o nodus não o instala: instale-o ou tire os apps Flatpak do preset"
+            );
+        }
+        if !flathub()? {
+            bail!(
+                "o remote `flathub` não está configurado para o usuário (`flatpak remotes --user`): adicione-o ou tire os apps Flatpak do preset"
+            );
+        }
     }
-    let Some(command) = pacman_install_command(plan) else {
-        return Ok(if plan.flatpak_missing.is_empty() {
-            Outcome::NothingToDo
-        } else {
-            Outcome::FlatpakOnly
-        });
-    };
-    writeln!(output, "Comando: {}", command.join(" "))?;
-    if !interactive {
-        bail!(
-            "`preset apply` precisa de terminal interativo para confirmar (não há modo automático)"
-        );
+    let steps = [
+        (Manager::Pacman, pacman_install_command(plan)),
+        (Manager::Flatpak, flatpak_command),
+    ];
+    let mut outcome = Outcome::NothingToDo;
+    for (manager, command) in steps {
+        let Some(command) = command else { continue };
+        writeln!(output, "Comando: {}", command.join(" "))?;
+        if !interactive {
+            bail!(
+                "`preset apply` precisa de terminal interativo para confirmar (não há modo automático)"
+            );
+        }
+        if !confirm(input, output)? {
+            writeln!(output, "Nada foi executado.")?;
+            if outcome == Outcome::NothingToDo {
+                outcome = Outcome::Declined;
+            }
+            continue;
+        }
+        exec(manager, &command)?;
+        outcome = Outcome::Executed;
     }
-    if !confirm(input, output)? {
-        writeln!(output, "Nada foi executado.")?;
-        return Ok(Outcome::Declined);
-    }
-    exec(&command)?;
-    Ok(Outcome::Executed)
+    Ok(outcome)
 }
 
 #[derive(Debug)]
 pub struct Applied {
     pub outcome: Outcome,
-    /// O plano recalculado depois de executar; `None` se nada foi executado.
+    /// O plano recalculado depois do último passo executado; `None` se nada foi executado.
     pub after: Option<Plan>,
+    /// Os gerenciadores cujo passo chegou a rodar, na ordem.
+    pub executed: Vec<Manager>,
 }
 
-/// `apply` mais o registro no histórico. Grava quando o comando chegou a rodar, mesmo que o
-/// `sudo`/`pacman` tenha falhado (é quando o registro mais importa); não grava em recusa, plano
-/// vazio, só Flatpak nem sem terminal, porque nada mudou. `now_unix` é o momento em que o apply
-/// começou (antes da confirmação). Se não der para gravar, o erro diz o que já aconteceu.
+/// `apply` mais o registro no histórico: uma entrada por passo executado. Grava quando o comando
+/// chegou a rodar, mesmo que tenha falhado (é quando o registro mais importa); não grava em recusa,
+/// plano vazio, remote ausente nem sem terminal, porque nada mudou. `now_unix` é o momento em que o
+/// apply começou (antes da confirmação). Se não der para gravar, o erro diz o que já aconteceu.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_with_history(
     plan: &Plan,
     interactive: bool,
     input: &mut impl BufRead,
     output: &mut impl Write,
+    flathub: impl FnOnce() -> Result<bool>,
     mut exec: impl FnMut(&[String]) -> Result<()>,
-    after: impl FnOnce() -> Result<Plan>,
+    mut after: impl FnMut() -> Result<Plan>,
     history_path: &Path,
     now_unix: u64,
 ) -> Result<Applied> {
-    let mut ran: Option<(Vec<String>, ExecResult)> = None;
-    let outcome = apply(plan, interactive, input, output, |command| {
-        let run = exec(command);
-        let result = match &run {
-            Ok(()) => ExecResult::Ok,
-            Err(e) => ExecResult::Failed {
-                code: match e.downcast_ref::<RunnerError>() {
-                    Some(RunnerError::Failed { code, .. }) => *code,
-                    _ => None,
+    let mut executed = Vec::new();
+    let mut last_after = None;
+    let outcome = apply(
+        plan,
+        interactive,
+        input,
+        output,
+        flathub,
+        |manager, command| {
+            let run = exec(command);
+            let result = match &run {
+                Ok(()) => ExecResult::Ok,
+                Err(e) => ExecResult::Failed {
+                    code: match e.downcast_ref::<RunnerError>() {
+                        Some(RunnerError::Failed { code, .. }) => *code,
+                        _ => None,
+                    },
                 },
-            },
-        };
-        ran = Some((command.to_vec(), result));
-        run
-    });
-    let Some((command, result)) = ran else {
-        return outcome.map(|outcome| Applied {
-            outcome,
-            after: None,
-        });
-    };
-    let failed = outcome.is_err();
-    let what_happened = if failed {
-        "o `sudo`/`pacman` falhou e, além disso, não consegui"
-    } else {
-        "a instalação foi feita, mas não consegui"
-    };
-    let after_plan =
-        after().with_context(|| format!("{what_happened} conferir o estado depois"))?;
-    let entry = entry_from(plan, &after_plan, &command, result, now_unix);
-    crate::history::append(history_path, &entry)
-        .with_context(|| format!("{what_happened} gravar o histórico"))?;
+            };
+            let program = match manager {
+                Manager::Pacman => "sudo`/`pacman",
+                Manager::Flatpak => "flatpak",
+            };
+            let what_happened = if run.is_err() {
+                format!("o `{program}` falhou e, além disso, não consegui")
+            } else {
+                "a instalação foi feita, mas não consegui".to_string()
+            };
+            let after_plan =
+                after().with_context(|| format!("{what_happened} conferir o estado depois"))?;
+            let entry = match manager {
+                Manager::Pacman => entry_from(plan, &after_plan, command, result, now_unix),
+                Manager::Flatpak => {
+                    entry_from_flatpak(plan, &after_plan, command, result, now_unix)
+                }
+            };
+            crate::history::append(history_path, &entry)
+                .with_context(|| format!("{what_happened} gravar o histórico"))?;
+            executed.push(manager);
+            last_after = Some(after_plan);
+            run
+        },
+    )?;
     Ok(Applied {
-        outcome: outcome?,
-        after: Some(after_plan),
+        outcome,
+        after: last_after,
+        executed,
     })
 }
 
