@@ -507,7 +507,7 @@ mod tests {
 
     // --- render_history ---
 
-    use nodus_core::history::{Action, ExecResult, HistoryEntry};
+    use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager};
 
     /// Uma reversão: `installed` = ainda instalados depois; `missing` = removidos.
     fn remocao(
@@ -534,9 +534,10 @@ mod tests {
     ) -> HistoryEntry {
         let v = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         HistoryEntry {
-            version: 2,
+            version: 3,
             action: Action::Install,
             undoes: None,
+            manager: Manager::Pacman,
             at_unix: at,
             command: v(&["sudo", "pacman", "-S", "--needed", "--"]),
             requested: v(requested),

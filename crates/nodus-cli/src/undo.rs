@@ -134,7 +134,7 @@ mod tests {
     use super::*;
     use crate::process::Capture;
     use crate::testutil::TmpDir;
-    use nodus_core::history::{Action, ExecResult, HistoryEntry};
+    use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager};
     use nodus_core::runner::RunnerError;
     use std::io::Cursor;
 
@@ -144,7 +144,7 @@ mod tests {
 
     fn instalacao(installed: &[&str]) -> HistoryEntry {
         HistoryEntry {
-            version: 2,
+            version: 3,
             at_unix: 1_700_000_000,
             command: v(&["sudo", "pacman", "-S", "--needed", "--"]),
             requested: v(installed),
@@ -153,6 +153,7 @@ mod tests {
             result: ExecResult::Ok,
             action: Action::Install,
             undoes: None,
+            manager: Manager::Pacman,
         }
     }
 
