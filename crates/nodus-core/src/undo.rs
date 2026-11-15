@@ -4,7 +4,7 @@
 //! privilegiada (SECURITY.md §4) e o histórico não é assinado (T5), então tudo que vem dele ou do
 //! pacman é validado antes de ir para a tela ou para um comando.
 
-use crate::history::{Action, ENTRY_VERSION, ExecResult, HistoryEntry};
+use crate::history::{Action, ENTRY_VERSION, ExecResult, HistoryEntry, Manager};
 use crate::preset::is_valid_pacman_name;
 use std::collections::HashSet;
 use std::fmt;
@@ -109,6 +109,8 @@ pub enum UndoError {
     OutOfRange { n: u32, len: usize },
     #[error("a entrada {0} não é uma instalação; só se desfaz instalação")]
     NotAnInstall(u32),
+    #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
+    NotPacman(u32),
     #[error("a simulação do pacman não listou nada")]
     EmptyPlan,
     #[error("linha do plano fora do formato `nome versão`: {0:?}")]
@@ -173,6 +175,9 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
     if entry.action != Action::Install {
         return Err(UndoError::NotAnInstall(n));
     }
+    if entry.manager != Manager::Pacman {
+        return Err(UndoError::NotPacman(n));
+    }
     Ok(entry)
 }
 
@@ -201,6 +206,7 @@ pub fn entry_for_undo(
         result,
         action: Action::Remove,
         undoes: Some(undoes),
+        manager: Manager::Pacman,
     }
 }
 
@@ -217,7 +223,7 @@ mod tests {
         let mut comando = v(&["sudo", "pacman", "-S", "--needed", "--"]);
         comando.extend(v(installed));
         HistoryEntry {
-            version: 2,
+            version: 3,
             at_unix: 1_700_000_000,
             command: comando,
             requested: v(installed),
@@ -226,12 +232,21 @@ mod tests {
             result: ExecResult::Ok,
             action: Action::Install,
             undoes: None,
+            manager: Manager::Pacman,
         }
+    }
+
+    #[test]
+    fn entrada_flatpak_nao_se_desfaz() {
+        let mut e = instalacao(&["org.gnome.Gedit"]);
+        e.manager = Manager::Flatpak;
+        let erro = select_entry(&[e], 1).unwrap_err();
+        assert_eq!(erro, UndoError::NotPacman(1));
     }
 
     fn remocao(undoes: u32) -> HistoryEntry {
         HistoryEntry {
-            version: 2,
+            version: 3,
             at_unix: 1_700_000_100,
             command: v(&["sudo", "pacman", "-Rs", "--", "sl"]),
             requested: v(&["sl"]),
@@ -240,6 +255,7 @@ mod tests {
             result: ExecResult::Ok,
             action: Action::Remove,
             undoes: Some(undoes),
+            manager: Manager::Pacman,
         }
     }
 
@@ -515,7 +531,8 @@ mod tests {
             ExecResult::Failed { code: Some(1) },
             1_794_626_444,
         );
-        assert_eq!(e.version, 2);
+        assert_eq!(e.version, 3);
+        assert_eq!(e.manager, Manager::Pacman);
         assert_eq!(e.action, Action::Remove);
         assert_eq!(e.undoes, Some(3));
         assert_eq!(e.requested, v(&["sl", "zsh"]));

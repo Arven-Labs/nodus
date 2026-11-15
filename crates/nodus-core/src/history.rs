@@ -2,14 +2,15 @@
 //! grava o arquivo é a CLI. O histórico é entrada externa na leitura (SECURITY.md T5): a linha
 //! é estrita e recusada em vez de interpretada.
 
-use crate::preset::{Plan, is_valid_pacman_name};
+use crate::preset::{Plan, is_valid_flatpak_id, is_valid_pacman_name};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
 /// Versão do formato que o nodus grava. Mudar o formato exige subir este número. A leitura aceita
-/// também a versão 1 (só instalações, sem `action` nem `undoes`).
-pub const ENTRY_VERSION: u32 = 2;
+/// também a versão 1 (só instalações, sem `action` nem `undoes`) e a 2 (sem `manager`, sempre
+/// pacman).
+pub const ENTRY_VERSION: u32 = 3;
 
 /// O que a entrada registra.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,6 +20,15 @@ pub enum Action {
     Install,
     /// `history undo`: reversão de uma instalação anterior.
     Remove,
+}
+
+/// Qual gerenciador a entrada registra. Define a regra de validação dos nomes (pacote do pacman ou
+/// ID de app Flatpak). Entradas v1 e v2 não têm o campo e são sempre `Pacman`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Manager {
+    Pacman,
+    Flatpak,
 }
 
 /// Como a execução terminou, pelo status do processo. O que de fato mudou está em
@@ -54,6 +64,8 @@ pub struct HistoryEntry {
     /// Número (a partir de 1) da entrada que esta reversão desfaz; só existe em `Action::Remove`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub undoes: Option<u32>,
+    /// A partir da v3. A leitura de v1 e v2 preenche `Pacman`; a escrita só grava v3.
+    pub manager: Manager,
 }
 
 /// A linha como está no arquivo, antes de validar a combinação de campos por versão.
@@ -69,13 +81,14 @@ struct RawEntry {
     result: ExecResult,
     action: Option<Action>,
     undoes: Option<u32>,
+    manager: Option<Manager>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HistoryError {
     #[error("linha de histórico inválida: {0}")]
     Invalid(String),
-    #[error("versão {0} do histórico não é suportada (esta versão lê a 1 e a {ENTRY_VERSION})")]
+    #[error("versão {0} do histórico não é suportada (esta versão lê da 1 à {ENTRY_VERSION})")]
     UnsupportedVersion(u32),
     #[error("nome de pacote inválido no histórico: {0:?}")]
     InvalidPackageName(String),
@@ -105,6 +118,7 @@ pub fn entry_from(
         result,
         action: Action::Install,
         undoes: None,
+        manager: Manager::Pacman,
     }
 }
 
@@ -118,17 +132,32 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
     let raw: RawEntry =
         serde_json::from_str(line).map_err(|e| HistoryError::Invalid(e.to_string()))?;
     let invalid = |why: &str| HistoryError::Invalid(why.to_string());
-    let (action, undoes) = match (raw.version, raw.action, raw.undoes) {
-        (1, None, None) => (Action::Install, None),
-        (1, _, _) => return Err(invalid("a versão 1 não tem `action` nem `undoes`")),
-        (2, Some(Action::Install), None) => (Action::Install, None),
-        (2, Some(Action::Remove), Some(n)) if n >= 1 => (Action::Remove, Some(n)),
-        (2, _, _) => {
+    let (action, undoes, manager) = match (raw.version, raw.action, raw.undoes, raw.manager) {
+        (1, None, None, None) => (Action::Install, None, Manager::Pacman),
+        (1, ..) => {
             return Err(invalid(
-                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1",
+                "a versão 1 não tem `action`, `undoes` nem `manager`",
             ));
         }
-        (version, _, _) => return Err(HistoryError::UnsupportedVersion(version)),
+        (2, Some(Action::Install), None, None) => (Action::Install, None, Manager::Pacman),
+        (2, Some(Action::Remove), Some(n), None) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman)
+        }
+        (2, ..) => {
+            return Err(invalid(
+                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager`",
+            ));
+        }
+        (3, Some(Action::Install), None, Some(manager)) => (Action::Install, None, manager),
+        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman)) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman)
+        }
+        (3, ..) => {
+            return Err(invalid(
+                "a versão 3 exige `manager`; `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman",
+            ));
+        }
+        (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
     };
     let entry = HistoryEntry {
         version: raw.version,
@@ -140,15 +169,20 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         result: raw.result,
         action,
         undoes,
+        manager,
     };
-    // Os nomes vão para a tela: nada de escape de terminal nem de opção do pacman.
+    // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.
+    let is_valid_name: fn(&str) -> bool = match entry.manager {
+        Manager::Pacman => is_valid_pacman_name,
+        Manager::Flatpak => is_valid_flatpak_id,
+    };
     let names = entry
         .requested
         .iter()
         .chain(&entry.installed)
         .chain(&entry.still_missing);
     for name in names {
-        if !is_valid_pacman_name(name) {
+        if !is_valid_name(name) {
             return Err(HistoryError::InvalidPackageName(name.clone()));
         }
     }
@@ -218,7 +252,8 @@ mod tests {
             ExecResult::Failed { code: Some(1) },
             1_700_000_000,
         );
-        assert_eq!(e.version, 2);
+        assert_eq!(e.version, 3);
+        assert_eq!(e.manager, Manager::Pacman);
         assert_eq!(e.action, Action::Install);
         assert_eq!(e.undoes, None);
         assert_eq!(e.at_unix, 1_700_000_000);
@@ -283,7 +318,7 @@ mod tests {
         );
         assert_eq!(
             to_line(&e),
-            r#"{"version":2,"at_unix":1700000000,"command":["sudo","pacman","-S","--needed","--","sl"],"requested":["sl"],"installed":["sl"],"still_missing":[],"result":{"status":"ok"},"action":"install"}"#
+            r#"{"version":3,"at_unix":1700000000,"command":["sudo","pacman","-S","--needed","--","sl"],"requested":["sl"],"installed":["sl"],"still_missing":[],"result":{"status":"ok"},"action":"install","manager":"pacman"}"#
         );
     }
 
@@ -291,7 +326,7 @@ mod tests {
     /// depois e o que já não estava (foi removido).
     fn remocao(undoes: u32) -> HistoryEntry {
         HistoryEntry {
-            version: 2,
+            version: 3,
             at_unix: 1_700_000_100,
             command: v(&["sudo", "pacman", "-Rs", "--", "sl"]),
             requested: v(&["sl"]),
@@ -300,6 +335,7 @@ mod tests {
             result: ExecResult::Ok,
             action: Action::Remove,
             undoes: Some(undoes),
+            manager: Manager::Pacman,
         }
     }
 
@@ -307,7 +343,7 @@ mod tests {
     fn linha_de_remocao_tem_action_e_undoes_no_fim() {
         assert_eq!(
             to_line(&remocao(1)),
-            r#"{"version":2,"at_unix":1700000100,"command":["sudo","pacman","-Rs","--","sl"],"requested":["sl"],"installed":[],"still_missing":["sl"],"result":{"status":"ok"},"action":"remove","undoes":1}"#
+            r#"{"version":3,"at_unix":1700000100,"command":["sudo","pacman","-Rs","--","sl"],"requested":["sl"],"installed":[],"still_missing":["sl"],"result":{"status":"ok"},"action":"remove","undoes":1,"manager":"pacman"}"#
         );
     }
 
@@ -415,9 +451,9 @@ mod tests {
             ExecResult::Failed { code: Some(1) },
             5,
         );
-        assert!(
-            to_line(&e).ends_with(r#""result":{"status":"failed","code":1},"action":"install"}"#)
-        );
+        assert!(to_line(&e).ends_with(
+            r#""result":{"status":"failed","code":1},"action":"install","manager":"pacman"}"#
+        ));
     }
 
     #[test]
@@ -484,9 +520,9 @@ mod tests {
 
     #[test]
     fn recusa_versao_diferente() {
-        for ruim in [0, 3, 99] {
+        for ruim in [0, 4, 99] {
             let linha =
-                linha_valida().replacen(r#""version":2"#, &format!(r#""version":{ruim}"#), 1);
+                linha_valida().replacen(r#""version":3"#, &format!(r#""version":{ruim}"#), 1);
             assert_eq!(
                 parse_line(&linha).unwrap_err(),
                 HistoryError::UnsupportedVersion(ruim)
@@ -522,6 +558,101 @@ mod tests {
                 );
             }
         }
+    }
+
+    // --- v3: `manager` e a regra de nomes de cada gerenciador ---
+
+    /// Linha v2 como o nodus a gravava antes da v3 (sem `manager`).
+    const LINHA_V2: &str = r#"{"version":2,"at_unix":1700000000,"command":["sudo","pacman","-S","--needed","--","sl"],"requested":["sl"],"installed":["sl"],"still_missing":[],"result":{"status":"ok"},"action":"install"}"#;
+
+    fn flatpak(requested: &[&str]) -> HistoryEntry {
+        HistoryEntry {
+            version: 3,
+            at_unix: 1_700_000_200,
+            command: v(&["flatpak", "install", "--user", "--", "flathub"]),
+            requested: v(requested),
+            installed: v(requested),
+            still_missing: vec![],
+            result: ExecResult::Ok,
+            action: Action::Install,
+            undoes: None,
+            manager: Manager::Flatpak,
+        }
+    }
+
+    #[test]
+    fn le_linha_v2_como_pacman() {
+        let e = parse_line(LINHA_V2).unwrap();
+        assert_eq!(e.version, 2);
+        assert_eq!(e.manager, Manager::Pacman);
+        assert_eq!(e.action, Action::Install);
+    }
+
+    #[test]
+    fn v2_nao_pode_trazer_manager() {
+        let linha = LINHA_V2.replace(
+            r#""action":"install""#,
+            r#""action":"install","manager":"pacman""#,
+        );
+        assert!(parse_line(&linha).is_err());
+    }
+
+    #[test]
+    fn v3_exige_manager() {
+        let linha = linha_valida().replace(r#","manager":"pacman""#, "");
+        assert!(parse_line(&linha).is_err());
+    }
+
+    #[test]
+    fn recusa_manager_desconhecido() {
+        for ruim in ["apt", "", "Pacman", "FLATPAK", "snap"] {
+            let linha =
+                linha_valida().replace(r#""manager":"pacman""#, &format!(r#""manager":"{ruim}""#));
+            assert!(
+                parse_line(&linha).is_err(),
+                "manager {ruim:?} deveria ser recusado"
+            );
+        }
+    }
+
+    #[test]
+    fn linha_flatpak_tem_manager_flatpak_e_ida_e_volta() {
+        let e = flatpak(&["org.gnome.Gedit"]);
+        assert!(to_line(&e).ends_with(r#""action":"install","manager":"flatpak"}"#));
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+    }
+
+    #[test]
+    fn flatpak_aceita_id_com_maiuscula_que_o_pacman_recusaria() {
+        for id in [
+            "org.gnome.Gedit",
+            "com.valvesoftware.Steam",
+            "org.nongnu.lingot",
+        ] {
+            assert!(parse_line(&to_line(&flatpak(&[id]))).is_ok(), "{id}");
+        }
+        // o mesmo nome no pacman continua recusado (maiúscula)
+        let mut e = flatpak(&["org.gnome.Gedit"]);
+        e.manager = Manager::Pacman;
+        assert!(parse_line(&to_line(&e)).is_err());
+    }
+
+    #[test]
+    fn flatpak_recusa_nome_fora_da_regra_do_flatpak() {
+        for ruim in ["\u{1b}[31mx.y", "-x.y", "semponto", "a..b", "a b.c", ""] {
+            assert!(
+                parse_line(&to_line(&flatpak(&[ruim]))).is_err(),
+                "{ruim:?} deveria ser recusado"
+            );
+        }
+    }
+
+    #[test]
+    fn flatpak_nao_tem_remocao() {
+        let mut e = flatpak(&["org.gnome.Gedit"]);
+        e.action = Action::Remove;
+        e.undoes = Some(1);
+        assert!(parse_line(&to_line(&e)).is_err());
     }
 
     // --- data legível (UTC, sem crate de datas) ---

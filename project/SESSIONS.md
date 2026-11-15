@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, Flatpak no `preset apply`, PR A (histórico v3)
+
+- **Pedido**: seguir na Fase 1 (o dono preferiu isso a fechar a Fase 0 formalmente). Plano aprovado em plan mode, em 2 PRs: A = formato do histórico, B = instalação Flatpak. Decisões do dono: `--user`, remote `flathub` fixo, histórico v3 com `manager`.
+- **Feito (PR A, #44)**: testes primeiro e CI vermelho (12 testes falham: v3 exige `manager`, ID Flatpak com maiúscula, `undo` recusa Flatpak, ordem dos campos). Depois a implementação: `Manager`, leitura de v1, v2 e v3, validação por gerenciador, `ENTRY_VERSION = 3`, `NotPacman` no `undo`, rótulo `flatpak` no `nodusctl history`, ADR 0014, `SECURITY.md` (T5).
+- **Não verificado**: o `history.jsonl` real do dono (testado com linhas literais); nada instala Flatpak ainda (PR B); build e teste só no CI.
+- **Fica**: PR B (instalar Flatpak: etapa 0 mede `flatpak install --user` na máquina, com aprovação do dono), P-02 (marca e domínio), P-14 (PKGBUILD real depois do MVP; GitHub; manter ou tirar a conferência do `HEAD`), P-17 (bloqueada); fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, P-03 (spec renomeada para nodus)
 
 - **Pedido**: seguir a P-03. Decisões do dono (as duas recomendadas): componentes viram `nodus Core/Agent/Desktop/Web`, e o cabeçalho ganha uma nota sobre o nome provisório.
