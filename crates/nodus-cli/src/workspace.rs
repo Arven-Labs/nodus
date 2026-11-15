@@ -115,9 +115,7 @@ pub fn pick_dir(
     env: Option<&str>,
     home: Option<&str>,
 ) -> Result<(PathBuf, Option<Source>)> {
-    if let Some(dir) = arg {
-        return Ok((dir.to_path_buf(), None));
-    }
+    let _ = arg;
     let report = resolve(None, env, home)?;
     match report.chosen {
         Some(chosen) => Ok((chosen.path, Some(chosen.source))),
