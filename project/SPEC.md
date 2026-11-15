@@ -1,7 +1,8 @@
-# Universal --- Visão de Produto e Especificação Inicial
+# nodus --- Visão de Produto e Especificação Inicial
 
 > Documento-base para desenvolver o projeto com Claude Code.\
-> Nome provisório: **Universal** (pode mudar).\
+> Nome do projeto: **nodus** (ADR 0001). Esta spec foi escrita com o nome
+> provisório "Universal", já substituído no texto.\
 > Tipo: plataforma open-source e extensível para gerenciamento de
 > dispositivos, ambientes computacionais, infraestrutura e saúde de
 > aplicações.
@@ -10,7 +11,7 @@
 
 ## 1. Resumo executivo
 
-O Universal é uma plataforma para **conhecer, configurar, padronizar,
+O nodus é uma plataforma para **conhecer, configurar, padronizar,
 monitorar e administrar computadores, servidores, VPS, ambientes de
 desenvolvimento e aplicações** em um único lugar.
 
@@ -50,7 +51,7 @@ estações de trabalho, servidores e aplicações.
 -   Vendor-neutral: não depender de um único fabricante, distribuidor
     Linux ou provedor de nuvem.
 
-O Universal **não deve depender de um agente de IA** para funcionar. A
+O nodus **não deve depender de um agente de IA** para funcionar. A
 IA é uma integração opcional que pode consultar dados e solicitar ações
 por interfaces controladas.
 
@@ -73,14 +74,14 @@ configurações manualmente:
 -   Descobrir por que uma máquina está diferente ou com desempenho pior
     que outra.
 
-O Universal deve transformar a configuração de um computador em um
+O nodus deve transformar a configuração de um computador em um
 **ambiente declarativo e reproduzível**, que possa ser aplicado a outros
 dispositivos compatíveis.
 
 ### 2.2 Administração de infraestrutura
 
 Acompanhar computadores, VPS, servidores, homelabs, containers e
-aplicações exige várias ferramentas diferentes. O Universal deve
+aplicações exige várias ferramentas diferentes. O nodus deve
 oferecer uma visão integrada de:
 
 -   Saúde e disponibilidade de máquinas.
@@ -106,7 +107,7 @@ serviços:
 -   Auditoria de alterações e ações administrativas.
 -   Visibilidade sobre conformidade e estado da frota.
 
-O Universal deve permitir que a mesma plataforma seja usada por uma
+O nodus deve permitir que a mesma plataforma seja usada por uma
 pessoa, uma família, uma equipe ou uma organização com centenas ou
 milhares de dispositivos, respeitando limites de escala e arquitetura.
 
@@ -116,13 +117,13 @@ milhares de dispositivos, respeitando limites de escala e arquitetura.
 
 A experiência ideal:
 
-1.  O usuário instala o Universal em um computador ou servidor.
+1.  O usuário instala o nodus em um computador ou servidor.
 2.  Faz login ou conecta o dispositivo a uma instância self-hosted.
-3.  O Universal identifica o sistema, hardware, softwares e capacidades
+3.  O nodus identifica o sistema, hardware, softwares e capacidades
     disponíveis.
 4.  O usuário escolhe um espaço pessoal ou organização.
 5.  Pode selecionar um preset existente ou criar um novo.
-6.  O Universal compara o estado atual com o estado desejado.
+6.  O nodus compara o estado atual com o estado desejado.
 7.  Apresenta um plano de mudanças, com explicações e riscos.
 8.  O usuário aprova as alterações.
 9.  O dispositivo passa a ser monitorado e administrado conforme suas
@@ -132,7 +133,7 @@ Ao configurar um computador novo, o objetivo é restaurar rapidamente o
 ambiente de trabalho: aplicativos, preferências, ferramentas, pastas,
 repositórios e configurações compatíveis.
 
-O Universal deve distinguir claramente:
+O nodus deve distinguir claramente:
 
 -   **O que é desejado:** definido pelo usuário ou política da
     organização.
@@ -300,7 +301,7 @@ de hardware e não prometer ganhos de desempenho.
 -   Overclock e undervolt somente em módulos futuros, com validações
     rigorosas.
 
-O Universal deve explicar cada alteração, medir quando possível,
+O nodus deve explicar cada alteração, medir quando possível,
 oferecer backup/reversão e evitar scripts genéricos de "otimização
 milagrosa".
 
@@ -355,7 +356,7 @@ Pode conter:
 
 ### Detecção de novos aplicativos
 
-Quando um aplicativo for instalado, o Universal pode perguntar:
+Quando um aplicativo for instalado, o nodus pode perguntar:
 
 -   Adicionar ao preset compartilhado.
 -   Manter somente neste dispositivo.
@@ -363,7 +364,7 @@ Quando um aplicativo for instalado, o Universal pode perguntar:
 -   Ignorar ou perguntar depois.
 
 A detecção precisa evitar prompts excessivos. Deve reconhecer
-instalações feitas pelo próprio Universal e permitir regras por
+instalações feitas pelo próprio nodus e permitir regras por
 categoria, origem ou pacote.
 
 ### Estado desejado e reconciliação
@@ -537,7 +538,7 @@ funcionar sem acesso privilegiado sempre que possível.
 
 ## 6.9 Project Health & Application Observability
 
-O Universal deve monitorar a saúde de aplicações, APIs e projetos, não
+O nodus deve monitorar a saúde de aplicações, APIs e projetos, não
 apenas a máquina em que estão hospedados.
 
 ### Métricas
@@ -562,7 +563,7 @@ logs. - Prometheus para coleta e consulta de métricas. - Exporters e
 agentes existentes quando apropriado. - Health checks HTTP/TCP. -
 Webhooks para eventos de deploy e incidentes.
 
-O Universal não deve exigir SDK proprietário para monitorar uma
+O nodus não deve exigir SDK proprietário para monitorar uma
 aplicação. Deve aceitar padrões abertos e integrações externas.
 
 ### Correlação
@@ -610,18 +611,18 @@ Integrações opcionais e desacopladas:
 -   Sistemas de identidade empresarial.
 -   Ferramentas de alertas e comunicação.
 
-O Universal deve funcionar sem TruthID e sem IA. TruthID pode fornecer
+O nodus deve funcionar sem TruthID e sem IA. TruthID pode fornecer
 autenticação/identidade, mas autorização, papéis, sessões, revogação de
 dispositivos e políticas continuam sendo responsabilidades explícitas do
-Universal.
+nodus.
 
 ------------------------------------------------------------------------
 
 ## 7. Integração opcional com agente de IA
 
-O agente de IA é um projeto independente, não o núcleo do Universal.
+O agente de IA é um projeto independente, não o núcleo do nodus.
 
-O Universal expõe APIs e ferramentas documentadas para que um agente
+O nodus expõe APIs e ferramentas documentadas para que um agente
 autorizado possa:
 
 -   Consultar inventário e métricas.
@@ -673,7 +674,7 @@ operação justificarem.
 
 ### 8.2 Componentes
 
-1.  **Universal Core**
+1.  **nodus Core**
     -   API.
     -   Organizações e usuários.
     -   Autorização.
@@ -685,7 +686,7 @@ operação justificarem.
     -   Histórico.
     -   Integrações.
     -   Auditoria.
-2.  **Universal Agent**
+2.  **nodus Agent**
     -   Coleta local.
     -   Detecção de capacidades.
     -   Execução de tarefas permitidas.
@@ -693,14 +694,14 @@ operação justificarem.
     -   Atualizações.
     -   Comunicação segura com Core.
     -   Buffer local durante desconexão.
-3.  **Universal Desktop**
+3.  **nodus Desktop**
     -   Interface local.
     -   Monitoramento em tempo real.
     -   Configuração do dispositivo.
     -   Diagnósticos.
     -   Periféricos.
     -   Acesso ao Core remoto ou local.
-4.  **Universal Web**
+4.  **nodus Web**
     -   Administração centralizada.
     -   Gestão de organizações.
     -   Frota de dispositivos.
@@ -771,7 +772,7 @@ controle.
 6.  Distribui instalador ou método de implantação do agente.
 7.  Dispositivos se registram com processo de aprovação ou enrollment
     controlado.
-8.  O Universal inventaria os dispositivos e compara com políticas.
+8.  O nodus inventaria os dispositivos e compara com políticas.
 9.  TI acompanha conformidade, atualizações e alertas.
 
 ### 9.2 Políticas por grupo
@@ -860,7 +861,7 @@ limitações que prejudiquem a versão open-source.
 
 ## 10. Segurança e privacidade
 
-O Universal terá acesso a informações sensíveis e, em alguns casos,
+O nodus terá acesso a informações sensíveis e, em alguns casos,
 poderá alterar o sistema operacional. Segurança precisa ser parte da
 arquitetura inicial.
 
@@ -1107,7 +1108,7 @@ de desenvolvimento.
 
 O MVP inicial será considerado útil quando for possível:
 
-1.  Instalar o Universal em um Arch Linux.
+1.  Instalar o nodus em um Arch Linux.
 2.  Identificar hardware, sistema e aplicativos.
 3.  Criar um preset com aplicativos e configurações.
 4.  Reaplicar o preset sem duplicar ou quebrar configurações.
@@ -1204,7 +1205,7 @@ Validar:
 
 ## 19. Definição final
 
-**Universal é uma plataforma aberta e modular para administrar o
+**nodus é uma plataforma aberta e modular para administrar o
 ambiente computacional de pessoas e organizações.**
 
 Ela conecta computadores, servidores, aplicações e projetos; padroniza
@@ -1224,5 +1225,5 @@ projetos.
 Para uma empresa, significa administrar endpoints, servidores e
 aplicações com políticas, permissões, auditoria e governança.
 
-A IA, TruthID e outros projetos podem se integrar ao Universal, mas
+A IA, TruthID e outros projetos podem se integrar ao nodus, mas
 nenhum deles é obrigatório para o funcionamento da plataforma.

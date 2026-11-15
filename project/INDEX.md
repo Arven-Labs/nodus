@@ -6,7 +6,7 @@
 
 | Para saber sobre | Leia |
 |---|---|
-| Visão de produto e especificação inicial (nome provisório "Universal") | `SPEC.md` |
+| Visão de produto e especificação inicial | `SPEC.md` |
 | Visão geral, stack e status | `OVERVIEW.md` |
 | Escopo do MVP (Fase 1) | `MVP.md` |
 | Fases do projeto | `ROADMAP.md` |
