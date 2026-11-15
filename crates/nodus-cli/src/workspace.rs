@@ -3,6 +3,7 @@
 
 use crate::discovery::find_repos;
 use anyhow::{Context, Result, anyhow, bail};
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -136,7 +137,7 @@ fn detect(home: &Path) -> Vec<Candidate> {
             repo_count: repos.len(),
         });
     }
-    found.sort_by(|a, b| b.repo_count.cmp(&a.repo_count));
+    found.sort_by_key(|candidate| Reverse(candidate.repo_count));
     found
 }
 
