@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, critério 6 do MVP (`nodusctl workspace`)
+
+- **Pedido**: seguir o MVP. Em plan mode, **medi antes** (só leitura): o workspace real é `~/Documents/workspace` com 9 repositórios filhos; `~/Projects` existe vazio; uma varredura do `$HOME` por pasta-pai erraria (escolheria o `$HOME`, com 3 repositórios soltos). Decisões do dono: candidatos conhecidos ranqueados, só relatório, e escolha manual por argumento e variável de ambiente (sem estado; "salvar a escolha" ficou de fora).
+- **Feito (PR #50)**: testes primeiro, CI **vermelho** (módulo vazio). Implementação: `workspace.rs` (`resolve`, `detect`, `report_json`, reusa `find_repos`), `render_workspace`, `Command::Workspace`, leitura de `NODUS_WORKSPACE` e `HOME` no `main.rs`; ADR 0017; README, MVP, OVERVIEW. O primeiro CI da implementação falhou por **clippy** (`unnecessary_sort_by`), antes de rodar os testes; corrigido com `sort_by_key` e `Reverse` (estável, o desempate segue a ordem da lista). Depois, CI verde.
+- **Mutação**: o ranking passou a ignorar a contagem de repositórios (`Reverse(count.min(1))`); compilou e foi pega por **1 teste** por asserção (`candidatos_saem_ordenados_por_repositorios_decrescente`); revertida com `git revert`. Cobertura fina: só esse teste protege o ranking por contagem.
+- **Não verificado**: o comando no Arch real; candidato ilegível por permissão real; symlink circular; nenhum teste de CLI de ponta a ponta.
+- **Fica**: o dono rodar com binário novo (`nodusctl workspace` deve dar `~/Documents/workspace (detectado, repositórios: 9)`, com `~/Projects` vazio; `nodusctl workspace /tmp` dá `informado`, 0 repositórios, com aviso; `NODUS_WORKSPACE=/nao/existe nodusctl workspace` dá erro); P-02, P-14, P-17; fatia seguinte do critério 5; lembrar a escolha do workspace e o `repos` usá-lo; fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, P-18 (itens que o pacman não encontra)
 
 - **Pedido**: atacar a P-18. Em plan mode, **medi antes de decidir** (só leitura, `pacman -S --print`): um item fora dos repositórios aborta a transação inteira com `target not found`, exit 1, mesmo já instalado, e o nativo do mesmo pedido também não instala; `java-runtime` (só por *provides*) simula com exit 0; o nome do culpado só sai no stderr, que o nodus não captura. Decisões do dono: corrigir no `plan`/`apply` por simulação (não no `init`, não formato v2) e o `apply` pula e avisa.

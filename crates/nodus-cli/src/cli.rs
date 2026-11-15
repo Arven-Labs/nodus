@@ -43,6 +43,15 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Mostra qual é a pasta de workspace (só lê). Sem argumento: a variável NODUS_WORKSPACE, ou a
+    /// detecção entre pastas conhecidas sob o HOME (a com mais repositórios Git).
+    Workspace {
+        /// Pasta de workspace informada à mão (vence a variável e a detecção).
+        dir: Option<PathBuf>,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Preset declarativo de pacotes (somente leitura nesta versão: nada é instalado).
     Preset {
         #[command(subcommand)]
@@ -143,6 +152,30 @@ mod tests {
     fn updates_com_json() {
         let cli = Cli::try_parse_from(["nodus", "updates", "--json"]).unwrap();
         assert!(matches!(cli.command, Command::Updates { json: true }));
+    }
+
+    #[test]
+    fn workspace_sem_argumento_e_em_texto() {
+        let cli = Cli::try_parse_from(["nodus", "workspace"]).unwrap();
+        match cli.command {
+            Command::Workspace { dir, json } => {
+                assert_eq!(dir, None);
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_com_pasta_e_json() {
+        let cli = Cli::try_parse_from(["nodus", "workspace", "/ws", "--json"]).unwrap();
+        match cli.command {
+            Command::Workspace { dir, json } => {
+                assert_eq!(dir, Some(std::path::PathBuf::from("/ws")));
+                assert!(json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
     }
 
     #[test]

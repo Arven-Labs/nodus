@@ -1,5 +1,6 @@
 //! Formatação do inventário para o terminal.
 
+use crate::workspace::{Report, Source};
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Suggestions};
@@ -306,6 +307,56 @@ fn paste_section(out: &mut String, key: &str, names: &[String]) {
     }
 }
 
+pub fn render_workspace(report: &Report) -> String {
+    let mut out = String::new();
+    match &report.chosen {
+        Some(chosen) => {
+            let origin = match chosen.source {
+                Source::Informed => "informado",
+                Source::Environment => "ambiente",
+                Source::Detected => "detectado",
+            };
+            let _ = writeln!(
+                out,
+                "Workspace: {} ({origin}, repositórios: {})",
+                chosen.path.display(),
+                chosen.repo_count
+            );
+            if chosen.source == Source::Detected {
+                out.push_str("Candidatos:\n");
+                for candidate in &report.candidates {
+                    let mark = if candidate.path == chosen.path {
+                        "  <- escolhido"
+                    } else {
+                        ""
+                    };
+                    let _ = writeln!(
+                        out,
+                        "  {}  repositórios: {}{mark}",
+                        candidate.path.display(),
+                        candidate.repo_count
+                    );
+                }
+            } else if chosen.repo_count == 0 {
+                out.push_str("aviso: nenhum repositório Git encontrado nessa pasta\n");
+            }
+        }
+        None => {
+            out.push_str("Nenhum workspace detectado.\n");
+            if !report.candidates.is_empty() {
+                out.push_str("Candidatos sem repositórios:\n");
+                for candidate in &report.candidates {
+                    let _ = writeln!(out, "  {}", candidate.path.display());
+                }
+            }
+            out.push_str(
+                "Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n",
+            );
+        }
+    }
+    out
+}
+
 /// Aviso do `preset init` (vai para a saída de erro, para não sujar o TOML redirecionado).
 pub fn init_warning(flatpak_installed: bool) -> Option<&'static str> {
     (!flatpak_installed).then_some("aviso: Flatpak não instalado; o preset saiu sem apps Flatpak")
@@ -319,6 +370,7 @@ fn gib(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workspace::{Candidate, Chosen, Report, Source};
     use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
     use nodus_core::preset::{Plan, Suggestions};
     use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
@@ -606,6 +658,88 @@ Fora dos repositórios (AUR ou locais; o `apply` não os instala) (1):\n  brave-
         let texto = render_suggestions(&sugestoes(&["vim"], &[], &[], false));
         assert!(texto.ends_with("Flatpak não instalado: os apps Flatpak não foram conferidos.\n"));
         assert!(texto.contains("Pacman (1):\n  vim\n"));
+    }
+
+    fn ws(path: &str, source: Source, repo_count: usize) -> Chosen {
+        Chosen {
+            path: path.into(),
+            source,
+            repo_count,
+        }
+    }
+
+    fn cand(path: &str, repo_count: usize) -> Candidate {
+        Candidate {
+            path: path.into(),
+            repo_count,
+        }
+    }
+
+    #[test]
+    fn workspace_detectado_lista_os_candidatos_e_marca_o_escolhido() {
+        let r = Report {
+            chosen: Some(ws("/h/ws", Source::Detected, 3)),
+            candidates: vec![cand("/h/ws", 3), cand("/h/Projects", 0)],
+        };
+        let esperado = "Workspace: /h/ws (detectado, repositórios: 3)\n\
+Candidatos:\n  /h/ws  repositórios: 3  <- escolhido\n  /h/Projects  repositórios: 0\n";
+        assert_eq!(render_workspace(&r), esperado);
+    }
+
+    #[test]
+    fn workspace_informado_ou_do_ambiente_nao_lista_candidatos() {
+        let informado = Report {
+            chosen: Some(ws("/x", Source::Informed, 2)),
+            candidates: vec![],
+        };
+        assert_eq!(
+            render_workspace(&informado),
+            "Workspace: /x (informado, repositórios: 2)\n"
+        );
+        let ambiente = Report {
+            chosen: Some(ws("/x", Source::Environment, 2)),
+            candidates: vec![],
+        };
+        assert_eq!(
+            render_workspace(&ambiente),
+            "Workspace: /x (ambiente, repositórios: 2)\n"
+        );
+    }
+
+    #[test]
+    fn workspace_manual_sem_repositorios_avisa() {
+        let r = Report {
+            chosen: Some(ws("/x", Source::Informed, 0)),
+            candidates: vec![],
+        };
+        assert_eq!(
+            render_workspace(&r),
+            "Workspace: /x (informado, repositórios: 0)\naviso: nenhum repositório Git encontrado nessa pasta\n"
+        );
+    }
+
+    #[test]
+    fn workspace_nenhum_detectado_lista_os_vazios_e_ensina_a_informar() {
+        let r = Report {
+            chosen: None,
+            candidates: vec![cand("/h/Projects", 0)],
+        };
+        let esperado = "Nenhum workspace detectado.\n\
+Candidatos sem repositórios:\n  /h/Projects\n\
+Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n";
+        assert_eq!(render_workspace(&r), esperado);
+    }
+
+    #[test]
+    fn workspace_nenhum_detectado_e_nenhum_candidato() {
+        let r = Report {
+            chosen: None,
+            candidates: vec![],
+        };
+        assert_eq!(
+            render_workspace(&r),
+            "Nenhum workspace detectado.\nInforme a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
+        );
     }
 
     #[test]
