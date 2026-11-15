@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, P-12 (risco aceito, opção A)
+
+- **Pedido**: seguir a P-12. Opções apresentadas: A (aceitar o risco e fechar), B (manter aberta até distribuir), C (parecer jurídico). O dono escolheu a A, a recomendada.
+- **Feito**: só docs. `PENDING.md` (P-12 movida para Resolvidas, com a base, os gatilhos de reabertura e as lacunas) e ADR 0007 (atualização na consequência da fronteira). A decisão técnica do ADR não mudou.
+- **Base**: GPL FAQ da FSF (entrada sobre "aggregate", lida em 2026-11-15, só os primeiros 100 mil de 156 mil caracteres da página), `process.rs` (chamadas por `Command::new` com argumentos), `deny.toml` (só MIT, Apache-2.0 e Unicode-3.0).
+- **Não verificado**: **não é parecer jurídico**; a FSF interpreta, não decide; bibliotecas de sistema linkadas dinamicamente (sem `ldd`); licença instalada de `git`, `pacman` e `flatpak`; resto da página da FSF.
+- **Fica**: P-14 (PKGBUILD real só depois do MVP; GitHub; manter ou tirar a conferência do `HEAD`), P-17 (bloqueada), P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0. A P-14 deixa de depender da P-12.
+
 ### 2026-11-15 — Sessão 19, P-14 (casos de desvio de commit)
 
 - **Pedido**: seguir com a opção 2 (caso de desvio de commit), depois do #39. Li `extract_git` em `/usr/share/makepkg/source/git.sh` antes de montar os casos.

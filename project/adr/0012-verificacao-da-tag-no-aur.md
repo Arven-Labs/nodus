@@ -16,7 +16,7 @@ O AUR não é revisado: quem instala executa o `PKGBUILD` do mantenedor (ADR 001
 3. O `prepare()` confere também que o `HEAD` do checkout é o commit apontado pela tag.
 4. O README do pacote avisa que `makepkg --noprepare` desliga a verificação.
 5. A chave de assinatura continua a da P-13 (SSH). Nenhuma chave GPG é criada.
-6. O PKGBUILD real só é escrito depois que o MVP fechar (P-14), e depende da P-02 (nome) e da P-12 (licença). Antes de publicar, repetir a medição contra o GitHub e com um AUR helper.
+6. O PKGBUILD real só é escrito depois que o MVP fechar (P-14), e depende da P-02 (nome); a P-12 (licença) foi resolvida em 2026-11-15 com risco aceito, sem parecer jurídico. Antes de publicar, repetir a medição contra o GitHub e com um AUR helper.
 
 ## Alternativas
 - **Tag assinada com GPG e `?signed` + `validpgpkeys`:** usa o mecanismo nativo e não há flag que pule a checagem. Descartada: obriga a refazer a P-13 com chave GPG nova (cadastro, publicação, backup, custódia) para ganhar só a proteção contra `--noprepare`. Volta se "o usuário não pode desligar a checagem" virar requisito.

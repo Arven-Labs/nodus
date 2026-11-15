@@ -23,5 +23,5 @@ O ADR 0005 deixou Rust como stack provisória, a confirmar na Fase 0. O levantam
 ## Consequências
 - Parsing de saída de texto de `pacman` e `flatpak`: o risco passa a ser formato instável e injeção de argumento, tratados com formatos de máquina quando existirem e validação estrita de nomes.
 - Sem dependência nativa de libalpm: o binário roda sem a lib instalada, mas depende dos executáveis `pacman` e `flatpak`.
-- A fronteira "processo externo não contamina a licença" é prática comum, **não parecer jurídico**: confirmar antes da primeira distribuição.
+- A fronteira "processo externo não contamina a licença" é prática comum, **não parecer jurídico**. **Atualização de 2026-11-15 (P-12):** o dono aceitou o risco sem parecer, com base no critério da FSF (mecanismo e semântica da comunicação; argumentos e saída de texto são o caso normal entre programas separados) e no fato de a distribuição ser só código-fonte (ADR 0010). Gatilhos de reabertura: linkar `libalpm` ou outra lib GPL; enviar binário com `pacman` ou `flatpak` junto; passar estruturas internas complexas ao processo. Detalhes e lacunas na P-12 do `PENDING.md`.
 - O levantamento não prova segurança das libs; a auditoria vem do CI e da triagem (ADR 0006 do workspace).
