@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, P-14 (casos de desvio de commit)
+
+- **Pedido**: seguir com a opção 2 (caso de desvio de commit), depois do #39. Li `extract_git` em `/usr/share/makepkg/source/git.sh` antes de montar os casos.
+- **Medido** (`makepkg` 7.1.0, git 2.56.0, `git+file://`, chave descartável sem passphrase, `HOME` e `SRCDEST` isolados, script no scratchpad; diretório temporário apagado): controle passa; tag forjada (objeto assinado de `v1` publicado como `v2`): `git verify-tag` sozinho passa, mas o `makepkg` aborta antes do `prepare()` (`the git tag has been forged`); tag leve: falha no `prepare()`, exit 4; tag movida e reassinada: build limpo pega o commit novo, rebuild no mesmo `srcdir` mantém o commit antigo e passa sem aviso.
+- **Achado**: a conferência do `HEAD` (item 3 do ADR 0012) nunca disparou e não achei como montar um desvio; com `#tag=` o `makepkg` faz checkout da própria tag. Parece redundante nesta versão, mas a decisão de manter ou tirar é do dono. A proteção contra tag forjada é do `makepkg`, não do nosso `prepare()`.
+- **Feito**: só docs, no mesmo PR #39 (mesma intenção e mesmos arquivos). `PENDING.md` (P-14) e ADR 0012 (item "Não verificado").
+- **Não verificado**: só clone local (GitHub não); só `makepkg` 7.1.0; `-S` a partir do AUR; o rebuild com `srcdir` velho foi medido com `makepkg` direto, não com helper.
+- **Fica**: P-14 (PKGBUILD real só depois do MVP; GitHub), P-17 (bloqueada), P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, P-14 (opção 1 medida com `yay` e `paru`)
 
 - **Pedido**: seguir a P-14. Opções apresentadas: 1 (AUR helper), 2 (caso de desvio de commit), 3 (GitHub real, com tag irreversível; não recomendada). O dono escolheu a 1 e autorizou rodar `yay` e `paru` em `/tmp`.
