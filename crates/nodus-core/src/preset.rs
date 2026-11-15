@@ -216,7 +216,7 @@ pub fn flatpak_install_command(plan: &Plan) -> Option<Vec<String>> {
     if plan.flatpak_missing.is_empty() {
         return None;
     }
-    let mut command: Vec<String> = ["flatpak", "install", "--user", "--", FLATHUB]
+    let mut command: Vec<String> = ["flatpak", "install", "--system", "--", FLATHUB]
         .map(String::from)
         .to_vec();
     command.extend(plan.flatpak_missing.iter().cloned());
