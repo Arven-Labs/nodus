@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, P-03 (spec renomeada para nodus)
+
+- **Pedido**: seguir a P-03. Decisões do dono (as duas recomendadas): componentes viram `nodus Core/Agent/Desktop/Web`, e o cabeçalho ganha uma nota sobre o nome provisório.
+- **Feito**: só docs. `SPEC.md` (29 ocorrências de "Universal" trocadas por `Edit` com `replace_all`; `grep` confirma que só resta "Universal" na nota do cabeçalho), `INDEX.md` (tirou o "nome provisório"), ADR 0001 (consequência atualizada), `PENDING.md` (P-03 em Resolvidas).
+- **Não verificado**: concordância e tom da spec inteira (conferi só as linhas trocadas por `grep`, não li as 1.228 linhas); links externos para a spec antiga, se houver.
+- **Fica**: P-02 (marca e domínio), P-14 (PKGBUILD real depois do MVP; GitHub; manter ou tirar a conferência do `HEAD`), P-17 (bloqueada); Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, P-02 (binário `nodusctl`, ADR 0013)
 
 - **Pedido**: seguir a P-02. Li o `Cargo.toml` do crate `nodus` 0.17.0 (tarball, sem executar): instala o binário `nodus`. O dono escolheu a opção B (manter o projeto, mudar o binário) e o nome `nodusctl`, e manter `~/.local/state/nodus`. Plano aprovado em plan mode.
