@@ -328,7 +328,7 @@ fn split_unavailable(
     }
     match simulate_install(runner, &missing) {
         Ok(()) => return Ok((missing, vec![])),
-        Err(RunnerError::Failed { .. }) => {}
+        Err(RunnerError::Failed { .. }) => return Ok((missing, vec![])),
         Err(other) => return Err(other.into()),
     }
     let (mut installable, mut unavailable) = (vec![], vec![]);
