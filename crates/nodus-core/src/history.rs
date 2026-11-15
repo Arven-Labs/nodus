@@ -2,14 +2,15 @@
 //! grava o arquivo é a CLI. O histórico é entrada externa na leitura (SECURITY.md T5): a linha
 //! é estrita e recusada em vez de interpretada.
 
-use crate::preset::{Plan, is_valid_pacman_name};
+use crate::preset::{Plan, is_valid_flatpak_id, is_valid_pacman_name};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
 /// Versão do formato que o nodus grava. Mudar o formato exige subir este número. A leitura aceita
-/// também a versão 1 (só instalações, sem `action` nem `undoes`).
-pub const ENTRY_VERSION: u32 = 2;
+/// também a versão 1 (só instalações, sem `action` nem `undoes`) e a 2 (sem `manager`, sempre
+/// pacman).
+pub const ENTRY_VERSION: u32 = 3;
 
 /// O que a entrada registra.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,7 +88,7 @@ struct RawEntry {
 pub enum HistoryError {
     #[error("linha de histórico inválida: {0}")]
     Invalid(String),
-    #[error("versão {0} do histórico não é suportada (esta versão lê a 1 e a {ENTRY_VERSION})")]
+    #[error("versão {0} do histórico não é suportada (esta versão lê da 1 à {ENTRY_VERSION})")]
     UnsupportedVersion(u32),
     #[error("nome de pacote inválido no histórico: {0:?}")]
     InvalidPackageName(String),
@@ -131,18 +132,32 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
     let raw: RawEntry =
         serde_json::from_str(line).map_err(|e| HistoryError::Invalid(e.to_string()))?;
     let invalid = |why: &str| HistoryError::Invalid(why.to_string());
-    let _ = raw.manager; // esqueleto: a leitura do `manager` entra na implementação
-    let (action, undoes) = match (raw.version, raw.action, raw.undoes) {
-        (1, None, None) => (Action::Install, None),
-        (1, _, _) => return Err(invalid("a versão 1 não tem `action` nem `undoes`")),
-        (2, Some(Action::Install), None) => (Action::Install, None),
-        (2, Some(Action::Remove), Some(n)) if n >= 1 => (Action::Remove, Some(n)),
-        (2, _, _) => {
+    let (action, undoes, manager) = match (raw.version, raw.action, raw.undoes, raw.manager) {
+        (1, None, None, None) => (Action::Install, None, Manager::Pacman),
+        (1, ..) => {
             return Err(invalid(
-                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1",
+                "a versão 1 não tem `action`, `undoes` nem `manager`",
             ));
         }
-        (version, _, _) => return Err(HistoryError::UnsupportedVersion(version)),
+        (2, Some(Action::Install), None, None) => (Action::Install, None, Manager::Pacman),
+        (2, Some(Action::Remove), Some(n), None) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman)
+        }
+        (2, ..) => {
+            return Err(invalid(
+                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager`",
+            ));
+        }
+        (3, Some(Action::Install), None, Some(manager)) => (Action::Install, None, manager),
+        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman)) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman)
+        }
+        (3, ..) => {
+            return Err(invalid(
+                "a versão 3 exige `manager`; `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman",
+            ));
+        }
+        (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
     };
     let entry = HistoryEntry {
         version: raw.version,
@@ -154,16 +169,20 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         result: raw.result,
         action,
         undoes,
-        manager: Manager::Pacman,
+        manager,
     };
-    // Os nomes vão para a tela: nada de escape de terminal nem de opção do pacman.
+    // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.
+    let is_valid_name: fn(&str) -> bool = match entry.manager {
+        Manager::Pacman => is_valid_pacman_name,
+        Manager::Flatpak => is_valid_flatpak_id,
+    };
     let names = entry
         .requested
         .iter()
         .chain(&entry.installed)
         .chain(&entry.still_missing);
     for name in names {
-        if !is_valid_pacman_name(name) {
+        if !is_valid_name(name) {
             return Err(HistoryError::InvalidPackageName(name.clone()));
         }
     }

@@ -175,6 +175,9 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
     if entry.action != Action::Install {
         return Err(UndoError::NotAnInstall(n));
     }
+    if entry.manager != Manager::Pacman {
+        return Err(UndoError::NotPacman(n));
+    }
     Ok(entry)
 }
 

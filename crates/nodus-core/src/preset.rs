@@ -119,7 +119,7 @@ pub(crate) fn is_valid_pacman_name(name: &str) -> bool {
 
 /// ID de app Flatpak: segmentos `[A-Za-z0-9_-]` separados por `.`, pelo menos 2, nenhum vazio
 /// nem começando por `-`. O Flatpak pode exigir mais (3 segmentos); aqui basta barrar injeção.
-fn is_valid_flatpak_id(id: &str) -> bool {
+pub(crate) fn is_valid_flatpak_id(id: &str) -> bool {
     let allowed = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let segment_ok = |s: &str| !s.is_empty() && !s.starts_with('-') && s.chars().all(allowed);
     id.split('.').count() >= 2 && id.split('.').all(segment_ok)

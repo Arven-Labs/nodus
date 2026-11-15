@@ -1,6 +1,6 @@
 //! Formatação do inventário para o terminal.
 
-use nodus_core::history::{Action, ExecResult, HistoryEntry, format_utc};
+use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::Plan;
 use nodus_core::repos::{FetchResult, RepoStatus};
@@ -190,9 +190,13 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
                 }
             }
             _ => {
+                let manager = match entry.manager {
+                    Manager::Pacman => "",
+                    Manager::Flatpak => "  flatpak",
+                };
                 let _ = writeln!(
                     out,
-                    "[{n}] {when}  {result}  pedidos {requested}, instalados {installed}, faltando {missing}"
+                    "[{n}] {when}  {result}{manager}  pedidos {requested}, instalados {installed}, faltando {missing}"
                 );
                 if !entry.installed.is_empty() {
                     let _ = writeln!(out, "  instalados: {}", entry.installed.join(", "));
@@ -549,6 +553,25 @@ mod tests {
 
     /// A nota que fecha o histórico (ADR 0011, item 8): só o pedido é registrado.
     const NOTA: &str = "Nota: só os pacotes pedidos são registrados; dependências instaladas ou removidas junto não aparecem aqui.\n";
+
+    #[test]
+    fn historico_marca_a_entrada_flatpak_e_nao_marca_a_do_pacman() {
+        let mut flatpak = execucao(
+            1_700_000_000,
+            &["org.gnome.Gedit"],
+            &["org.gnome.Gedit"],
+            &[],
+            ExecResult::Ok,
+        );
+        flatpak.manager = Manager::Flatpak;
+        let saida = render_history(&[flatpak]);
+        assert!(
+            saida.contains("  ok  flatpak  pedidos 1, instalados 1, faltando 0"),
+            "{saida}"
+        );
+        let pacman = execucao(1_700_000_000, &["sl"], &["sl"], &[], ExecResult::Ok);
+        assert!(!render_history(&[pacman]).contains("flatpak"));
+    }
 
     #[test]
     fn historico_vazio_diz_que_nao_ha_execucoes() {
