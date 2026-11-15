@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, critério 5 do MVP (`preset suggest`, só relatório)
+
+- **Pedido**: seguir o MVP. Antes, validei o `inventory` por leitura contra `/etc/os-release`, `uname`, `/proc` e `pacman -Q` (sistema, kernel, CPU, memória, 1244 pacotes e Flatpak 0 batem). Depois o critério 5, em plan mode. Decisões do dono: só relatório (sem escrever no preset, sem estado de ignorados) e subcomando novo.
+- **Feito (PR #48)**: testes primeiro, CI **vermelho** (erro de compilação: `suggest`, `collect_suggestions`, `render_suggestions`, `Suggestions`). Depois a implementação: `preset.rs` (`Suggestions`, `suggest`, `collect_suggestions`), `render.rs`, `cli.rs`, `main.rs`; README, MVP, OVERVIEW. CI verde. **Mutação**: filtro do pacman invertido, CI **vermelho** com 10 testes do core falhando; revertida com `git revert`.
+- **Achado**: dos 154 pacotes explícitos desta máquina, 13 são do AUR ou locais (`pacman -Qem`). O `suggest` os lista à parte e fora do trecho para colar. O mesmo problema existe no `preset init` e no `apply` (P-18, não corrigido).
+- **Não verificado**: o `suggest` na máquina real (com 154 explícitos e um preset pequeno ele lista dezenas de itens, porque não há "ignorados"); nenhum teste de CLI de ponta a ponta (o `main.rs` só liga as peças); a P-18 não foi medida com `apply` e um pacote do AUR.
+- **Fica**: o dono rodar `nodusctl preset init > p.toml && nodusctl preset suggest p.toml` (deve dar "Nada fora do preset"); ADR 0016 (a criar, se o dono quiser); fatia seguinte do critério 5 (pergunta interativa, escrita no preset, "ignorar"); P-18; P-02, P-14, P-17; critério 6 (pasta de workspace); fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, PR B verificado no Arch real
 
 - **Pedido**: testar o `preset apply` com Flatpak na máquina real. O PR #46 já estava mesclado (`c490cf4`). Eu não tenho TTY nem build local (ADR 0009), então o dono construiu o binário (`cargo build --release -p nodus-cli`) e rodou o `apply` num terminal; eu conferi só por leitura.

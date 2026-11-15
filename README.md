@@ -7,6 +7,7 @@ Plataforma open source e extensível para conhecer, configurar, padronizar, moni
 - `nodusctl inventory`: sistema, hardware e pacotes (pacman e Flatpak), com `--json`.
 - `nodusctl updates`: atualizações pendentes (pacman e Flatpak).
 - `nodusctl repos <pasta>`: estado dos repositórios Git da pasta, lendo só refs.
+- `nodusctl preset suggest <arquivo>`: lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para colar nele (só relatório, não escreve em arquivo).
 - `nodusctl preset init | plan | apply`: descrever os pacotes desejados em TOML, ver o que falta e instalar o que falta, com uma confirmação por passo: pacotes do pacman (`sudo pacman -S`) e depois apps Flatpak (`flatpak install --user`, remote `flathub`).
 - `nodusctl history` e `nodusctl history undo <n>`: listar as execuções do `apply` (o que foi pedido, não as dependências que vieram junto) e desfazer uma instalação, com simulação e confirmação.
 
