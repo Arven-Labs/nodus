@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, PR B verificado no Arch real
+
+- **Pedido**: testar o `preset apply` com Flatpak na máquina real. O PR #46 já estava mesclado (`c490cf4`). Eu não tenho TTY nem build local (ADR 0009), então o dono construiu o binário (`cargo build --release -p nodus-cli`) e rodou o `apply` num terminal; eu conferi só por leitura.
+- **Verificado** (Flatpak 1.18.4, `--user`, `flathub` adicionado pelo dono): preset com `org.gnome.Calculator`. O apply mostrou `flatpak install --user -- flathub org.gnome.Calculator`, pediu `Executar? [s/N]`, o Flatpak perguntou pelo runtime `org.gnome.Platform//51` e instalou 8 itens (cerca de 570 MB, somando os downloads). "Depois:" deu "nada a fazer". `history.jsonl` (0600, 1 linha) com `version 3`, `manager flatpak`, `installed` com o ID, `result` ok. `nodusctl history` a listou como `flatpak`. `nodusctl preset plan` de novo: nada a fazer (idempotente). `nodusctl history undo 1`: recusou, "a reversão de Flatpak ainda não existe".
+- **Antes disso**: sem o `flathub` no `--user`, o apply pararia antes de qualquer pergunta (só lido em `flatpak remotes --user`, que estava vazio; não rodei o apply nesse estado).
+- **Não verificado**: recusa do prompt do Flatpak no fluxo real; falha de rede no meio do download; apply com pacman e Flatpak juntos; outras versões do Flatpak. O app ficou instalado na máquina do dono (remover: `flatpak uninstall --user org.gnome.Calculator`; o histórico mantém a linha).
+- **Fica**: P-02 (marca e domínio), P-14, P-17 (bloqueada); fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, Flatpak no `preset apply`, PR B (instalação)
 
 - **Pedido**: seguir com o PR B. Plano aprovado em plan mode (uma confirmação por passo; recusa independente; falha do pacman interrompe; uma entrada de histórico por passo).
