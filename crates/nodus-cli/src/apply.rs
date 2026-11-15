@@ -141,24 +141,60 @@ mod tests {
         }
     }
 
-    /// Roda `apply` com a entrada dada e um executor falso que só registra o que receberia.
+    type Executado = (Manager, Vec<String>);
+
+    /// Roda `apply` com a entrada dada, `flathub` configurado e um executor falso que só registra o
+    /// que receberia. `falha_em`: o passo desse gerenciador termina com erro.
     fn rodar(
         plan: &Plan,
         interactive: bool,
         entrada: &str,
-        falha: bool,
-    ) -> (anyhow::Result<Outcome>, String, Vec<Vec<String>>) {
+        falha_em: Option<Manager>,
+    ) -> (anyhow::Result<Outcome>, String, Vec<Executado>) {
+        rodar_com_flathub(plan, interactive, entrada, falha_em, || Ok(true))
+    }
+
+    fn rodar_com_flathub(
+        plan: &Plan,
+        interactive: bool,
+        entrada: &str,
+        falha_em: Option<Manager>,
+        flathub: impl FnOnce() -> anyhow::Result<bool>,
+    ) -> (anyhow::Result<Outcome>, String, Vec<Executado>) {
         let mut input = Cursor::new(entrada.as_bytes().to_vec());
         let mut output = Vec::new();
         let mut executados = Vec::new();
-        let resultado = apply(plan, interactive, &mut input, &mut output, |cmd| {
-            executados.push(cmd.to_vec());
-            if falha {
-                anyhow::bail!("`sudo` terminou com erro (código Some(1))")
-            }
-            Ok(())
-        });
+        let resultado = apply(
+            plan,
+            interactive,
+            &mut input,
+            &mut output,
+            flathub,
+            |manager, cmd| {
+                executados.push((manager, cmd.to_vec()));
+                if falha_em == Some(manager) {
+                    anyhow::bail!("o comando terminou com erro (código Some(1))")
+                }
+                Ok(())
+            },
+        );
         (resultado, String::from_utf8(output).unwrap(), executados)
+    }
+
+    fn cmd_pacman(pacotes: &[&str]) -> Vec<String> {
+        let mut c: Vec<String> = ["sudo", "pacman", "-S", "--needed", "--"]
+            .map(String::from)
+            .to_vec();
+        c.extend(pacotes.iter().map(|s| s.to_string()));
+        c
+    }
+
+    fn cmd_flatpak(apps: &[&str]) -> Vec<String> {
+        let mut c: Vec<String> = ["flatpak", "install", "--user", "--", "flathub"]
+            .map(String::from)
+            .to_vec();
+        c.extend(apps.iter().map(|s| s.to_string()));
+        c
     }
 
     // --- confirm ---
@@ -198,21 +234,23 @@ mod tests {
     // --- apply ---
 
     #[test]
-    fn plano_vazio_nao_pergunta_nem_executa() {
-        let (r, out, exec) = rodar(&plano(&[], &[]), true, "s\n", false);
+    fn plano_vazio_nao_pergunta_nem_executa_nem_consulta_o_flathub() {
+        let (r, out, exec) = rodar_com_flathub(&plano(&[], &[]), true, "s\n", None, || {
+            panic!("não há app Flatpak a instalar: o flathub não deveria ser consultado")
+        });
         assert_eq!(r.unwrap(), Outcome::NothingToDo);
         assert!(exec.is_empty());
         assert!(!out.contains("Executar?"));
     }
 
     #[test]
-    fn confirmado_executa_o_comando_exato_uma_vez() {
-        let (r, out, exec) = rodar(&plano(&["sl", "zsh"], &[]), true, "s\n", false);
+    fn so_pacman_executa_o_comando_exato_uma_vez_sem_consultar_o_flathub() {
+        let (r, out, exec) =
+            rodar_com_flathub(&plano(&["sl", "zsh"], &[]), true, "s\n", None, || {
+                panic!("não há app Flatpak a instalar: o flathub não deveria ser consultado")
+            });
         assert_eq!(r.unwrap(), Outcome::Executed);
-        assert_eq!(
-            exec,
-            [["sudo", "pacman", "-S", "--needed", "--", "sl", "zsh"]]
-        );
+        assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl", "zsh"]))]);
         assert_eq!(
             out,
             "Comando: sudo pacman -S --needed -- sl zsh\nExecutar? [s/N] "
@@ -220,8 +258,63 @@ mod tests {
     }
 
     #[test]
-    fn recusado_nao_executa() {
-        let (r, out, exec) = rodar(&plano(&["sl"], &[]), true, "\n", false);
+    fn so_flatpak_executa_o_comando_exato_uma_vez() {
+        let (r, out, exec) = rodar(
+            &plano(&[], &["org.gnome.Calculator", "org.a.B"]),
+            true,
+            "s\n",
+            None,
+        );
+        assert_eq!(r.unwrap(), Outcome::Executed);
+        assert_eq!(
+            exec,
+            [(
+                Manager::Flatpak,
+                cmd_flatpak(&["org.gnome.Calculator", "org.a.B"])
+            )]
+        );
+        assert_eq!(
+            out,
+            "Comando: flatpak install --user -- flathub org.gnome.Calculator org.a.B\nExecutar? [s/N] "
+        );
+    }
+
+    #[test]
+    fn pacman_e_flatpak_executam_em_sequencia_cada_um_com_a_sua_confirmacao() {
+        let (r, out, exec) = rodar(&plano(&["sl"], &["org.a.B"]), true, "s\ns\n", None);
+        assert_eq!(r.unwrap(), Outcome::Executed);
+        assert_eq!(
+            exec,
+            [
+                (Manager::Pacman, cmd_pacman(&["sl"])),
+                (Manager::Flatpak, cmd_flatpak(&["org.a.B"])),
+            ]
+        );
+        assert_eq!(
+            out,
+            "Comando: sudo pacman -S --needed -- sl\nExecutar? [s/N] \
+             Comando: flatpak install --user -- flathub org.a.B\nExecutar? [s/N] "
+        );
+    }
+
+    #[test]
+    fn recusar_o_pacman_nao_impede_oferecer_o_flatpak() {
+        let (r, out, exec) = rodar(&plano(&["sl"], &["org.a.B"]), true, "n\ns\n", None);
+        assert_eq!(r.unwrap(), Outcome::Executed);
+        assert_eq!(exec, [(Manager::Flatpak, cmd_flatpak(&["org.a.B"]))]);
+        assert!(out.contains("Nada foi executado.\n"));
+    }
+
+    #[test]
+    fn recusar_o_flatpak_depois_de_instalar_o_pacman_conta_como_executado() {
+        let (r, _, exec) = rodar(&plano(&["sl"], &["org.a.B"]), true, "s\nn\n", None);
+        assert_eq!(r.unwrap(), Outcome::Executed);
+        assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl"]))]);
+    }
+
+    #[test]
+    fn recusar_os_dois_nao_executa_nada() {
+        let (r, out, exec) = rodar(&plano(&["sl"], &["org.a.B"]), true, "n\nn\n", None);
         assert_eq!(r.unwrap(), Outcome::Declined);
         assert!(exec.is_empty());
         assert!(out.ends_with("Nada foi executado.\n"));
@@ -229,73 +322,133 @@ mod tests {
 
     #[test]
     fn fim_da_entrada_e_recusa() {
-        let (r, _, exec) = rodar(&plano(&["sl"], &[]), true, "", false);
+        let (r, _, exec) = rodar(&plano(&["sl"], &["org.a.B"]), true, "", None);
         assert_eq!(r.unwrap(), Outcome::Declined);
         assert!(exec.is_empty());
     }
 
     #[test]
     fn sem_terminal_interativo_e_erro_e_nao_executa() {
-        let (r, out, exec) = rodar(&plano(&["sl"], &[]), false, "s\n", false);
-        let erro = r.unwrap_err().to_string();
-        assert!(erro.contains("terminal interativo"), "{erro}");
-        assert!(exec.is_empty());
-        assert!(!out.contains("Executar?"));
+        for plan in [
+            plano(&["sl"], &[]),
+            plano(&[], &["org.a.B"]),
+            plano(&["sl"], &["org.a.B"]),
+        ] {
+            let (r, out, exec) = rodar(&plan, false, "s\ns\n", None);
+            let erro = r.unwrap_err().to_string();
+            assert!(erro.contains("terminal interativo"), "{erro}");
+            assert!(exec.is_empty());
+            assert!(!out.contains("Executar?"));
+        }
     }
 
     #[test]
-    fn falha_do_sudo_ou_do_pacman_vira_erro() {
-        let (r, _, exec) = rodar(&plano(&["sl"], &[]), true, "s\n", true);
-        assert!(r.is_err());
-        assert_eq!(exec.len(), 1);
-    }
-
-    #[test]
-    fn so_flatpak_faltando_avisa_e_nao_executa() {
-        let (r, out, exec) = rodar(&plano(&[], &["org.a.B", "org.c.D"]), true, "s\n", false);
-        assert_eq!(r.unwrap(), Outcome::FlatpakOnly);
-        assert!(exec.is_empty());
-        assert_eq!(
-            out,
-            "aviso: Flatpak ainda não é instalado pelo nodus: 2 app(s) do preset ficam de fora\n"
+    fn falha_do_pacman_interrompe_e_nao_oferece_o_flatpak() {
+        let (r, out, exec) = rodar(
+            &plano(&["sl"], &["org.a.B"]),
+            true,
+            "s\ns\n",
+            Some(Manager::Pacman),
         );
+        assert!(r.is_err());
+        assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl"]))]);
+        assert!(!out.contains("flatpak install"), "{out}");
     }
 
     #[test]
-    fn pacman_e_flatpak_faltando_avisa_e_executa_so_o_pacman() {
-        let (r, out, exec) = rodar(&plano(&["sl"], &["org.a.B"]), true, "s\n", false);
+    fn falha_do_flatpak_vira_erro_depois_de_instalar_o_pacman() {
+        let (r, _, exec) = rodar(
+            &plano(&["sl"], &["org.a.B"]),
+            true,
+            "s\ns\n",
+            Some(Manager::Flatpak),
+        );
+        assert!(r.is_err());
+        assert_eq!(exec.len(), 2);
+    }
+
+    #[test]
+    fn sem_o_remote_flathub_para_antes_de_qualquer_pergunta() {
+        // Mesmo com pacman faltando: nada pode ser instalado se o passo Flatpak já se sabe inviável.
+        let (r, out, exec) =
+            rodar_com_flathub(&plano(&["sl"], &["org.a.B"]), true, "s\ns\n", None, || {
+                Ok(false)
+            });
+        let erro = r.unwrap_err().to_string();
+        assert!(erro.contains("flathub"), "{erro}");
+        assert!(exec.is_empty());
+        assert!(!out.contains("Executar?"), "{out}");
+    }
+
+    #[test]
+    fn falha_ao_consultar_o_flathub_vira_erro_sem_executar() {
+        let (r, out, exec) =
+            rodar_com_flathub(&plano(&["sl"], &["org.a.B"]), true, "s\ns\n", None, || {
+                anyhow::bail!("não consegui listar os remotes")
+            });
+        assert!(r.is_err());
+        assert!(exec.is_empty());
+        assert!(!out.contains("Executar?"), "{out}");
+    }
+
+    #[test]
+    fn flatpak_nao_instalado_com_app_no_preset_e_erro_claro_sem_consultar_o_flathub() {
+        let mut plan = plano(&["sl"], &["org.a.B"]);
+        plan.flatpak_installed = false;
+        let (r, out, exec) = rodar_com_flathub(&plan, true, "s\ns\n", None, || {
+            panic!("sem Flatpak instalado não há o que consultar")
+        });
+        let erro = r.unwrap_err().to_string();
+        assert!(erro.contains("Flatpak não está instalado"), "{erro}");
+        assert!(exec.is_empty());
+        assert!(!out.contains("Executar?"), "{out}");
+    }
+
+    #[test]
+    fn flatpak_nao_instalado_sem_app_flatpak_no_preset_nao_atrapalha_o_pacman() {
+        let mut plan = plano(&["sl"], &[]);
+        plan.flatpak_installed = false;
+        let (r, _, exec) = rodar(&plan, true, "s\n", None);
         assert_eq!(r.unwrap(), Outcome::Executed);
-        assert_eq!(exec.len(), 1);
-        assert!(out.starts_with("aviso: Flatpak ainda não é instalado pelo nodus: 1 app(s)"));
+        assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl"]))]);
     }
 
     // --- apply_with_history: registra o que de fato foi executado (SECURITY.md T5) ---
 
     use crate::testutil::TmpDir;
-    use nodus_core::history::ExecResult;
+    use nodus_core::history::{ExecResult, HistoryEntry, Manager};
     use nodus_core::runner::RunnerError;
     use std::cell::Cell;
 
     const AGORA: u64 = 1_794_626_444;
 
     /// Roda `apply_with_history` com executor e "Depois" falsos. Devolve o resultado, quantas vezes o
-    /// executor e o "Depois" foram chamados, e o histórico gravado.
+    /// executor e o "Depois" foram chamados, e o histórico gravado. `exec_falha`: o primeiro
+    /// comando executado falha com esse erro (nos testes só com pacman, é o do pacman).
     fn rodar_com_historico(
         plan: &Plan,
         interactive: bool,
         entrada: &str,
         exec_falha: Option<anyhow::Error>,
         depois: Plan,
-    ) -> (
-        anyhow::Result<Applied>,
-        usize,
-        usize,
-        Vec<nodus_core::history::HistoryEntry>,
-    ) {
+    ) -> (anyhow::Result<Applied>, usize, usize, Vec<HistoryEntry>) {
+        let falha = exec_falha.map(|e| (Manager::Pacman, e));
+        rodar_em_sequencia(plan, interactive, entrada, falha, vec![depois])
+    }
+
+    /// Como `rodar_com_historico`, para planos com os dois gerenciadores. `falha`: o passo desse
+    /// gerenciador termina com esse erro. `depois`: o plano que cada conferência devolve, em ordem
+    /// (a última é repetida se faltar).
+    fn rodar_em_sequencia(
+        plan: &Plan,
+        interactive: bool,
+        entrada: &str,
+        falha: Option<(Manager, anyhow::Error)>,
+        depois: Vec<Plan>,
+    ) -> (anyhow::Result<Applied>, usize, usize, Vec<HistoryEntry>) {
         let tmp = TmpDir::novo();
         let path = tmp.path().join("nodus/history.jsonl");
-        let (r, execs, depois_chamado) =
-            chamar(plan, interactive, entrada, exec_falha, depois, &path);
+        let (r, execs, depois_chamado) = chamar(plan, interactive, entrada, falha, depois, &path);
         let gravado = crate::history::read(&path).unwrap();
         (r, execs, depois_chamado, gravado)
     }
@@ -304,35 +457,170 @@ mod tests {
         plan: &Plan,
         interactive: bool,
         entrada: &str,
-        exec_falha: Option<anyhow::Error>,
-        depois: Plan,
+        falha: Option<(Manager, anyhow::Error)>,
+        depois: Vec<Plan>,
         path: &std::path::Path,
     ) -> (anyhow::Result<Applied>, usize, usize) {
         let mut input = Cursor::new(entrada.as_bytes().to_vec());
         let mut output = Vec::new();
         let execs = Cell::new(0);
         let depois_chamado = Cell::new(0);
-        let mut falha = exec_falha;
+        let mut falha = falha;
         let r = apply_with_history(
             plan,
             interactive,
             &mut input,
             &mut output,
-            |_| {
+            || Ok(true),
+            |command| {
                 execs.set(execs.get() + 1);
-                match falha.take() {
-                    Some(e) => Err(e),
+                let manager = if command[0] == "flatpak" {
+                    Manager::Flatpak
+                } else {
+                    Manager::Pacman
+                };
+                match falha.take_if(|(m, _)| *m == manager) {
+                    Some((_, e)) => Err(e),
                     None => Ok(()),
                 }
             },
             || {
-                depois_chamado.set(depois_chamado.get() + 1);
-                Ok(depois)
+                let i = depois_chamado.get();
+                depois_chamado.set(i + 1);
+                Ok(depois[i.min(depois.len() - 1)].clone())
             },
             path,
             AGORA,
         );
         (r, execs.get(), depois_chamado.get())
+    }
+
+    #[test]
+    fn dois_passos_gravam_uma_entrada_por_gerenciador_na_ordem() {
+        let (r, execs, depois_chamado, hist) = rodar_em_sequencia(
+            &plano(&["sl"], &["org.gnome.Calculator"]),
+            true,
+            "s\ns\n",
+            None,
+            // Depois do pacman o Flatpak ainda falta; depois do Flatpak, nada falta.
+            vec![plano(&[], &["org.gnome.Calculator"]), plano(&[], &[])],
+        );
+        let aplicado = r.unwrap();
+        assert_eq!(aplicado.outcome, Outcome::Executed);
+        assert_eq!(aplicado.executed, [Manager::Pacman, Manager::Flatpak]);
+        assert_eq!(aplicado.after, Some(plano(&[], &[])));
+        assert_eq!((execs, depois_chamado), (2, 2));
+        assert_eq!(hist.len(), 2);
+        assert_eq!(hist[0].manager, Manager::Pacman);
+        assert_eq!(hist[0].requested, ["sl"]);
+        assert_eq!(hist[0].installed, ["sl"]);
+        assert_eq!(hist[1].manager, Manager::Flatpak);
+        assert_eq!(hist[1].requested, ["org.gnome.Calculator"]);
+        assert_eq!(hist[1].installed, ["org.gnome.Calculator"]);
+        assert!(hist[1].still_missing.is_empty());
+        assert_eq!(hist[1].result, ExecResult::Ok);
+        assert_eq!(
+            hist[1].command,
+            [
+                "flatpak",
+                "install",
+                "--user",
+                "--",
+                "flathub",
+                "org.gnome.Calculator"
+            ]
+        );
+        assert_eq!(hist[1].at_unix, AGORA);
+    }
+
+    #[test]
+    fn so_flatpak_grava_uma_entrada_flatpak() {
+        let (r, _, _, hist) = rodar_em_sequencia(
+            &plano(&[], &["org.a.B"]),
+            true,
+            "s\n",
+            None,
+            vec![plano(&[], &[])],
+        );
+        assert_eq!(r.unwrap().executed, [Manager::Flatpak]);
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].manager, Manager::Flatpak);
+    }
+
+    #[test]
+    fn falha_do_flatpak_grava_a_entrada_com_o_codigo_e_propaga_o_erro() {
+        let falha = anyhow::Error::from(RunnerError::Failed {
+            program: "flatpak".into(),
+            code: Some(1),
+        });
+        let (r, execs, _, hist) = rodar_em_sequencia(
+            &plano(&[], &["org.a.B"]),
+            true,
+            "s\n",
+            Some((Manager::Flatpak, falha)),
+            vec![plano(&[], &["org.a.B"])],
+        );
+        assert!(r.is_err());
+        assert_eq!(execs, 1);
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].manager, Manager::Flatpak);
+        assert_eq!(hist[0].result, ExecResult::Failed { code: Some(1) });
+        assert_eq!(hist[0].still_missing, ["org.a.B"]);
+        assert!(hist[0].installed.is_empty());
+    }
+
+    #[test]
+    fn falha_do_pacman_grava_so_a_entrada_do_pacman() {
+        let falha = anyhow::Error::from(RunnerError::Failed {
+            program: "sudo".into(),
+            code: Some(1),
+        });
+        let (r, execs, _, hist) = rodar_em_sequencia(
+            &plano(&["sl"], &["org.a.B"]),
+            true,
+            "s\ns\n",
+            Some((Manager::Pacman, falha)),
+            vec![plano(&["sl"], &["org.a.B"])],
+        );
+        assert!(r.is_err());
+        assert_eq!(execs, 1);
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].manager, Manager::Pacman);
+    }
+
+    #[test]
+    fn recusar_um_passo_nao_grava_entrada_dele() {
+        let (r, execs, depois_chamado, hist) = rodar_em_sequencia(
+            &plano(&["sl"], &["org.a.B"]),
+            true,
+            "n\ns\n",
+            None,
+            vec![plano(&["sl"], &[])],
+        );
+        assert_eq!(r.unwrap().executed, [Manager::Flatpak]);
+        assert_eq!((execs, depois_chamado), (1, 1));
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].manager, Manager::Flatpak);
+    }
+
+    #[test]
+    fn sem_flathub_nao_grava_nada() {
+        let tmp = TmpDir::novo();
+        let path = tmp.path().join("nodus/history.jsonl");
+        let mut output = Vec::new();
+        let r = apply_with_history(
+            &plano(&["sl"], &["org.a.B"]),
+            true,
+            &mut Cursor::new(b"s\ns\n".to_vec()),
+            &mut output,
+            || Ok(false),
+            |_| panic!("nada deveria ser executado"),
+            || panic!("nada deveria ser conferido"),
+            &path,
+            AGORA,
+        );
+        assert!(r.is_err());
+        assert!(crate::history::read(&path).unwrap().is_empty());
     }
 
     #[test]
@@ -413,20 +701,6 @@ mod tests {
     }
 
     #[test]
-    fn nao_grava_quando_so_falta_flatpak() {
-        let (r, execs, _, hist) = rodar_com_historico(
-            &plano(&[], &["org.a.B"]),
-            true,
-            "s\n",
-            None,
-            plano(&[], &[]),
-        );
-        assert_eq!(r.unwrap().outcome, Outcome::FlatpakOnly);
-        assert_eq!(execs, 0);
-        assert!(hist.is_empty());
-    }
-
-    #[test]
     fn nao_grava_sem_terminal() {
         let (r, execs, _, hist) =
             rodar_com_historico(&plano(&["sl"], &[]), false, "s\n", None, plano(&[], &[]));
@@ -447,7 +721,7 @@ mod tests {
             true,
             "s\n",
             None,
-            plano(&[], &[]),
+            vec![plano(&[], &[])],
             &path,
         );
         assert_eq!(execs, 1);
