@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 /// Plataforma aberta para padronizar e administrar ambientes de computadores.
 #[derive(Parser, Debug)]
-#[command(name = "nodus", version = nodus_core::VERSION, arg_required_else_help = true)]
+#[command(name = "nodusctl", version = nodus_core::VERSION, arg_required_else_help = true)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -55,7 +55,7 @@ pub enum HistoryAction {
     /// Remove (`sudo pacman -Rs`) os pacotes que a entrada `n` instalou e ainda estão instalados
     /// de propósito, depois de simular, mostrar o plano e pedir confirmação.
     Undo {
-        /// Número da entrada, como mostrado por `nodus history` (a partir de 1).
+        /// Número da entrada, como mostrado por `nodusctl history` (a partir de 1).
         #[arg(value_parser = clap::value_parser!(u32).range(1..))]
         n: u32,
     },
@@ -90,7 +90,12 @@ mod tests {
     fn version_imprime_nome_e_versao() {
         let erro = Cli::try_parse_from(["nodus", "--version"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::DisplayVersion);
-        assert_eq!(erro.to_string().trim(), "nodus 0.0.1");
+        assert_eq!(erro.to_string().trim(), "nodusctl 0.0.1");
+    }
+
+    #[test]
+    fn o_comando_se_chama_nodusctl_para_nao_colidir_com_o_nodus_do_cratesio() {
+        assert_eq!(Cli::command().get_name(), "nodusctl");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Lógica pura da reversão (`nodus history undo`, ADR 0011): quais pacotes de uma entrada ainda
+//! Lógica pura da reversão (`nodusctl history undo`, ADR 0011): quais pacotes de uma entrada ainda
 //! podem sair, os comandos do pacman, a leitura do plano simulado e a entrada que a reversão grava.
 //! Sem I/O: quem consulta o pacman, pergunta e executa é a CLI. Remover pacote é classe
 //! privilegiada (SECURITY.md §4) e o histórico não é assinado (T5), então tudo que vem dele ou do
@@ -160,7 +160,7 @@ pub fn check_plan_covers(candidates: &[String], plan: &[Removal]) -> Result<(), 
     Ok(())
 }
 
-/// A entrada escolhida pelo número que `nodus history` mostra (a partir de 1).
+/// A entrada escolhida pelo número que `nodusctl history` mostra (a partir de 1).
 pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
     let entry = usize::try_from(n)
         .ok()
@@ -463,7 +463,7 @@ mod tests {
         );
     }
 
-    // --- escolher a entrada pelo número mostrado em `nodus history` ---
+    // --- escolher a entrada pelo número mostrado em `nodusctl history` ---
 
     #[test]
     fn escolhe_pelo_numero_a_partir_de_1() {

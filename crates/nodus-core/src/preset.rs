@@ -129,7 +129,7 @@ fn is_valid_flatpak_id(id: &str) -> bool {
 /// validados e não têm aspas nem barra invertida, então podem ir entre aspas sem escapar.
 pub fn to_toml(preset: &Preset) -> String {
     let mut out = format!(
-        "# Preset do nodus (formato {FORMAT_VERSION}). Gerado por `nodus preset init`; edite à vontade.\nversion = {FORMAT_VERSION}\n"
+        "# Preset do nodus (formato {FORMAT_VERSION}). Gerado por `nodusctl preset init`; edite à vontade.\nversion = {FORMAT_VERSION}\n"
     );
     for (key, names) in [("pacman", &preset.pacman), ("flatpak", &preset.flatpak)] {
         out.push_str(key);
@@ -394,7 +394,7 @@ mod tests {
         let texto = to_toml(&p);
         assert_eq!(
             texto,
-            "# Preset do nodus (formato 1). Gerado por `nodus preset init`; edite à vontade.\nversion = 1\npacman = [\n    \"base\",\n    \"git\",\n]\nflatpak = [\n    \"org.nongnu.lingot\",\n]\n"
+            "# Preset do nodus (formato 1). Gerado por `nodusctl preset init`; edite à vontade.\nversion = 1\npacman = [\n    \"base\",\n    \"git\",\n]\nflatpak = [\n    \"org.nongnu.lingot\",\n]\n"
         );
         assert_eq!(parse_preset(&texto).unwrap(), p);
     }

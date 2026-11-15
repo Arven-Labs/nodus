@@ -1,4 +1,4 @@
-//! `nodus preset apply`: a primeira operação privilegiada (SECURITY.md §4). Mostra o comando exato,
+//! `nodusctl preset apply`: a primeira operação privilegiada (SECURITY.md §4). Mostra o comando exato,
 //! pede confirmação (padrão N) e só então executa; o `[Y/n]` do pacman vem depois, com as dependências.
 
 use anyhow::{Context, Result, bail};
