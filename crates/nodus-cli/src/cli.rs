@@ -33,9 +33,10 @@ pub enum Command {
         action: Option<HistoryAction>,
     },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
+    /// Sem pasta: a de workspace (NODUS_WORKSPACE, ou a detectada; ver `workspace`).
     Repos {
         /// Pasta cujos filhos diretos são examinados.
-        dir: PathBuf,
+        dir: Option<PathBuf>,
         /// Faz `fetch` do `origin` antes de ler o estado (usa a rede).
         #[arg(long)]
         fetch: bool,

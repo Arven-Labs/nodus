@@ -35,6 +35,15 @@ pub enum Source {
 }
 
 impl Source {
+    /// Nome para o usuário (texto e stderr).
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::Informed => "informado",
+            Source::Environment => "ambiente",
+            Source::Detected => "detectado",
+        }
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Source::Informed => "informed",
@@ -96,6 +105,26 @@ pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Res
             repo_count: candidate.repo_count,
         });
     Ok(Report { chosen, candidates })
+}
+
+/// A pasta que o `repos` examina. Com argumento, vale o argumento como está (o contrato antigo do
+/// `repos`, sem origem). Sem argumento, vale o workspace resolvido por `resolve`, com a origem para o
+/// chamador avisar o usuário. Sem workspace achável, erro com a saída: informar a pasta ou a variável.
+pub fn pick_dir(
+    arg: Option<&Path>,
+    env: Option<&str>,
+    home: Option<&str>,
+) -> Result<(PathBuf, Option<Source>)> {
+    if let Some(dir) = arg {
+        return Ok((dir.to_path_buf(), None));
+    }
+    let report = resolve(None, env, home)?;
+    match report.chosen {
+        Some(chosen) => Ok((chosen.path, Some(chosen.source))),
+        None => bail!(
+            "não achei a pasta de workspace: informe a pasta (`nodusctl repos <pasta>`) ou defina NODUS_WORKSPACE"
+        ),
+    }
 }
 
 fn manual_report(chosen: Chosen) -> Report {
