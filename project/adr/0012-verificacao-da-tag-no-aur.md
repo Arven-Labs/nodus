@@ -30,6 +30,7 @@ O AUR não é revisado: quem instala executa o `PKGBUILD` do mantenedor (ADR 001
 - Atualiza o item 2 do ADR 0010 (que falava em `sha256sums` do tarball da tag); o resto daquele ADR continua valendo.
 
 ## Não verificado
-- Contra o GitHub (a medição usou clone local), com AUR helper (`yay`, `paru`) e em outras versões do `makepkg`.
+- Contra o GitHub (a medição usou clone local) e em outras versões do `makepkg`.
+- **AUR helper, medido em 2026-11-15** (`yay` 13.1.0 e `paru` 2.2.0, `-B <pasta>` sem instalar, PKGBUILD de teste com a verificação do item 1, chaves descartáveis, `HOME` isolado): os dois rodam o `prepare()`. Tag da chave confiada: pacote gerado, exit 0. Tag de outra chave: o `prepare()` falha com exit 4 e nenhum pacote é gerado, com o mesmo resultado do `makepkg` direto. Com `--mflags=--noprepare` os dois geram o pacote da tag de outra chave sem verificar, o que confirma a fraqueza (a) e mostra que ela atinge quem usa helper. Lacunas: só `-B` em pasta local (não o fluxo `-S` a partir do AUR, que clona e mostra o diff do PKGBUILD); o `yay` imprimiu `Skipping verification of source file PGP signatures` (não investiguei se ele pula a verificação PGP nativa, o que importaria só para o `?signed`, que esta decisão não usa); a configuração real do dono (`~/.config/yay`, `paru.conf`) não foi usada.
 - O caso "o checkout aponta para outro commit que não o da tag": não foi montado, porque o `makepkg` faz checkout da própria tag; a conferência do item 3 não foi exercitada com um desvio.
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.

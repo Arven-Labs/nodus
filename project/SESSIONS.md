@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, P-14 (opção 1 medida com `yay` e `paru`)
+
+- **Pedido**: seguir a P-14. Opções apresentadas: 1 (AUR helper), 2 (caso de desvio de commit), 3 (GitHub real, com tag irreversível; não recomendada). O dono escolheu a 1 e autorizou rodar `yay` e `paru` em `/tmp`.
+- **Medido** (`yay` 13.1.0, `paru` 2.2.0, `-B <pasta>` sem instalar; PKGBUILD de teste com o `prepare()` da opção 1; chaves descartáveis sem passphrase; `HOME` isolado; script no scratchpad da sessão, diretório temporário apagado por ele): tag da chave confiada, pacote gerado e exit 0 nos dois e no `makepkg` de controle; tag de outra chave, `prepare()` falha (exit 4) e nenhum pacote, nos dois; com `--mflags=--noprepare`, os dois geram o pacote da tag de outra chave sem verificar.
+- **Achado**: a fraqueza (a) do ADR 0012 vale também para quem usa helper. O ADR e o README do pacote devem avisar; a decisão não mudou.
+- **Percalço**: o script falhou três vezes antes de medir (flag `--nodiffmenu` que não existe no `yay`; `yay -B` exige a pasta como repo git e com remoto/upstream, então montei um remoto bare local). Nenhum desses defeitos afeta o resultado; as execuções que contam foram as da última rodada.
+- **Feito**: só docs. `PENDING.md` (P-14) e ADR 0012 (item "Não verificado").
+- **Não verificado**: fluxo `-S` a partir do AUR (clona e mostra o diff do PKGBUILD); o aviso `Skipping verification of source file PGP signatures` do `yay` não foi investigado; config real do dono; GitHub; outras versões; caso de desvio de commit; PKGBUILD real.
+- **Fica**: P-14 (PKGBUILD real só depois do MVP; caso de desvio e GitHub), P-17 (bloqueada), P-12, P-02, P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-14 — Sessão 18, ADR 0012 (verificação da tag no AUR)
 
 - **Pedido**: o dono aceitou o ADR sugerido para a decisão da P-14 e disse para seguir na P-14 depois.
