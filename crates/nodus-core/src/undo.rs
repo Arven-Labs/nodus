@@ -531,7 +531,8 @@ mod tests {
             ExecResult::Failed { code: Some(1) },
             1_794_626_444,
         );
-        assert_eq!(e.version, 2);
+        assert_eq!(e.version, 3);
+        assert_eq!(e.manager, Manager::Pacman);
         assert_eq!(e.action, Action::Remove);
         assert_eq!(e.undoes, Some(3));
         assert_eq!(e.requested, v(&["sl", "zsh"]));
