@@ -137,7 +137,7 @@ fn detect(home: &Path) -> Vec<Candidate> {
             repo_count: repos.len(),
         });
     }
-    found.sort_by_key(|candidate| Reverse(candidate.repo_count));
+    found.sort_by_key(|candidate| Reverse(candidate.repo_count.min(1)));
     found
 }
 
