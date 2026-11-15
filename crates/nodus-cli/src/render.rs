@@ -225,6 +225,16 @@ pub fn render_plan(plan: &Plan) -> String {
     for name in &plan.pacman_missing {
         let _ = writeln!(out, "  {name}");
     }
+    if !plan.pacman_unavailable.is_empty() {
+        let _ = writeln!(
+            out,
+            "Indisponíveis nos repositórios, o nodus não instala ({}):",
+            plan.pacman_unavailable.len()
+        );
+        for name in &plan.pacman_unavailable {
+            let _ = writeln!(out, "  {name}");
+        }
+    }
     if plan.flatpak_installed {
         let _ = writeln!(
             out,
@@ -243,7 +253,11 @@ pub fn render_plan(plan: &Plan) -> String {
         let _ = writeln!(out, "  {id}");
     }
     if plan.is_empty() {
-        out.push_str("Nada a fazer: a máquina já está como o preset.\n");
+        out.push_str(if plan.pacman_unavailable.is_empty() {
+            "Nada a fazer: a máquina já está como o preset.\n"
+        } else {
+            "Nada a instalar: só restam itens indisponíveis nos repositórios.\n"
+        });
     }
     out
 }

@@ -51,8 +51,12 @@ pub struct MachinePreset {
 /// O que faltaria instalar para a máquina ficar como o preset. Nada aqui executa.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Plan {
+    /// O que falta e o pacman consegue instalar (só isto entra no comando do `apply`).
     pub pacman_missing: Vec<String>,
     pub pacman_present: usize,
+    /// O que falta e o pacman não encontra nos repositórios (AUR, locais): o nodus não instala. Um
+    /// item assim aborta a transação inteira do `pacman -S`, por isso fica fora de `pacman_missing`.
+    pub pacman_unavailable: Vec<String>,
     pub flatpak_missing: Vec<String>,
     pub flatpak_present: usize,
     pub flatpak_installed: bool,
@@ -175,6 +179,7 @@ pub fn plan(preset: &Preset, installed: &[Package], flatpak: Option<&[FlatpakApp
     Plan {
         pacman_missing,
         pacman_present,
+        pacman_unavailable: vec![],
         flatpak_missing,
         flatpak_present,
         flatpak_installed: flatpak.is_some(),
@@ -300,7 +305,47 @@ pub fn flathub_configured(runner: &dyn CommandRunner) -> Result<bool, InventoryE
 pub fn collect_plan(runner: &dyn CommandRunner, preset: &Preset) -> Result<Plan, MachineError> {
     let installed = read_pacman(runner, "-Q")?;
     let apps = read_flatpak_apps(runner)?;
-    Ok(plan(preset, &installed, apps.as_deref()))
+    let mut result = plan(preset, &installed, apps.as_deref());
+    let missing = std::mem::take(&mut result.pacman_missing);
+    let (installable, unavailable) = split_unavailable(runner, missing)?;
+    result.pacman_missing = installable;
+    result.pacman_unavailable = unavailable;
+    Ok(result)
+}
+
+/// Separa o que o pacman consegue instalar do que não encontra, simulando com `pacman -S --print
+/// --needed` (sem root, não instala nada; é a mesma resolução do `apply` real, então vale também para
+/// grupos e *provides*, que uma lista de pacotes erraria). Caminho comum: uma única chamada com o lote
+/// inteiro. Se ela falhar, uma chamada por item, porque o nome do culpado só sai no stderr e o
+/// `CommandRunner` devolve só o stdout. Qualquer falha de um item sozinho vira "indisponível" (não
+/// distingo "não encontrado" de outro erro com o mesmo exit 1); erro de início (sem `pacman`) propaga.
+fn split_unavailable(
+    runner: &dyn CommandRunner,
+    missing: Vec<String>,
+) -> Result<(Vec<String>, Vec<String>), InventoryError> {
+    if missing.is_empty() {
+        return Ok((missing, vec![]));
+    }
+    match simulate_install(runner, &missing) {
+        Ok(()) => return Ok((missing, vec![])),
+        Err(RunnerError::Failed { .. }) => {}
+        Err(other) => return Err(other.into()),
+    }
+    let (mut installable, mut unavailable) = (vec![], vec![]);
+    for name in missing {
+        match simulate_install(runner, std::slice::from_ref(&name)) {
+            Ok(()) => installable.push(name),
+            Err(RunnerError::Failed { .. }) => unavailable.push(name),
+            Err(other) => return Err(other.into()),
+        }
+    }
+    Ok((installable, unavailable))
+}
+
+fn simulate_install(runner: &dyn CommandRunner, names: &[String]) -> Result<(), RunnerError> {
+    let mut args = vec!["-S", "--print", "--needed", "--"];
+    args.extend(names.iter().map(String::as_str));
+    runner.run("pacman", &args).map(|_| ())
 }
 
 /// `pacman -Q` e `-Qe` saem no mesmo formato `nome versão` (medido em 2026-11-13).
