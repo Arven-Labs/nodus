@@ -39,6 +39,7 @@ Medido em 2026-11-15, nesta máquina, só leitura (`pacman -S --print`, `pacman 
 
 ## Não verificado
 - O `apply` real com um item do AUR (só a simulação `--print` foi medida).
-- O `plan`/`apply` e o `suggest` novos no Arch real, com binário novo.
+- **Verificado no Arch real em 2026-11-15** (binário novo, `pacman` desta máquina): `preset plan` com `sl` (ausente), `brave-bin` (AUR, instalado), um nome inexistente e `java-runtime` (só por *provides*) deu `pacman_missing = [sl, java-runtime]`, `pacman_present = 1` (`brave-bin`) e `pacman_unavailable = [nome inexistente]`, em texto e em `--json`; `preset init` seguido de `preset suggest` deu "Nada fora do preset".
+- Ainda não verificado: o `apply` real com um item indisponível (precisa de terminal; deve mostrar o comando só com os instaláveis); a seção "Fora dos repositórios" do `suggest` com um preset que não contém os pacotes do AUR; um item do AUR **ausente** na máquina (aqui o `brave-bin` estava instalado, então contou como presente).
 - Custo da varredura por item em máquina nova; outras versões do `pacman` além da desta máquina.
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.
