@@ -262,6 +262,7 @@ mod tests {
         Plan {
             pacman_missing: v(faltando),
             pacman_present: 3,
+            pacman_unavailable: vec![],
             flatpak_missing: vec![],
             flatpak_present: 0,
             flatpak_installed: true,
@@ -348,6 +349,7 @@ mod tests {
         Plan {
             pacman_missing: v(&["sl"]),
             pacman_present: 3,
+            pacman_unavailable: vec![],
             flatpak_missing: v(faltando),
             flatpak_present: 0,
             flatpak_installed: true,

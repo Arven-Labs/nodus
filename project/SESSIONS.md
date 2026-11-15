@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, P-18 (itens que o pacman não encontra)
+
+- **Pedido**: atacar a P-18. Em plan mode, **medi antes de decidir** (só leitura, `pacman -S --print`): um item fora dos repositórios aborta a transação inteira com `target not found`, exit 1, mesmo já instalado, e o nativo do mesmo pedido também não instala; `java-runtime` (só por *provides*) simula com exit 0; o nome do culpado só sai no stderr, que o nodus não captura. Decisões do dono: corrigir no `plan`/`apply` por simulação (não no `init`, não formato v2) e o `apply` pula e avisa.
+- **ADR**: o dono pediu o ADR 0016 (`adr/0016-itens-fora-dos-repositorios.md`), que cobre a P-18 e a decisão do `suggest` (só relatório, AUR à parte), com as medições e as alternativas descartadas.
+- **Feito (PR #49)**: testes primeiro, CI **vermelho** (erro de compilação: `Plan.pacman_unavailable`). Implementação: `split_unavailable` e `simulate_install` (`preset.rs`), seção "Indisponíveis" e mensagem de plano só com indisponíveis (`render.rs`); `apply.rs` e `history.rs` não mudaram (já usam `pacman_missing`). CI verde.
+- **Mutação**: a primeira (lote que falha vira tudo instalável) **não compilou** (`unreachable statement`), então não provou nada e foi revertida; a segunda (destinos trocados no laço por item) compilou e deixou **3 testes vermelhos por asserção**; revertida com `git revert`.
+- **Não verificado**: o `apply` real com um item do AUR (só a simulação foi medida); custo em máquina nova com muitos itens faltando; "não encontrado" vs outro exit 1 por item (indistinguíveis sem o stderr); nenhum teste de CLI de ponta a ponta.
+- **Fica**: o dono verificar com binário novo (preset com um nativo ausente + `brave-bin` + um nome inexistente: `plan` mostra os indisponíveis; `apply` mostra o comando só com o instalável; pode responder `n`); P-02, P-14, P-17; critério 6; fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, critério 5 do MVP (`preset suggest`, só relatório)
 
 - **Pedido**: seguir o MVP. Antes, validei o `inventory` por leitura contra `/etc/os-release`, `uname`, `/proc` e `pacman -Q` (sistema, kernel, CPU, memória, 1244 pacotes e Flatpak 0 batem). Depois o critério 5, em plan mode. Decisões do dono: só relatório (sem escrever no preset, sem estado de ignorados) e subcomando novo.

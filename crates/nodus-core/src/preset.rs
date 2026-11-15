@@ -51,8 +51,12 @@ pub struct MachinePreset {
 /// O que faltaria instalar para a máquina ficar como o preset. Nada aqui executa.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Plan {
+    /// O que falta e o pacman consegue instalar (só isto entra no comando do `apply`).
     pub pacman_missing: Vec<String>,
     pub pacman_present: usize,
+    /// O que falta e o pacman não encontra nos repositórios (AUR, locais): o nodus não instala. Um
+    /// item assim aborta a transação inteira do `pacman -S`, por isso fica fora de `pacman_missing`.
+    pub pacman_unavailable: Vec<String>,
     pub flatpak_missing: Vec<String>,
     pub flatpak_present: usize,
     pub flatpak_installed: bool,
@@ -175,6 +179,7 @@ pub fn plan(preset: &Preset, installed: &[Package], flatpak: Option<&[FlatpakApp
     Plan {
         pacman_missing,
         pacman_present,
+        pacman_unavailable: vec![],
         flatpak_missing,
         flatpak_present,
         flatpak_installed: flatpak.is_some(),
@@ -300,7 +305,47 @@ pub fn flathub_configured(runner: &dyn CommandRunner) -> Result<bool, InventoryE
 pub fn collect_plan(runner: &dyn CommandRunner, preset: &Preset) -> Result<Plan, MachineError> {
     let installed = read_pacman(runner, "-Q")?;
     let apps = read_flatpak_apps(runner)?;
-    Ok(plan(preset, &installed, apps.as_deref()))
+    let mut result = plan(preset, &installed, apps.as_deref());
+    let missing = std::mem::take(&mut result.pacman_missing);
+    let (installable, unavailable) = split_unavailable(runner, missing)?;
+    result.pacman_missing = installable;
+    result.pacman_unavailable = unavailable;
+    Ok(result)
+}
+
+/// Separa o que o pacman consegue instalar do que não encontra, simulando com `pacman -S --print
+/// --needed` (sem root, não instala nada; é a mesma resolução do `apply` real, então vale também para
+/// grupos e *provides*, que uma lista de pacotes erraria). Caminho comum: uma única chamada com o lote
+/// inteiro. Se ela falhar, uma chamada por item, porque o nome do culpado só sai no stderr e o
+/// `CommandRunner` devolve só o stdout. Qualquer falha de um item sozinho vira "indisponível" (não
+/// distingo "não encontrado" de outro erro com o mesmo exit 1); erro de início (sem `pacman`) propaga.
+fn split_unavailable(
+    runner: &dyn CommandRunner,
+    missing: Vec<String>,
+) -> Result<(Vec<String>, Vec<String>), InventoryError> {
+    if missing.is_empty() {
+        return Ok((missing, vec![]));
+    }
+    match simulate_install(runner, &missing) {
+        Ok(()) => return Ok((missing, vec![])),
+        Err(RunnerError::Failed { .. }) => {}
+        Err(other) => return Err(other.into()),
+    }
+    let (mut installable, mut unavailable) = (vec![], vec![]);
+    for name in missing {
+        match simulate_install(runner, std::slice::from_ref(&name)) {
+            Ok(()) => installable.push(name),
+            Err(RunnerError::Failed { .. }) => unavailable.push(name),
+            Err(other) => return Err(other.into()),
+        }
+    }
+    Ok((installable, unavailable))
+}
+
+fn simulate_install(runner: &dyn CommandRunner, names: &[String]) -> Result<(), RunnerError> {
+    let mut args = vec!["-S", "--print", "--needed", "--"];
+    args.extend(names.iter().map(String::as_str));
+    runner.run("pacman", &args).map(|_| ())
 }
 
 /// `pacman -Q` e `-Qe` saem no mesmo formato `nome versão` (medido em 2026-11-13).
@@ -784,6 +829,7 @@ mod tests {
             Plan {
                 pacman_missing: vec![],
                 pacman_present: 2,
+                pacman_unavailable: vec![],
                 flatpak_missing: vec![],
                 flatpak_present: 1,
                 flatpak_installed: true,
@@ -835,6 +881,10 @@ mod tests {
         pacman_qe: Result<String, RunnerError>,
         pacman_q: Result<String, RunnerError>,
         pacman_qem: Result<String, RunnerError>,
+        /// Nomes que `pacman -S --print` não encontra: a chamada que os inclui falha com exit 1.
+        indisponiveis: Vec<String>,
+        /// Erro da simulação `pacman -S --print` que não é "não encontrado" (ex.: pacman sumiu).
+        pacman_sync_erro: Option<RunnerError>,
         flatpak: Result<String, RunnerError>,
         flatpak_remotes: Result<String, RunnerError>,
         chamadas: std::cell::RefCell<Vec<Vec<String>>>,
@@ -846,6 +896,8 @@ mod tests {
                 pacman_qe: Ok("git 2.56.0-1\nvim 9.1-1\n".into()),
                 pacman_q: Ok("git 2.56.0-1\nglibc 2.42-1\nvim 9.1-1\n".into()),
                 pacman_qem: Ok("".into()),
+                indisponiveis: vec![],
+                pacman_sync_erro: None,
                 flatpak: Ok("org.nongnu.lingot\t1.1.1\tstable\tflathub\tuser\n".into()),
                 flatpak_remotes: Ok("flathub\n".into()),
                 chamadas: Default::default(),
@@ -867,6 +919,19 @@ mod tests {
                 ("pacman", Some("-Qe")) => self.pacman_qe.clone(),
                 ("pacman", Some("-Q")) => self.pacman_q.clone(),
                 ("pacman", Some("-Qem")) => self.pacman_qem.clone(),
+                ("pacman", Some("-S")) => match &self.pacman_sync_erro {
+                    Some(erro) => Err(erro.clone()),
+                    None if args
+                        .iter()
+                        .any(|a| self.indisponiveis.iter().any(|n| n == a)) =>
+                    {
+                        Err(RunnerError::Failed {
+                            program: "pacman".into(),
+                            code: Some(1),
+                        })
+                    }
+                    None => Ok(String::new()),
+                },
                 ("flatpak", Some("list")) => self.flatpak.clone(),
                 ("flatpak", Some("remotes")) => self.flatpak_remotes.clone(),
                 _ => panic!("chamada inesperada: {program} {args:?}"),
@@ -949,5 +1014,113 @@ mod tests {
             code: Some(1),
         });
         assert!(collect_plan(&r, &preset(&["git"], &[])).is_err());
+    }
+
+    // --- itens que o pacman não encontra (P-18) ---
+
+    /// As chamadas à simulação `pacman -S ...`, na ordem.
+    fn simulacoes(r: &Fake) -> Vec<Vec<String>> {
+        r.chamadas
+            .borrow()
+            .iter()
+            .filter(|c| c[0] == "pacman" && c.get(1).map(String::as_str) == Some("-S"))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn nada_faltando_nao_consulta_a_simulacao_do_pacman() {
+        let r = Fake::novo();
+        let plano = collect_plan(&r, &preset(&["git", "vim"], &[])).unwrap();
+        assert!(simulacoes(&r).is_empty());
+        assert!(plano.pacman_unavailable.is_empty());
+    }
+
+    #[test]
+    fn tudo_instalavel_custa_uma_unica_simulacao_com_o_lote_inteiro() {
+        let r = Fake::novo();
+        let plano = collect_plan(&r, &preset(&["git", "zsh", "neovim"], &[])).unwrap();
+        assert_eq!(plano.pacman_missing, ["zsh", "neovim"]);
+        assert!(plano.pacman_unavailable.is_empty());
+        assert_eq!(
+            simulacoes(&r),
+            [["pacman", "-S", "--print", "--needed", "--", "zsh", "neovim"]]
+        );
+    }
+
+    #[test]
+    fn item_que_o_pacman_nao_encontra_sai_do_que_instalar_e_vai_para_indisponiveis() {
+        let mut r = Fake::novo();
+        r.indisponiveis = vec!["brave-bin".into()];
+        let plano = collect_plan(&r, &preset(&["zsh", "brave-bin", "neovim"], &[])).unwrap();
+        assert_eq!(plano.pacman_missing, ["zsh", "neovim"]);
+        assert_eq!(plano.pacman_unavailable, ["brave-bin"]);
+        // Lote (falha) e depois um por item, na ordem do preset.
+        assert_eq!(
+            simulacoes(&r),
+            [
+                vec![
+                    "pacman",
+                    "-S",
+                    "--print",
+                    "--needed",
+                    "--",
+                    "zsh",
+                    "brave-bin",
+                    "neovim"
+                ],
+                vec!["pacman", "-S", "--print", "--needed", "--", "zsh"],
+                vec!["pacman", "-S", "--print", "--needed", "--", "brave-bin"],
+                vec!["pacman", "-S", "--print", "--needed", "--", "neovim"],
+            ]
+        );
+    }
+
+    #[test]
+    fn so_indisponiveis_nao_deixa_nada_para_instalar() {
+        let mut r = Fake::novo();
+        r.indisponiveis = vec!["brave-bin".into(), "google-chrome".into()];
+        let plano = collect_plan(&r, &preset(&["brave-bin", "google-chrome"], &[])).unwrap();
+        assert!(plano.pacman_missing.is_empty());
+        assert_eq!(plano.pacman_unavailable, ["brave-bin", "google-chrome"]);
+        assert!(plano.is_empty());
+        assert_eq!(pacman_install_command(&plano), None);
+    }
+
+    #[test]
+    fn indisponivel_nao_conta_como_presente() {
+        let mut r = Fake::novo();
+        r.indisponiveis = vec!["brave-bin".into()];
+        // `git` e `vim` estão instalados; `brave-bin` falta e é indisponível.
+        let plano = collect_plan(&r, &preset(&["git", "vim", "brave-bin"], &[])).unwrap();
+        assert_eq!(plano.pacman_present, 2);
+    }
+
+    #[test]
+    fn erro_da_simulacao_que_nao_e_item_inexistente_propaga() {
+        // Sem `pacman` (ou sem conseguir iniciá-lo) não dá para classificar: nada de "indisponível".
+        for erro in [
+            RunnerError::NotFound {
+                program: "pacman".into(),
+            },
+            RunnerError::Spawn {
+                program: "pacman".into(),
+                reason: "sem permissão".into(),
+            },
+        ] {
+            let mut r = Fake::novo();
+            r.pacman_sync_erro = Some(erro);
+            assert!(collect_plan(&r, &preset(&["zsh"], &[])).is_err());
+        }
+    }
+
+    #[test]
+    fn plano_serializa_os_indisponiveis() {
+        let mut r = Fake::novo();
+        r.indisponiveis = vec!["brave-bin".into()];
+        let plano = collect_plan(&r, &preset(&["zsh", "brave-bin"], &[])).unwrap();
+        let json = serde_json::to_value(&plano).unwrap();
+        assert_eq!(json["pacman_missing"], serde_json::json!(["zsh"]));
+        assert_eq!(json["pacman_unavailable"], serde_json::json!(["brave-bin"]));
     }
 }

@@ -168,6 +168,7 @@ mod tests {
         Plan {
             pacman_missing: pacman.iter().map(|s| s.to_string()).collect(),
             pacman_present: 3,
+            pacman_unavailable: vec![],
             flatpak_missing: flatpak.iter().map(|s| s.to_string()).collect(),
             flatpak_present: 0,
             flatpak_installed: true,
@@ -288,6 +289,26 @@ mod tests {
             out,
             "Comando: sudo pacman -S --needed -- sl zsh\nExecutar? [s/N] "
         );
+    }
+
+    #[test]
+    fn indisponiveis_ficam_fora_do_comando_e_o_resto_instala() {
+        let mut plan = plano(&["sl"], &[]);
+        plan.pacman_unavailable = vec!["brave-bin".into()];
+        let (r, out, exec) = rodar(&plan, true, "s\n", None);
+        assert_eq!(r.unwrap(), Outcome::Executed);
+        assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl"]))]);
+        assert!(!out.contains("brave-bin"), "{out}");
+    }
+
+    #[test]
+    fn so_indisponiveis_nao_pergunta_nem_executa() {
+        let mut plan = plano(&[], &[]);
+        plan.pacman_unavailable = vec!["brave-bin".into()];
+        let (r, out, exec) = rodar(&plan, true, "s\n", None);
+        assert_eq!(r.unwrap(), Outcome::NothingToDo);
+        assert!(exec.is_empty());
+        assert!(!out.contains("Executar?"), "{out}");
     }
 
     #[test]
@@ -564,6 +585,18 @@ mod tests {
             ]
         );
         assert_eq!(hist[1].at_unix, AGORA);
+    }
+
+    #[test]
+    fn historico_registra_so_os_instalaveis_e_nao_os_indisponiveis() {
+        let mut plan = plano(&["sl"], &[]);
+        plan.pacman_unavailable = vec!["brave-bin".into()];
+        let (r, _, _, hist) = rodar_em_sequencia(&plan, true, "s\n", None, vec![plano(&[], &[])]);
+        r.unwrap();
+        assert_eq!(hist.len(), 1);
+        assert_eq!(hist[0].requested, ["sl"]);
+        assert_eq!(hist[0].installed, ["sl"]);
+        assert!(!hist[0].command.iter().any(|a| a == "brave-bin"));
     }
 
     #[test]
