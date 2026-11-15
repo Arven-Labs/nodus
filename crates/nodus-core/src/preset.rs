@@ -394,7 +394,7 @@ mod tests {
         let texto = to_toml(&p);
         assert_eq!(
             texto,
-            "# Preset do nodus (formato 1). Gerado por `nodus preset init`; edite à vontade.\nversion = 1\npacman = [\n    \"base\",\n    \"git\",\n]\nflatpak = [\n    \"org.nongnu.lingot\",\n]\n"
+            "# Preset do nodus (formato 1). Gerado por `nodusctl preset init`; edite à vontade.\nversion = 1\npacman = [\n    \"base\",\n    \"git\",\n]\nflatpak = [\n    \"org.nongnu.lingot\",\n]\n"
         );
         assert_eq!(parse_preset(&texto).unwrap(), p);
     }
