@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, P-02 (nome mantido, opção A)
+
+- **Pedido**: seguir a P-02. Medi a disponibilidade do nome e apresentei A (manter `nodus`), B (manter com sufixo nos pacotes) e C (renomear já). O dono escolheu a A, a recomendada.
+- **Medido** (crates.io, AUR e repositórios do Arch, npm, PyPI, GitHub, DNS de 10 TLDs; só a palavra `nodus` nas consultas): resultado completo na P-02 do `PENDING.md`. O que pesa: o crates.io `nodus` está ocupado por uma CLI "local-first" de outro autor; no AUR está livre.
+- **Feito**: só docs. `PENDING.md` (P-02 com decisão, medição e o que resta) e ADR 0001 (atualização das consequências). A P-02 **continua aberta**.
+- **Não verificado**: marca (INPI, EUIPO, USPTO) não foi buscada; se o `nodus` do crates.io instala um binário de mesmo nome; dono dos domínios (sem `whois`); a busca web por produto homônimo foi fraca; DNS resolvendo não prova que o domínio está registrado por terceiros.
+- **Fica**: P-02 (marca, binário, domínio), P-14 (PKGBUILD real só depois do MVP; GitHub; manter ou tirar a conferência do `HEAD`), P-17 (bloqueada), P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, P-12 (risco aceito, opção A)
 
 - **Pedido**: seguir a P-12. Opções apresentadas: A (aceitar o risco e fechar), B (manter aberta até distribuir), C (parecer jurídico). O dono escolheu a A, a recomendada.
