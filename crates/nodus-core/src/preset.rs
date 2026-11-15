@@ -205,6 +205,68 @@ pub fn pacman_install_command(plan: &Plan) -> Option<Vec<String>> {
     Some(command)
 }
 
+/// O que está instalado de propósito nesta máquina e fora do preset (critério 5 do MVP, fatia só
+/// relatório). Nada aqui executa nem escreve.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Suggestions {
+    pub pacman_extra: Vec<String>,
+    /// Explícitos que o pacman marca como de fora dos repositórios (`pacman -Qem`, AUR ou locais):
+    /// colados no preset, o `apply` falharia, porque `pacman -S` só enxerga os repositórios.
+    pub foreign_extra: Vec<String>,
+    pub flatpak_extra: Vec<String>,
+    pub flatpak_installed: bool,
+}
+
+impl Suggestions {
+    pub fn is_empty(&self) -> bool {
+        self.pacman_extra.is_empty()
+            && self.foreign_extra.is_empty()
+            && self.flatpak_extra.is_empty()
+    }
+}
+
+/// Diferença entre o que a máquina tem de propósito e o preset, na ordem da máquina. Só devolve nomes
+/// que vieram de `machine` (já validados em `preset_from_machine`): `foreign` só classifica.
+pub fn suggest(preset: &Preset, machine: &MachinePreset, foreign: &[String]) -> Suggestions {
+    let in_pacman: HashSet<&str> = preset.pacman.iter().map(String::as_str).collect();
+    let in_flatpak: HashSet<&str> = preset.flatpak.iter().map(String::as_str).collect();
+    let foreign: HashSet<&str> = foreign.iter().map(String::as_str).collect();
+    let (foreign_extra, pacman_extra): (Vec<String>, Vec<String>) = machine
+        .preset
+        .pacman
+        .iter()
+        .filter(|name| !in_pacman.contains(name.as_str()))
+        .cloned()
+        .partition(|name| foreign.contains(name.as_str()));
+    let flatpak_extra = machine
+        .preset
+        .flatpak
+        .iter()
+        .filter(|id| !in_flatpak.contains(id.as_str()))
+        .cloned()
+        .collect();
+    Suggestions {
+        pacman_extra,
+        foreign_extra,
+        flatpak_extra,
+        flatpak_installed: machine.flatpak_installed,
+    }
+}
+
+/// Sugestões contra a máquina: lê `pacman -Qe`, `pacman -Qem` e `flatpak list`. Dependências ficam de
+/// fora porque `-Qe` só lista o que foi instalado de propósito (o mesmo critério do `preset init`).
+pub fn collect_suggestions(
+    runner: &dyn CommandRunner,
+    preset: &Preset,
+) -> Result<Suggestions, MachineError> {
+    let machine = preset_from_machine(runner)?;
+    let foreign: Vec<String> = read_pacman(runner, "-Qem")?
+        .into_iter()
+        .map(|package| package.name)
+        .collect();
+    Ok(suggest(preset, &machine, &foreign))
+}
+
 /// Remote fixo da instalação Flatpak (ADR 0015). Outros remotes ficam fora do MVP.
 const FLATHUB: &str = "flathub";
 

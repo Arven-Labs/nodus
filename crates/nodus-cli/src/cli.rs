@@ -73,6 +73,15 @@ pub enum PresetAction {
         #[arg(long)]
         json: bool,
     },
+    /// Lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para
+    /// colar nele (não executa nem escreve nada).
+    Suggest {
+        /// Arquivo TOML do preset.
+        file: PathBuf,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Instala o que falta: pacotes pacman (`sudo pacman -S --needed`) e depois apps Flatpak
     /// (`flatpak install --user`, remote `flathub`). Cada passo mostra o comando e pede confirmação.
     Apply {

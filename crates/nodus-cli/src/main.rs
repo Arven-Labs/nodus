@@ -28,6 +28,7 @@ fn main() -> Result<()> {
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
             PresetAction::Plan { file, json } => preset_plan(&file, json),
+            PresetAction::Suggest { file, json } => preset_suggest(&file, json),
             PresetAction::Apply { file } => preset_apply(&file),
         },
     }
@@ -173,6 +174,17 @@ fn preset_plan(file: &std::path::Path, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&plan)?);
     } else {
         print!("{}", render::render_plan(&plan));
+    }
+    Ok(())
+}
+
+fn preset_suggest(file: &std::path::Path, json: bool) -> Result<()> {
+    let preset = read_and_parse(file)?;
+    let suggestions = nodus_core::preset::collect_suggestions(&process::RealRunner, &preset)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&suggestions)?);
+    } else {
+        print!("{}", render::render_suggestions(&suggestions));
     }
     Ok(())
 }

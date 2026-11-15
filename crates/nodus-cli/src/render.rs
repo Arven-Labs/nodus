@@ -2,7 +2,7 @@
 
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
-use nodus_core::preset::Plan;
+use nodus_core::preset::{Plan, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
@@ -246,6 +246,50 @@ pub fn render_plan(plan: &Plan) -> String {
         out.push_str("Nada a fazer: a máquina já está como o preset.\n");
     }
     out
+}
+
+pub fn render_suggestions(suggestions: &Suggestions) -> String {
+    let mut out = String::new();
+    if suggestions.is_empty() {
+        out.push_str("Nada fora do preset: tudo o que foi instalado de propósito já está nele.\n");
+    } else {
+        out.push_str("Fora do preset (nada foi alterado):\n");
+        list_section(&mut out, "Pacman", &suggestions.pacman_extra);
+        list_section(
+            &mut out,
+            "Fora dos repositórios (AUR ou locais; o `apply` não os instala)",
+            &suggestions.foreign_extra,
+        );
+        list_section(&mut out, "Flatpak", &suggestions.flatpak_extra);
+        // O trecho para colar só leva o que o `apply` sabe instalar: sem os de fora dos repositórios.
+        paste_section(&mut out, "pacman", &suggestions.pacman_extra);
+        paste_section(&mut out, "flatpak", &suggestions.flatpak_extra);
+    }
+    if !suggestions.flatpak_installed {
+        out.push_str("Flatpak não instalado: os apps Flatpak não foram conferidos.\n");
+    }
+    out
+}
+
+fn list_section(out: &mut String, title: &str, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "{title} ({}):", names.len());
+    for name in names {
+        let _ = writeln!(out, "  {name}");
+    }
+}
+
+/// Linhas prontas para a lista `key = [...]` do preset. Os nomes já foram validados (sem aspas).
+fn paste_section(out: &mut String, key: &str, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "Para adotar, acrescente em `{key} = [...]`:");
+    for name in names {
+        let _ = writeln!(out, "    \"{name}\",");
+    }
 }
 
 /// Aviso do `preset init` (vai para a saída de erro, para não sujar o TOML redirecionado).
