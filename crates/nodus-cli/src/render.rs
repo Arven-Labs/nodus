@@ -473,6 +473,7 @@ mod tests {
         Plan {
             pacman_missing: pacman.iter().map(|s| s.to_string()).collect(),
             pacman_present: 2,
+            pacman_unavailable: vec![],
             flatpak_missing: flatpak.iter().map(|s| s.to_string()).collect(),
             flatpak_present: 1,
             flatpak_installed,
@@ -492,6 +493,35 @@ mod tests {
     fn plano_texto_vazio_diz_que_nada_a_fazer() {
         let esperado = "Plano (nada foi executado):\nPacman (instalar 0, já presentes 2):\nFlatpak (instalar 0, já presentes 1):\nNada a fazer: a máquina já está como o preset.\n";
         assert_eq!(render_plan(&plano(&[], &[], true)), esperado);
+    }
+
+    #[test]
+    fn plano_texto_mostra_os_indisponiveis_a_parte_depois_do_pacman() {
+        let mut p = plano(&["zsh"], &[], true);
+        p.pacman_unavailable = vec!["brave-bin".into(), "google-chrome".into()];
+        let esperado = "Plano (nada foi executado):\nPacman (instalar 1, já presentes 2):\n  zsh\nIndisponíveis nos repositórios, o nodus não instala (2):\n  brave-bin\n  google-chrome\nFlatpak (instalar 0, já presentes 1):\n";
+        assert_eq!(render_plan(&p), esperado);
+    }
+
+    #[test]
+    fn plano_so_com_indisponiveis_nao_diz_que_a_maquina_ja_esta_como_o_preset() {
+        let mut p = plano(&[], &[], true);
+        p.pacman_unavailable = vec!["brave-bin".into()];
+        let texto = render_plan(&p);
+        assert!(
+            texto.contains(
+                "Indisponíveis nos repositórios, o nodus não instala (1):\n  brave-bin\n"
+            )
+        );
+        assert!(
+            texto.ends_with("Nada a instalar: só restam itens indisponíveis nos repositórios.\n")
+        );
+        assert!(!texto.contains("a máquina já está como o preset"));
+    }
+
+    #[test]
+    fn plano_sem_indisponiveis_nao_tem_a_secao() {
+        assert!(!render_plan(&plano(&["zsh"], &[], true)).contains("Indisponíveis"));
     }
 
     #[test]
