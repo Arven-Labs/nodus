@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, Flatpak no `preset apply`, etapa 0 do PR B (medição)
+
+- **Pedido**: o dono autorizou a etapa 0 (medir `flatpak install --user`). Fiz só a parte que não instala: `HOME` e `XDG_*` isolados num diretório temporário, `flathub` adicionado só ali, recusa com `n` no prompt. Nenhum app instalado; o diretório foi apagado (7,7 MB de metadados) e o `flatpak list` do dono segue só com `org.nongnu.lingot` (`user`).
+- **Medido** (Flatpak 1.18.4): `flatpak remotes --user --columns=name` sem remote dá saída vazia, exit 0; com `flathub`, imprime `flathub`. `flatpak install --user -- flathub org.no.Exist` dá `Nothing matches org.no.Exist in remote flathub`, exit 1, igual ao comando sem `--`: o `--` é aceito antes do remote. `flatpak install --user -- flathub org.gnome.Calculator` com `n` no prompt: o Flatpak pergunta primeiro sobre o runtime (`Do you want to install it? [Y/n]`) e termina com `requires the runtime ... which is not installed`, exit 1.
+- **Decide**: comando previsto `flatpak install --user -- flathub <ids...>`; nunca `-y` nem `--noninteractive` (o prompt do Flatpak mostra runtimes e dependências, e pode perguntar mais de uma vez); recusa e erro dão o mesmo exit 1, então o nodus confere o estado depois com `flatpak list`, como no pacman; sem `flathub` na saída de `remotes --user`, parar antes de pedir confirmação.
+- **Não verificado**: uma instalação que termina com sucesso (exigiria baixar o runtime); a saída com app já instalado; outras versões do Flatpak. O PR B (código) não começou.
+- **Fica**: PR B (comando, passos em sequência no `apply`, checagem do remote, histórico `manager = flatpak`, ADR 0015, docs); o dono conferir `nodusctl history` com as entradas v2 antigas; P-02 (marca e domínio), P-14 (PKGBUILD real depois do MVP; GitHub; manter ou tirar a conferência do `HEAD`), P-17 (bloqueada); fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, Flatpak no `preset apply`, PR A (histórico v3)
 
 - **Pedido**: seguir na Fase 1 (o dono preferiu isso a fechar a Fase 0 formalmente). Plano aprovado em plan mode, em 2 PRs: A = formato do histórico, B = instalação Flatpak. Decisões do dono: `--user`, remote `flathub` fixo, histórico v3 com `manager`.
