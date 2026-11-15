@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, `repos` usa o workspace (critério 6, fatia 2) e `apply` verificado até o prompt
+
+- **Pedido**: seguir a recomendação: verificar o `preset apply` com item indisponível e depois o critério 6. Em plan mode.
+- **Verificado no Arch real (dono, terminal)**: preset `version = 1` + `pacman = ["sl", "brave-bin", "pacote-que-nao-existe-xyz"]` (o formato é chave de topo, **sem** `[pacman]`; meu primeiro TOML estava errado e o binário não estava no `PATH`, usei `target/release/nodusctl`). `plan` e `apply` deram o mesmo plano (`sl` a instalar, `brave-bin` presente, o inexistente em "Indisponíveis"); o comando foi `sudo pacman -S --needed -- sl`; respondido `n`, "Nada foi executado".
+- **Feito (PR #52)**: testes primeiro, CI **vermelho** (`pick_dir` inexistente e `dir` ainda não `Option`). Implementação: `workspace::pick_dir` (argumento vale como está; sem argumento reusa `resolve`; sem workspace, erro com a saída), `Repos { dir: Option<PathBuf> }`, cabeçalho `Workspace: <pasta> (<origem>)` em stderr, `Source::label` (o `render_workspace` passou a usá-lo). ADR 0017: emenda ao item 4. CI **verde** (180 testes do CLI). **Mutação**: `pick_dir` ignora o argumento; pega por **1 teste** (`pick_dir_com_argumento_devolve_o_argumento_sem_origem`), CI vermelho; revertida com `git revert`.
+- **Não verificado**: `nodusctl repos` sem argumento no Arch real (esperado: os 9 repositórios de `~/Documents/workspace` e o cabeçalho em stderr; `repos --json | jq .` segue puro); `apply` confirmado com `s` e um indisponível; se o histórico ficou sem linha após o `n`; nenhum teste de CLI de ponta a ponta (o `main.rs` só liga as peças); workspace com 0 repositórios sem aviso próprio no `repos`.
+- **Fica**: o dono reconstruir e rodar `nodusctl repos`; P-02, P-14, P-17; lembrar a escolha do workspace (config, ADR novo); critério 5 interativo; fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, verificação real do `suggest`, da P-18 e do `workspace`
 
 - **Pedido**: conferir na máquina real os três PRs mesclados sem teste real (#48, #49, #50). O dono reconstruiu o binário (`cargo build --release -p nodus-cli`, 3,6 s) e rodou `workspace` e `preset init > p.toml && preset suggest p.toml`; eu rodei o resto por leitura.
