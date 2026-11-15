@@ -205,6 +205,68 @@ pub fn pacman_install_command(plan: &Plan) -> Option<Vec<String>> {
     Some(command)
 }
 
+/// O que está instalado de propósito nesta máquina e fora do preset (critério 5 do MVP, fatia só
+/// relatório). Nada aqui executa nem escreve.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Suggestions {
+    pub pacman_extra: Vec<String>,
+    /// Explícitos que o pacman marca como de fora dos repositórios (`pacman -Qem`, AUR ou locais):
+    /// colados no preset, o `apply` falharia, porque `pacman -S` só enxerga os repositórios.
+    pub foreign_extra: Vec<String>,
+    pub flatpak_extra: Vec<String>,
+    pub flatpak_installed: bool,
+}
+
+impl Suggestions {
+    pub fn is_empty(&self) -> bool {
+        self.pacman_extra.is_empty()
+            && self.foreign_extra.is_empty()
+            && self.flatpak_extra.is_empty()
+    }
+}
+
+/// Diferença entre o que a máquina tem de propósito e o preset, na ordem da máquina. Só devolve nomes
+/// que vieram de `machine` (já validados em `preset_from_machine`): `foreign` só classifica.
+pub fn suggest(preset: &Preset, machine: &MachinePreset, foreign: &[String]) -> Suggestions {
+    let in_pacman: HashSet<&str> = preset.pacman.iter().map(String::as_str).collect();
+    let in_flatpak: HashSet<&str> = preset.flatpak.iter().map(String::as_str).collect();
+    let foreign: HashSet<&str> = foreign.iter().map(String::as_str).collect();
+    let (foreign_extra, pacman_extra): (Vec<String>, Vec<String>) = machine
+        .preset
+        .pacman
+        .iter()
+        .filter(|name| !in_pacman.contains(name.as_str()))
+        .cloned()
+        .partition(|name| foreign.contains(name.as_str()));
+    let flatpak_extra = machine
+        .preset
+        .flatpak
+        .iter()
+        .filter(|id| !in_flatpak.contains(id.as_str()))
+        .cloned()
+        .collect();
+    Suggestions {
+        pacman_extra,
+        foreign_extra,
+        flatpak_extra,
+        flatpak_installed: machine.flatpak_installed,
+    }
+}
+
+/// Sugestões contra a máquina: lê `pacman -Qe`, `pacman -Qem` e `flatpak list`. Dependências ficam de
+/// fora porque `-Qe` só lista o que foi instalado de propósito (o mesmo critério do `preset init`).
+pub fn collect_suggestions(
+    runner: &dyn CommandRunner,
+    preset: &Preset,
+) -> Result<Suggestions, MachineError> {
+    let machine = preset_from_machine(runner)?;
+    let foreign: Vec<String> = read_pacman(runner, "-Qem")?
+        .into_iter()
+        .map(|package| package.name)
+        .collect();
+    Ok(suggest(preset, &machine, &foreign))
+}
+
 /// Remote fixo da instalação Flatpak (ADR 0015). Outros remotes ficam fora do MVP.
 const FLATHUB: &str = "flathub";
 
@@ -562,6 +624,154 @@ mod tests {
         assert!(flathub_configured(&r).is_err());
     }
 
+    // --- suggest: o que está instalado de propósito e fora do preset ---
+
+    fn maquina(pacman: &[&str], flatpak: &[&str], flatpak_installed: bool) -> MachinePreset {
+        MachinePreset {
+            preset: preset(pacman, flatpak),
+            flatpak_installed,
+        }
+    }
+
+    fn v(itens: &[&str]) -> Vec<String> {
+        itens.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn sugere_so_o_que_esta_fora_do_preset_na_ordem_da_maquina() {
+        let s = suggest(
+            &preset(&["git"], &[]),
+            &maquina(&["zsh", "git", "vim"], &[], true),
+            &[],
+        );
+        assert_eq!(s.pacman_extra, ["zsh", "vim"]);
+        assert!(s.foreign_extra.is_empty());
+    }
+
+    #[test]
+    fn item_do_preset_que_a_maquina_nao_tem_nao_e_sugestao() {
+        // Faltar na máquina é assunto do `plan`, não do `suggest`.
+        let s = suggest(
+            &preset(&["git", "emacs"], &["org.a.B"]),
+            &maquina(&["git"], &[], true),
+            &[],
+        );
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn pacote_de_fora_dos_repositorios_vai_para_a_secao_propria() {
+        let s = suggest(
+            &preset(&[], &[]),
+            &maquina(&["git", "brave-bin"], &[], true),
+            &v(&["brave-bin"]),
+        );
+        assert_eq!(s.pacman_extra, ["git"]);
+        assert_eq!(s.foreign_extra, ["brave-bin"]);
+    }
+
+    #[test]
+    fn pacote_de_fora_que_ja_esta_no_preset_nao_e_sugerido() {
+        let s = suggest(
+            &preset(&["brave-bin"], &[]),
+            &maquina(&["brave-bin"], &[], true),
+            &v(&["brave-bin"]),
+        );
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn so_sugere_nome_que_veio_da_maquina() {
+        // O nome estrangeiro só vale se também está entre os explícitos já validados.
+        let s = suggest(
+            &preset(&[], &[]),
+            &maquina(&["git"], &[], true),
+            &v(&["-Rns"]),
+        );
+        assert_eq!(s.pacman_extra, ["git"]);
+        assert!(s.foreign_extra.is_empty());
+    }
+
+    #[test]
+    fn sugere_apps_flatpak_fora_do_preset() {
+        let s = suggest(
+            &preset(&[], &["org.a.B"]),
+            &maquina(&[], &["org.a.B", "org.gnome.Calculator"], true),
+            &[],
+        );
+        assert_eq!(s.flatpak_extra, ["org.gnome.Calculator"]);
+        assert!(s.flatpak_installed);
+    }
+
+    #[test]
+    fn sem_flatpak_instalado_nao_ha_sugestao_flatpak_e_o_estado_aparece() {
+        let s = suggest(&preset(&[], &[]), &maquina(&[], &[], false), &[]);
+        assert!(s.flatpak_extra.is_empty());
+        assert!(!s.flatpak_installed);
+    }
+
+    #[test]
+    fn collect_nao_sugere_dependencia_so_o_que_foi_instalado_de_proposito() {
+        // `glibc` está em `pacman -Q` mas não em `-Qe`: veio como dependência.
+        let r = Fake::novo();
+        let s = collect_suggestions(&r, &preset(&[], &[])).unwrap();
+        assert_eq!(s.pacman_extra, ["git", "vim"]);
+        assert!(!s.pacman_extra.iter().any(|n| n == "glibc"));
+        assert!(r.chamou(&["pacman", "-Qem"]));
+    }
+
+    #[test]
+    fn collect_separa_o_que_o_pacman_marca_como_estrangeiro() {
+        let mut r = Fake::novo();
+        r.pacman_qem = Ok("vim 9.1-1\n".into());
+        let s = collect_suggestions(&r, &preset(&[], &[])).unwrap();
+        assert_eq!(s.pacman_extra, ["git"]);
+        assert_eq!(s.foreign_extra, ["vim"]);
+    }
+
+    #[test]
+    fn init_seguido_de_suggest_da_vazio() {
+        let mut r = Fake::novo();
+        r.pacman_qem = Ok("vim 9.1-1\n".into());
+        let do_init = preset_from_machine(&r).unwrap().preset;
+        assert!(collect_suggestions(&r, &do_init).unwrap().is_empty());
+    }
+
+    #[test]
+    fn collect_sem_flatpak_marca_nao_instalado() {
+        let mut r = Fake::novo();
+        r.flatpak = Err(RunnerError::NotFound {
+            program: "flatpak".into(),
+        });
+        let s = collect_suggestions(&r, &preset(&["git", "vim"], &[])).unwrap();
+        assert!(!s.flatpak_installed);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn falha_do_pacman_ao_listar_estrangeiros_vira_erro() {
+        let mut r = Fake::novo();
+        r.pacman_qem = Err(RunnerError::Failed {
+            program: "pacman".into(),
+            code: Some(1),
+        });
+        assert!(collect_suggestions(&r, &preset(&[], &[])).is_err());
+    }
+
+    #[test]
+    fn sugestoes_serializam_com_os_nomes_do_json() {
+        let s = suggest(
+            &preset(&[], &[]),
+            &maquina(&["git", "brave-bin"], &["org.a.B"], true),
+            &v(&["brave-bin"]),
+        );
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["pacman_extra"], serde_json::json!(["git"]));
+        assert_eq!(json["foreign_extra"], serde_json::json!(["brave-bin"]));
+        assert_eq!(json["flatpak_extra"], serde_json::json!(["org.a.B"]));
+        assert_eq!(json["flatpak_installed"], serde_json::json!(true));
+    }
+
     // --- plan ---
 
     #[test]
@@ -624,6 +834,7 @@ mod tests {
     struct Fake {
         pacman_qe: Result<String, RunnerError>,
         pacman_q: Result<String, RunnerError>,
+        pacman_qem: Result<String, RunnerError>,
         flatpak: Result<String, RunnerError>,
         flatpak_remotes: Result<String, RunnerError>,
         chamadas: std::cell::RefCell<Vec<Vec<String>>>,
@@ -634,6 +845,7 @@ mod tests {
             Fake {
                 pacman_qe: Ok("git 2.56.0-1\nvim 9.1-1\n".into()),
                 pacman_q: Ok("git 2.56.0-1\nglibc 2.42-1\nvim 9.1-1\n".into()),
+                pacman_qem: Ok("".into()),
                 flatpak: Ok("org.nongnu.lingot\t1.1.1\tstable\tflathub\tuser\n".into()),
                 flatpak_remotes: Ok("flathub\n".into()),
                 chamadas: Default::default(),
@@ -654,6 +866,7 @@ mod tests {
             match (program, args.first().copied()) {
                 ("pacman", Some("-Qe")) => self.pacman_qe.clone(),
                 ("pacman", Some("-Q")) => self.pacman_q.clone(),
+                ("pacman", Some("-Qem")) => self.pacman_qem.clone(),
                 ("flatpak", Some("list")) => self.flatpak.clone(),
                 ("flatpak", Some("remotes")) => self.flatpak_remotes.clone(),
                 _ => panic!("chamada inesperada: {program} {args:?}"),

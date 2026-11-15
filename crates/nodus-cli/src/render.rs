@@ -2,7 +2,7 @@
 
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
-use nodus_core::preset::Plan;
+use nodus_core::preset::{Plan, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
@@ -248,6 +248,50 @@ pub fn render_plan(plan: &Plan) -> String {
     out
 }
 
+pub fn render_suggestions(suggestions: &Suggestions) -> String {
+    let mut out = String::new();
+    if suggestions.is_empty() {
+        out.push_str("Nada fora do preset: tudo o que foi instalado de propósito já está nele.\n");
+    } else {
+        out.push_str("Fora do preset (nada foi alterado):\n");
+        list_section(&mut out, "Pacman", &suggestions.pacman_extra);
+        list_section(
+            &mut out,
+            "Fora dos repositórios (AUR ou locais; o `apply` não os instala)",
+            &suggestions.foreign_extra,
+        );
+        list_section(&mut out, "Flatpak", &suggestions.flatpak_extra);
+        // O trecho para colar só leva o que o `apply` sabe instalar: sem os de fora dos repositórios.
+        paste_section(&mut out, "pacman", &suggestions.pacman_extra);
+        paste_section(&mut out, "flatpak", &suggestions.flatpak_extra);
+    }
+    if !suggestions.flatpak_installed {
+        out.push_str("Flatpak não instalado: os apps Flatpak não foram conferidos.\n");
+    }
+    out
+}
+
+fn list_section(out: &mut String, title: &str, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "{title} ({}):", names.len());
+    for name in names {
+        let _ = writeln!(out, "  {name}");
+    }
+}
+
+/// Linhas prontas para a lista `key = [...]` do preset. Os nomes já foram validados (sem aspas).
+fn paste_section(out: &mut String, key: &str, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+    let _ = writeln!(out, "Para adotar, acrescente em `{key} = [...]`:");
+    for name in names {
+        let _ = writeln!(out, "    \"{name}\",");
+    }
+}
+
 /// Aviso do `preset init` (vai para a saída de erro, para não sujar o TOML redirecionado).
 pub fn init_warning(flatpak_installed: bool) -> Option<&'static str> {
     (!flatpak_installed).then_some("aviso: Flatpak não instalado; o preset saiu sem apps Flatpak")
@@ -262,7 +306,7 @@ fn gib(bytes: u64) -> String {
 mod tests {
     use super::*;
     use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
-    use nodus_core::preset::Plan;
+    use nodus_core::preset::{Plan, Suggestions};
     use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
 
     fn inventario(os_version: Option<&str>) -> Inventory {
@@ -457,6 +501,67 @@ mod tests {
         assert!(
             render_plan(&p).ends_with("Flatpak não instalado (apps do preset: 1):\n  org.a.B\n")
         );
+    }
+
+    fn sugestoes(
+        pacman: &[&str],
+        foreign: &[&str],
+        flatpak: &[&str],
+        flatpak_installed: bool,
+    ) -> Suggestions {
+        let v = |itens: &[&str]| itens.iter().map(|s| s.to_string()).collect();
+        Suggestions {
+            pacman_extra: v(pacman),
+            foreign_extra: v(foreign),
+            flatpak_extra: v(flatpak),
+            flatpak_installed,
+        }
+    }
+
+    #[test]
+    fn sugestoes_texto_completo_com_o_trecho_para_colar() {
+        let esperado = "Fora do preset (nada foi alterado):\n\
+Pacman (2):\n  vim\n  zsh\n\
+Fora dos repositórios (AUR ou locais; o `apply` não os instala) (1):\n  brave-bin\n\
+Flatpak (1):\n  org.gnome.Calculator\n\
+Para adotar, acrescente em `pacman = [...]`:\n    \"vim\",\n    \"zsh\",\n\
+Para adotar, acrescente em `flatpak = [...]`:\n    \"org.gnome.Calculator\",\n";
+        assert_eq!(
+            render_suggestions(&sugestoes(
+                &["vim", "zsh"],
+                &["brave-bin"],
+                &["org.gnome.Calculator"],
+                true
+            )),
+            esperado
+        );
+    }
+
+    #[test]
+    fn sugestoes_texto_omite_secao_vazia_e_nao_poe_estrangeiro_no_trecho() {
+        let texto = render_suggestions(&sugestoes(&[], &["brave-bin"], &[], true));
+        assert_eq!(
+            texto,
+            "Fora do preset (nada foi alterado):\n\
+Fora dos repositórios (AUR ou locais; o `apply` não os instala) (1):\n  brave-bin\n"
+        );
+        assert!(!texto.contains("Para adotar"));
+        assert!(!texto.contains("\"brave-bin\""));
+    }
+
+    #[test]
+    fn sugestoes_texto_vazio_diz_que_nada_esta_fora() {
+        assert_eq!(
+            render_suggestions(&sugestoes(&[], &[], &[], true)),
+            "Nada fora do preset: tudo o que foi instalado de propósito já está nele.\n"
+        );
+    }
+
+    #[test]
+    fn sugestoes_texto_avisa_quando_o_flatpak_nao_esta_instalado() {
+        let texto = render_suggestions(&sugestoes(&["vim"], &[], &[], false));
+        assert!(texto.ends_with("Flatpak não instalado: os apps Flatpak não foram conferidos.\n"));
+        assert!(texto.contains("Pacman (1):\n  vim\n"));
     }
 
     #[test]
