@@ -1,5 +1,6 @@
 //! Formatação do inventário para o terminal.
 
+use crate::workspace::{Report, Source};
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Suggestions};
@@ -304,6 +305,56 @@ fn paste_section(out: &mut String, key: &str, names: &[String]) {
     for name in names {
         let _ = writeln!(out, "    \"{name}\",");
     }
+}
+
+pub fn render_workspace(report: &Report) -> String {
+    let mut out = String::new();
+    match &report.chosen {
+        Some(chosen) => {
+            let origin = match chosen.source {
+                Source::Informed => "informado",
+                Source::Environment => "ambiente",
+                Source::Detected => "detectado",
+            };
+            let _ = writeln!(
+                out,
+                "Workspace: {} ({origin}, repositórios: {})",
+                chosen.path.display(),
+                chosen.repo_count
+            );
+            if chosen.source == Source::Detected {
+                out.push_str("Candidatos:\n");
+                for candidate in &report.candidates {
+                    let mark = if candidate.path == chosen.path {
+                        "  <- escolhido"
+                    } else {
+                        ""
+                    };
+                    let _ = writeln!(
+                        out,
+                        "  {}  repositórios: {}{mark}",
+                        candidate.path.display(),
+                        candidate.repo_count
+                    );
+                }
+            } else if chosen.repo_count == 0 {
+                out.push_str("aviso: nenhum repositório Git encontrado nessa pasta\n");
+            }
+        }
+        None => {
+            out.push_str("Nenhum workspace detectado.\n");
+            if !report.candidates.is_empty() {
+                out.push_str("Candidatos sem repositórios:\n");
+                for candidate in &report.candidates {
+                    let _ = writeln!(out, "  {}", candidate.path.display());
+                }
+            }
+            out.push_str(
+                "Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n",
+            );
+        }
+    }
+    out
 }
 
 /// Aviso do `preset init` (vai para a saída de erro, para não sujar o TOML redirecionado).

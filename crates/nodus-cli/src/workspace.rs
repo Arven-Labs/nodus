@@ -1,3 +1,166 @@
+//! `nodusctl workspace`: identifica a pasta de workspace (critério 6 do MVP, ADR 0017). Só lê.
+//! Precedência: argumento, depois `NODUS_WORKSPACE`, depois a detecção entre candidatos conhecidos.
+
+use crate::discovery::find_repos;
+use anyhow::{Context, Result, anyhow, bail};
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// Pastas, sob o `$HOME`, onde se costuma guardar os projetos. A ordem desempata candidatos com o
+/// mesmo número de repositórios. Lista fixa, não varredura: varrer o `$HOME` é lento, entra em pasta
+/// privada e erra (o `$HOME` com poucos repositórios soltos ganha do workspace real, mais fundo).
+const CANDIDATES: [&str; 9] = [
+    "Documents/workspace",
+    "workspace",
+    "Projects",
+    "projects",
+    "dev",
+    "src",
+    "code",
+    "repos",
+    "git",
+];
+
+/// De onde veio a pasta escolhida.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// Argumento da linha de comando.
+    Informed,
+    /// Variável `NODUS_WORKSPACE`.
+    Environment,
+    /// Candidato conhecido sob o `$HOME`.
+    Detected,
+}
+
+impl Source {
+    fn as_str(self) -> &'static str {
+        match self {
+            Source::Informed => "informed",
+            Source::Environment => "environment",
+            Source::Detected => "detected",
+        }
+    }
+}
+
+/// Um candidato existente, com o caminho real e quantos repositórios Git há nos filhos diretos.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Candidate {
+    pub path: PathBuf,
+    pub repo_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chosen {
+    pub path: PathBuf,
+    pub source: Source,
+    pub repo_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    pub chosen: Option<Chosen>,
+    /// Só na detecção: os candidatos que existem, do com mais repositórios para o com menos.
+    pub candidates: Vec<Candidate>,
+}
+
+/// Resolve o workspace. `env` e `home` são os valores das variáveis `NODUS_WORKSPACE` e `HOME`
+/// (entram como argumento para a função ser testável). Argumento e variável inválidos são erro: cair
+/// em silêncio na detecção esconderia o engano de quem os informou.
+pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Result<Report> {
+    if let Some(dir) = arg {
+        return Ok(manual_report(manual(dir, Source::Informed)?));
+    }
+    if let Some(value) = env.filter(|value| !value.is_empty()) {
+        let path = Path::new(value);
+        if !path.is_absolute() {
+            bail!("NODUS_WORKSPACE precisa ser um caminho absoluto: {value:?}");
+        }
+        let chosen = manual(path, Source::Environment)
+            .map_err(|erro| anyhow!("NODUS_WORKSPACE={value:?}: {erro:#}"))?;
+        return Ok(manual_report(chosen));
+    }
+    let Some(home) = home.filter(|home| !home.is_empty() && Path::new(home).is_absolute()) else {
+        bail!(
+            "não achei o HOME (defina um caminho absoluto) para procurar o workspace: informe a pasta (`nodusctl workspace <pasta>`) ou defina NODUS_WORKSPACE"
+        );
+    };
+    let candidates = detect(Path::new(home));
+    let chosen = candidates
+        .first()
+        .filter(|candidate| candidate.repo_count > 0)
+        .map(|candidate| Chosen {
+            path: candidate.path.clone(),
+            source: Source::Detected,
+            repo_count: candidate.repo_count,
+        });
+    Ok(Report { chosen, candidates })
+}
+
+fn manual_report(chosen: Chosen) -> Report {
+    Report {
+        chosen: Some(chosen),
+        candidates: vec![],
+    }
+}
+
+/// Pasta dada à mão: precisa existir e ser pasta; vale o caminho real. Aceita 0 repositórios.
+fn manual(dir: &Path, source: Source) -> Result<Chosen> {
+    let path = fs::canonicalize(dir).with_context(|| format!("abrindo {}", dir.display()))?;
+    let repo_count = find_repos(&path)?.len();
+    Ok(Chosen {
+        path,
+        source,
+        repo_count,
+    })
+}
+
+/// Candidatos que existem e são pasta, sem repetir o mesmo caminho real, do com mais repositórios
+/// para o com menos (a ordenação é estável: empate pela ordem de `CANDIDATES`). Candidato ilegível
+/// ou que não é pasta é pulado.
+fn detect(home: &Path) -> Vec<Candidate> {
+    let mut seen = HashSet::new();
+    let mut found = Vec::new();
+    for relative in CANDIDATES {
+        let Ok(path) = fs::canonicalize(home.join(relative)) else {
+            continue;
+        };
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let Ok(repos) = find_repos(&path) else {
+            continue;
+        };
+        found.push(Candidate {
+            path,
+            repo_count: repos.len(),
+        });
+    }
+    found.sort_by(|a, b| b.repo_count.cmp(&a.repo_count));
+    found
+}
+
+pub fn report_json(report: &Report) -> serde_json::Value {
+    let chosen = report.chosen.as_ref().map(|chosen| {
+        serde_json::json!({
+            "path": chosen.path.to_string_lossy(),
+            "source": chosen.source.as_str(),
+            "repo_count": chosen.repo_count,
+        })
+    });
+    let candidates: Vec<serde_json::Value> = report
+        .candidates
+        .iter()
+        .map(|candidate| {
+            serde_json::json!({
+                "path": candidate.path.to_string_lossy(),
+                "repo_count": candidate.repo_count,
+            })
+        })
+        .collect();
+    serde_json::json!({ "chosen": chosen, "candidates": candidates })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

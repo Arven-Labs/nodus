@@ -26,6 +26,7 @@ fn main() -> Result<()> {
             Some(HistoryAction::Undo { n }) => history_undo(n),
         },
         Command::Repos { dir, fetch, json } => repos(&dir, fetch, json),
+        Command::Workspace { dir, json } => workspace_command(dir.as_deref(), json),
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
             PresetAction::Plan { file, json } => preset_plan(&file, json),
@@ -186,6 +187,23 @@ fn preset_suggest(file: &std::path::Path, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&suggestions)?);
     } else {
         print!("{}", render::render_suggestions(&suggestions));
+    }
+    Ok(())
+}
+
+fn workspace_command(dir: Option<&std::path::Path>, json: bool) -> Result<()> {
+    let report = workspace::resolve(
+        dir,
+        std::env::var("NODUS_WORKSPACE").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&workspace::report_json(&report))?
+        );
+    } else {
+        print!("{}", render::render_workspace(&report));
     }
     Ok(())
 }

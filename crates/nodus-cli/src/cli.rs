@@ -43,6 +43,15 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Mostra qual é a pasta de workspace (só lê). Sem argumento: a variável NODUS_WORKSPACE, ou a
+    /// detecção entre pastas conhecidas sob o HOME (a com mais repositórios Git).
+    Workspace {
+        /// Pasta de workspace informada à mão (vence a variável e a detecção).
+        dir: Option<PathBuf>,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Preset declarativo de pacotes (somente leitura nesta versão: nada é instalado).
     Preset {
         #[command(subcommand)]
