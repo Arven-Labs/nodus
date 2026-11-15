@@ -262,7 +262,7 @@ fn gib(bytes: u64) -> String {
 mod tests {
     use super::*;
     use nodus_core::inventory::{Disk, FlatpakApp, HardwareInfo, Inventory, Package, SystemInfo};
-    use nodus_core::preset::Plan;
+    use nodus_core::preset::{Plan, Suggestions};
     use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
 
     fn inventario(os_version: Option<&str>) -> Inventory {
@@ -457,6 +457,67 @@ mod tests {
         assert!(
             render_plan(&p).ends_with("Flatpak não instalado (apps do preset: 1):\n  org.a.B\n")
         );
+    }
+
+    fn sugestoes(
+        pacman: &[&str],
+        foreign: &[&str],
+        flatpak: &[&str],
+        flatpak_installed: bool,
+    ) -> Suggestions {
+        let v = |itens: &[&str]| itens.iter().map(|s| s.to_string()).collect();
+        Suggestions {
+            pacman_extra: v(pacman),
+            foreign_extra: v(foreign),
+            flatpak_extra: v(flatpak),
+            flatpak_installed,
+        }
+    }
+
+    #[test]
+    fn sugestoes_texto_completo_com_o_trecho_para_colar() {
+        let esperado = "Fora do preset (nada foi alterado):\n\
+Pacman (2):\n  vim\n  zsh\n\
+Fora dos repositórios (AUR ou locais; o `apply` não os instala) (1):\n  brave-bin\n\
+Flatpak (1):\n  org.gnome.Calculator\n\
+Para adotar, acrescente em `pacman = [...]`:\n    \"vim\",\n    \"zsh\",\n\
+Para adotar, acrescente em `flatpak = [...]`:\n    \"org.gnome.Calculator\",\n";
+        assert_eq!(
+            render_suggestions(&sugestoes(
+                &["vim", "zsh"],
+                &["brave-bin"],
+                &["org.gnome.Calculator"],
+                true
+            )),
+            esperado
+        );
+    }
+
+    #[test]
+    fn sugestoes_texto_omite_secao_vazia_e_nao_poe_estrangeiro_no_trecho() {
+        let texto = render_suggestions(&sugestoes(&[], &["brave-bin"], &[], true));
+        assert_eq!(
+            texto,
+            "Fora do preset (nada foi alterado):\n\
+Fora dos repositórios (AUR ou locais; o `apply` não os instala) (1):\n  brave-bin\n"
+        );
+        assert!(!texto.contains("Para adotar"));
+        assert!(!texto.contains("\"brave-bin\""));
+    }
+
+    #[test]
+    fn sugestoes_texto_vazio_diz_que_nada_esta_fora() {
+        assert_eq!(
+            render_suggestions(&sugestoes(&[], &[], &[], true)),
+            "Nada fora do preset: tudo o que foi instalado de propósito já está nele.\n"
+        );
+    }
+
+    #[test]
+    fn sugestoes_texto_avisa_quando_o_flatpak_nao_esta_instalado() {
+        let texto = render_suggestions(&sugestoes(&["vim"], &[], &[], false));
+        assert!(texto.ends_with("Flatpak não instalado: os apps Flatpak não foram conferidos.\n"));
+        assert!(texto.contains("Pacman (1):\n  vim\n"));
     }
 
     #[test]
