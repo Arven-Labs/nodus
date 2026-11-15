@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, Flatpak no `preset apply`, PR B (instalação)
+
+- **Pedido**: seguir com o PR B. Plano aprovado em plan mode (uma confirmação por passo; recusa independente; falha do pacman interrompe; uma entrada de histórico por passo).
+- **Feito (PR #46)**: testes primeiro; o CI do commit só de testes ficou **vermelho** (erro de compilação: `entry_from_flatpak`, `flatpak_install_command`, `flathub_configured` e a nova assinatura de `apply` não existiam). Depois a implementação: `flatpak_install_command` e `flathub_configured` (`preset.rs`), `entry_from_flatpak` (`history.rs`), `apply` em dois passos com checagem do remote antes de qualquer pergunta (`apply.rs`), `main.rs`, ADR 0015, README, MVP, OVERVIEW, SECURITY.
+- **Verificado**: CI verde na implementação (clippy e testes, `cargo-deny`, `guard`). **Mutação**: `--user` trocado por `--system` no comando Flatpak, empurrado, CI **vermelho** com 6 testes falhando (4 de `apply`, 2 de `preset`); revertida com `git revert`.
+- **Não verificado**: uma instalação Flatpak que termina com sucesso (baixaria runtime); o fluxo real no Arch (os testes usam executor falso); o `history.jsonl` real do dono; só Flatpak 1.18.4.
+- **Fica**: o dono rodar `nodusctl preset apply` com um app Flatpak pequeno faltando e conferir `nodusctl history`; P-02 (marca e domínio), P-14, P-17 (bloqueada); fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, Flatpak no `preset apply`, etapa 0 do PR B (medição)
 
 - **Pedido**: o dono autorizou a etapa 0 (medir `flatpak install --user`). Fiz só a parte que não instala: `HOME` e `XDG_*` isolados num diretório temporário, `flathub` adicionado só ali, recusa com `n` no prompt. Nenhum app instalado; o diretório foi apagado (7,7 MB de metadados) e o `flatpak list` do dono segue só com `org.nongnu.lingot` (`user`).
