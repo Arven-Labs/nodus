@@ -33,7 +33,8 @@ Medido em 2026-11-15, nesta máquina, só leitura:
 - Reabrir se: o dono quiser lembrar a escolha (ADR de configuração) ou o `repos` passar a usar o workspace detectado.
 
 ## Não verificado
-- O comando no Arch real com binário novo (os testes usam pastas temporárias e um `HOME` falso).
+- **Verificado no Arch real em 2026-11-15:** `nodusctl workspace` detectou `~/Documents/workspace` (9 repositórios) e listou `~/Projects` (0); `workspace /tmp` deu "informado, 0 repositórios" com o aviso; `NODUS_WORKSPACE` válido venceu a detecção; inexistente e relativa deram erro com exit 1; `--json` trouxe `chosen` e `candidates`.
+- Ainda não verificado: os testes usam pastas temporárias e um `HOME` falso para tudo o mais (permissão real, symlink circular).
 - Candidato ilegível por permissão (pulado, mas não testado com permissão real) e symlink circular.
 - Só um teste cobre o ranking por contagem: a mutação que o ignora foi pega por apenas um teste (`candidatos_saem_ordenados_por_repositorios_decrescente`).
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.

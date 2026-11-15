@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, verificação real do `suggest`, da P-18 e do `workspace`
+
+- **Pedido**: conferir na máquina real os três PRs mesclados sem teste real (#48, #49, #50). O dono reconstruiu o binário (`cargo build --release -p nodus-cli`, 3,6 s) e rodou `workspace` e `preset init > p.toml && preset suggest p.toml`; eu rodei o resto por leitura.
+- **Verificado**: `workspace` detectou `~/Documents/workspace` (9 repositórios) e listou `~/Projects` (0); `workspace /tmp` deu "informado, 0 repositórios" com aviso; `NODUS_WORKSPACE` válido venceu a detecção, inexistente e relativa deram erro (exit 1); `--json` trouxe `chosen` e `candidates`. `init` seguido de `suggest` deu "Nada fora do preset". `preset plan` com `sl`, `brave-bin`, um nome inexistente e `java-runtime`: `pacman_missing = [sl, java-runtime]`, `pacman_present = 1` (o `brave-bin`, AUR já instalado, conta como presente), `pacman_unavailable = [nome inexistente]`, em texto e em `--json`. O `java-runtime` (só por *provides*) em "instalar" confirma na prática a escolha da simulação em vez de uma lista de pacotes.
+- **Não verificado**: o `apply` real com um item indisponível (precisa de terminal); a seção "Fora dos repositórios" do `suggest` com um preset sem os pacotes do AUR; um item do AUR ausente da máquina; permissão real e symlink circular no `workspace`.
+- **Fica**: o dono rodar `nodusctl preset apply <preset>` com o preset de teste (`sl` ausente, `brave-bin`, inexistente), respondendo `n`: o comando mostrado deve levar só o instalável; P-02, P-14, P-17; critério 5 (pergunta interativa) e critério 6 (lembrar a escolha, `repos` usar o workspace); fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, critério 6 do MVP (`nodusctl workspace`)
 
 - **Pedido**: seguir o MVP. Em plan mode, **medi antes** (só leitura): o workspace real é `~/Documents/workspace` com 9 repositórios filhos; `~/Projects` existe vazio; uma varredura do `$HOME` por pasta-pai erraria (escolheria o `$HOME`, com 3 repositórios soltos). Decisões do dono: candidatos conhecidos ranqueados, só relatório, e escolha manual por argumento e variável de ambiente (sem estado; "salvar a escolha" ficou de fora).
