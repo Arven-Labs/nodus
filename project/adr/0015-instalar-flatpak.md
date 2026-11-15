@@ -28,7 +28,7 @@ O `preset apply` só instalava pacotes do pacman e avisava que os apps Flatpak d
 - Instalar um app baixa runtimes grandes; o prompt do Flatpak é quem mostra isso ao dono.
 
 ## Não verificado
-- Uma instalação Flatpak que **termina com sucesso** (exigiria baixar o runtime): só a recusa e o app inexistente foram medidos (etapa 0).
-- O caminho real no Arch com o `history.jsonl` do dono; os testes usam executor falso.
+- **Verificado no Arch real em 2026-11-15** (Flatpak 1.18.4, `--user`, `flathub`): `preset apply` com `org.gnome.Calculator` faltando mostrou o comando, pediu `Executar? [s/N]`, o Flatpak perguntou pelo runtime `org.gnome.Platform//51` e instalou 8 itens; o "Depois:" deu "nada a fazer"; o `history.jsonl` (0600) ganhou uma linha v3 com `manager = flatpak`, `installed` com o ID e `result` ok; `nodusctl history` a listou com o rótulo `flatpak`; `history undo 1` recusou com a mensagem do ADR 0014.
+- Ainda não verificado: a recusa do prompt do Flatpak no fluxo real (só a recusa do `Executar?` e a da etapa 0), a falha de rede no meio do download e o apply com pacman e Flatpak juntos na máquina real.
 - Apps com extensões ou múltiplos remotes com o mesmo ID; versões do Flatpak além da 1.18.4.
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.
