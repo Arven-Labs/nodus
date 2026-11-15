@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, P-02 (binário `nodusctl`, ADR 0013)
+
+- **Pedido**: seguir a P-02. Li o `Cargo.toml` do crate `nodus` 0.17.0 (tarball, sem executar): instala o binário `nodus`. O dono escolheu a opção B (manter o projeto, mudar o binário) e o nome `nodusctl`, e manter `~/.local/state/nodus`. Plano aprovado em plan mode.
+- **Feito**: testes primeiro (nome do comando, `--version`, cabeçalho do preset). CI do PR #42 no commit só de testes: `Rust (clippy and tests)` **vermelho** (`left: "nodus"`, `right: "nodusctl"` e `--version`), `cargo-deny` e `guard` verdes. Depois a troca (`[[bin]]`, clap, cabeçalho do preset, doc-comments), docs de estado atual (`README.md`, `OVERVIEW.md`, `MVP.md`, `SECURITY.md`) e ADR 0013.
+- **Percalço**: o CI não roda em push de branch, só em PR, `main` e disparo manual; a primeira consulta de runs veio vazia e abri o PR #42 como rascunho para medir o vermelho. Uma consulta ao GitHub deu timeout de rede.
+- **Não verificado**: marca de `nodusctl`; o `[[bin]]` real (build só no CI); a mutação (trocar de volta o nome e ver o teste falhar) não foi feita separadamente, o vermelho do commit de testes cumpre esse papel; não conferi se o teste do preset também aparece vermelho (a lista que li foi cortada).
+- **Fica**: P-02 (marca e domínio), P-14 (PKGBUILD real depois do MVP; GitHub; manter ou tirar a conferência do `HEAD`), P-17 (bloqueada), P-03; Flatpak no `preset apply`; fechamento formal da Fase 0.
+
 ### 2026-11-15 — Sessão 19, P-02 (nome mantido, opção A)
 
 - **Pedido**: seguir a P-02. Medi a disponibilidade do nome e apresentei A (manter `nodus`), B (manter com sufixo nos pacotes) e C (renomear já). O dono escolheu a A, a recomendada.
