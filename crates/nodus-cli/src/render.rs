@@ -311,15 +311,11 @@ pub fn render_workspace(report: &Report) -> String {
     let mut out = String::new();
     match &report.chosen {
         Some(chosen) => {
-            let origin = match chosen.source {
-                Source::Informed => "informado",
-                Source::Environment => "ambiente",
-                Source::Detected => "detectado",
-            };
             let _ = writeln!(
                 out,
-                "Workspace: {} ({origin}, repositórios: {})",
+                "Workspace: {} ({}, repositórios: {})",
                 chosen.path.display(),
+                chosen.source.label(),
                 chosen.repo_count
             );
             if chosen.source == Source::Detected {

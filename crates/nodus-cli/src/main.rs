@@ -25,7 +25,7 @@ fn main() -> Result<()> {
             None => show_history(json),
             Some(HistoryAction::Undo { n }) => history_undo(n),
         },
-        Command::Repos { dir, fetch, json } => repos(&dir, fetch, json),
+        Command::Repos { dir, fetch, json } => repos(dir.as_deref(), fetch, json),
         Command::Workspace { dir, json } => workspace_command(dir.as_deref(), json),
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
@@ -208,8 +208,17 @@ fn workspace_command(dir: Option<&std::path::Path>, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn repos(dir: &std::path::Path, fetch: bool, json: bool) -> Result<()> {
-    let found = discovery::find_repos(dir).with_context(|| format!("lendo {}", dir.display()))?;
+fn repos(dir: Option<&std::path::Path>, fetch: bool, json: bool) -> Result<()> {
+    let (dir, source) = workspace::pick_dir(
+        dir,
+        std::env::var("NODUS_WORKSPACE").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )?;
+    if let Some(source) = source {
+        // stderr: o stdout fica só com o resultado (`--json` continua JSON puro).
+        eprintln!("Workspace: {} ({})", dir.display(), source.label());
+    }
+    let found = discovery::find_repos(&dir).with_context(|| format!("lendo {}", dir.display()))?;
     let mut statuses = Vec::with_capacity(found.len());
     for repo in &found {
         let path = repo

@@ -35,6 +35,15 @@ pub enum Source {
 }
 
 impl Source {
+    /// Nome para o usuário (texto e stderr).
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::Informed => "informado",
+            Source::Environment => "ambiente",
+            Source::Detected => "detectado",
+        }
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Source::Informed => "informed",
@@ -96,6 +105,26 @@ pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Res
             repo_count: candidate.repo_count,
         });
     Ok(Report { chosen, candidates })
+}
+
+/// A pasta que o `repos` examina. Com argumento, vale o argumento como está (o contrato antigo do
+/// `repos`, sem origem). Sem argumento, vale o workspace resolvido por `resolve`, com a origem para o
+/// chamador avisar o usuário. Sem workspace achável, erro com a saída: informar a pasta ou a variável.
+pub fn pick_dir(
+    arg: Option<&Path>,
+    env: Option<&str>,
+    home: Option<&str>,
+) -> Result<(PathBuf, Option<Source>)> {
+    if let Some(dir) = arg {
+        return Ok((dir.to_path_buf(), None));
+    }
+    let report = resolve(None, env, home)?;
+    match report.chosen {
+        Some(chosen) => Ok((chosen.path, Some(chosen.source))),
+        None => bail!(
+            "não achei a pasta de workspace: informe a pasta (`nodusctl repos <pasta>`) ou defina NODUS_WORKSPACE"
+        ),
+    }
 }
 
 fn manual_report(chosen: Chosen) -> Report {
@@ -457,6 +486,56 @@ mod tests {
                 ]
             })
         );
+    }
+
+    // --- pick_dir: a pasta que o `repos` usa ---
+
+    #[test]
+    fn pick_dir_com_argumento_devolve_o_argumento_sem_origem() {
+        let tmp = TmpDir::novo();
+        // Mesmo com um workspace detectável, o argumento vence e não é revalidado nem canonicalizado.
+        com_repos(tmp.path(), "Documents/workspace", 2);
+        let dada = Path::new("/qualquer/coisa/que/nao/existe");
+        let (pasta, origem) = pick_dir(Some(dada), None, Some(&home(&tmp))).unwrap();
+        assert_eq!(pasta, dada);
+        assert_eq!(origem, None);
+    }
+
+    #[test]
+    fn pick_dir_sem_argumento_usa_a_variavel() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "meu-ws", 1);
+        let env = ws.to_str().unwrap();
+        let (pasta, origem) = pick_dir(None, Some(env), None).unwrap();
+        assert_eq!(pasta, real(&ws));
+        assert_eq!(origem, Some(Source::Environment));
+    }
+
+    #[test]
+    fn pick_dir_sem_argumento_nem_variavel_usa_a_deteccao() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "Documents/workspace", 3);
+        com_repos(tmp.path(), "Projects", 1);
+        let (pasta, origem) = pick_dir(None, None, Some(&home(&tmp))).unwrap();
+        assert_eq!(pasta, real(&ws));
+        assert_eq!(origem, Some(Source::Detected));
+    }
+
+    #[test]
+    fn pick_dir_sem_nada_detectavel_e_erro_com_a_instrucao() {
+        let tmp = TmpDir::novo();
+        let erro = pick_dir(None, None, Some(&home(&tmp))).unwrap_err();
+        let texto = format!("{erro:#}");
+        assert!(texto.contains("NODUS_WORKSPACE"), "{texto}");
+        assert!(texto.contains("nodusctl repos <pasta>"), "{texto}");
+    }
+
+    #[test]
+    fn pick_dir_com_variavel_invalida_e_erro_e_nao_cai_na_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 2);
+        let erro = pick_dir(None, Some("relativa"), Some(&home(&tmp))).unwrap_err();
+        assert!(format!("{erro:#}").contains("NODUS_WORKSPACE"));
     }
 
     #[test]

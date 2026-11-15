@@ -33,9 +33,10 @@ pub enum Command {
         action: Option<HistoryAction>,
     },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
+    /// Sem pasta: a de workspace (NODUS_WORKSPACE, ou a detectada; ver `workspace`).
     Repos {
         /// Pasta cujos filhos diretos são examinados.
-        dir: PathBuf,
+        dir: Option<PathBuf>,
         /// Faz `fetch` do `origin` antes de ler o estado (usa a rede).
         #[arg(long)]
         fetch: bool,
@@ -179,9 +180,16 @@ mod tests {
     }
 
     #[test]
-    fn repos_exige_a_pasta() {
-        let erro = Cli::try_parse_from(["nodus", "repos"]).unwrap_err();
-        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    fn repos_sem_pasta_e_aceito() {
+        let cli = Cli::try_parse_from(["nodus", "repos"]).unwrap();
+        match cli.command {
+            Command::Repos { dir, fetch, json } => {
+                assert_eq!(dir, None);
+                assert!(!fetch);
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
     }
 
     #[test]
@@ -189,7 +197,7 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "repos", "/ws"]).unwrap();
         match cli.command {
             Command::Repos { dir, fetch, json } => {
-                assert_eq!(dir, std::path::PathBuf::from("/ws"));
+                assert_eq!(dir, Some(std::path::PathBuf::from("/ws")));
                 assert!(!fetch);
                 assert!(!json);
             }
