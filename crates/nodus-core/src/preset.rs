@@ -1,7 +1,7 @@
 //! Preset declarativo de pacotes (fatia 1: só leitura). O preset é entrada não confiável (T1, T7).
 
 use crate::inventory::{FlatpakApp, InventoryError, Package, parse_pacman_q, read_flatpak_apps};
-use crate::runner::CommandRunner;
+use crate::runner::{CommandRunner, RunnerError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
@@ -203,6 +203,34 @@ pub fn pacman_install_command(plan: &Plan) -> Option<Vec<String>> {
         .to_vec();
     command.extend(plan.pacman_missing.iter().cloned());
     Some(command)
+}
+
+/// Remote fixo da instalação Flatpak (ADR 0015). Outros remotes ficam fora do MVP.
+const FLATHUB: &str = "flathub";
+
+/// Comando exato para instalar os apps Flatpak que faltam, ou `None` se não falta nenhum. `--user`
+/// (sem privilégio), `--` antes do remote e dos IDs (nenhum ID vira opção, T7; aceito pelo Flatpak,
+/// medido em 2026-11-15). Nunca `-y` nem `--noninteractive`: o prompt do Flatpak mostra runtimes e
+/// dependências, e pode perguntar mais de uma vez.
+pub fn flatpak_install_command(plan: &Plan) -> Option<Vec<String>> {
+    if plan.flatpak_missing.is_empty() {
+        return None;
+    }
+    let mut command: Vec<String> = ["flatpak", "install", "--user", "--", FLATHUB]
+        .map(String::from)
+        .to_vec();
+    command.extend(plan.flatpak_missing.iter().cloned());
+    Some(command)
+}
+
+/// O remote `flathub` existe na instalação do usuário? Nome exato, uma linha por remote. Sem
+/// `flatpak` no sistema não há remote: `false`, não erro.
+pub fn flathub_configured(runner: &dyn CommandRunner) -> Result<bool, InventoryError> {
+    match runner.run("flatpak", &["remotes", "--user", "--columns=name"]) {
+        Ok(output) => Ok(output.lines().any(|line| line.trim() == FLATHUB)),
+        Err(RunnerError::NotFound { .. }) => Ok(false),
+        Err(erro) => Err(erro.into()),
+    }
 }
 
 /// Plano contra a máquina. Usa `pacman -Q` (todos), não `-Qe`: pacote que veio como dependência
@@ -433,6 +461,107 @@ mod tests {
         assert_eq!(pacman_install_command(&plano), None);
     }
 
+    // --- flatpak_install_command ---
+
+    #[test]
+    fn comando_flatpak_e_exato() {
+        let p = preset(
+            &[],
+            &["org.gnome.Calculator", "org.nongnu.lingot", "org.a.B"],
+        );
+        let plano = plan(&p, &[], Some(&[app("org.nongnu.lingot")]));
+        assert_eq!(
+            flatpak_install_command(&plano).unwrap(),
+            [
+                "flatpak",
+                "install",
+                "--user",
+                "--",
+                "flathub",
+                "org.gnome.Calculator",
+                "org.a.B"
+            ]
+        );
+    }
+
+    #[test]
+    fn comando_flatpak_nunca_pula_o_prompt_nem_instala_no_sistema() {
+        let plano = plan(&preset(&[], &["org.a.B"]), &[], Some(&[]));
+        let comando = flatpak_install_command(&plano).unwrap();
+        for proibido in ["-y", "--assumeyes", "--noninteractive", "--system"] {
+            assert!(!comando.iter().any(|a| a == proibido), "{proibido}");
+        }
+        // `--` antes do remote e dos IDs: nenhum ID pode virar opção (T7).
+        let separador = comando.iter().position(|a| a == "--").unwrap();
+        assert_eq!(comando[separador + 1], "flathub");
+    }
+
+    #[test]
+    fn sem_app_flatpak_faltando_nao_ha_comando() {
+        let plano = plan(
+            &preset(&["git"], &["org.a.B"]),
+            &[],
+            Some(&[app("org.a.B")]),
+        );
+        assert_eq!(flatpak_install_command(&plano), None);
+    }
+
+    // --- flathub_configured ---
+
+    fn remotes(saida: Result<&str, RunnerError>) -> Fake {
+        let mut r = Fake::novo();
+        r.flatpak_remotes = saida.map(String::from);
+        r
+    }
+
+    #[test]
+    fn flathub_configurado_no_usuario() {
+        let r = remotes(Ok("flathub\n"));
+        assert_eq!(flathub_configured(&r), Ok(true));
+        assert!(r.chamou(&["flatpak", "remotes", "--user", "--columns=name"]));
+    }
+
+    #[test]
+    fn flathub_entre_outros_remotes() {
+        assert_eq!(
+            flathub_configured(&remotes(Ok("fedora\nflathub\n"))),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn sem_remote_nenhum_flathub_nao_esta_configurado() {
+        assert_eq!(flathub_configured(&remotes(Ok(""))), Ok(false));
+    }
+
+    #[test]
+    fn outro_remote_ou_nome_parecido_nao_e_flathub() {
+        for saida in ["fedora\n", "flathub-beta\n", "my-flathub\n", "Flathub\n"] {
+            assert_eq!(
+                flathub_configured(&remotes(Ok(saida))),
+                Ok(false),
+                "{saida:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn flatpak_ausente_nao_tem_flathub() {
+        let r = remotes(Err(RunnerError::NotFound {
+            program: "flatpak".into(),
+        }));
+        assert_eq!(flathub_configured(&r), Ok(false));
+    }
+
+    #[test]
+    fn falha_do_flatpak_ao_listar_remotes_vira_erro() {
+        let r = remotes(Err(RunnerError::Failed {
+            program: "flatpak".into(),
+            code: Some(1),
+        }));
+        assert!(flathub_configured(&r).is_err());
+    }
+
     // --- plan ---
 
     #[test]
@@ -496,6 +625,7 @@ mod tests {
         pacman_qe: Result<String, RunnerError>,
         pacman_q: Result<String, RunnerError>,
         flatpak: Result<String, RunnerError>,
+        flatpak_remotes: Result<String, RunnerError>,
         chamadas: std::cell::RefCell<Vec<Vec<String>>>,
     }
 
@@ -505,6 +635,7 @@ mod tests {
                 pacman_qe: Ok("git 2.56.0-1\nvim 9.1-1\n".into()),
                 pacman_q: Ok("git 2.56.0-1\nglibc 2.42-1\nvim 9.1-1\n".into()),
                 flatpak: Ok("org.nongnu.lingot\t1.1.1\tstable\tflathub\tuser\n".into()),
+                flatpak_remotes: Ok("flathub\n".into()),
                 chamadas: Default::default(),
             }
         }
@@ -524,6 +655,7 @@ mod tests {
                 ("pacman", Some("-Qe")) => self.pacman_qe.clone(),
                 ("pacman", Some("-Q")) => self.pacman_q.clone(),
                 ("flatpak", Some("list")) => self.flatpak.clone(),
+                ("flatpak", Some("remotes")) => self.flatpak_remotes.clone(),
                 _ => panic!("chamada inesperada: {program} {args:?}"),
             }
         }

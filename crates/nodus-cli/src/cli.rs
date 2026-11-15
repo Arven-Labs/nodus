@@ -73,8 +73,8 @@ pub enum PresetAction {
         #[arg(long)]
         json: bool,
     },
-    /// Instala os pacotes pacman que faltam (`sudo pacman -S --needed`), depois de mostrar o comando
-    /// e pedir confirmação. Apps Flatpak ainda não são instalados.
+    /// Instala o que falta: pacotes pacman (`sudo pacman -S --needed`) e depois apps Flatpak
+    /// (`flatpak install --user`, remote `flathub`). Cada passo mostra o comando e pede confirmação.
     Apply {
         /// Arquivo TOML do preset.
         file: PathBuf,

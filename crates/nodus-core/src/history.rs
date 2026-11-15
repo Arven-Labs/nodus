@@ -94,7 +94,8 @@ pub enum HistoryError {
     InvalidPackageName(String),
 }
 
-/// Monta a entrada comparando o plano de antes com o de depois. Só considera os pacotes pedidos.
+/// Monta a entrada do passo do pacman comparando o plano de antes com o de depois. Só considera os
+/// pacotes pedidos.
 pub fn entry_from(
     before: &Plan,
     after: &Plan,
@@ -102,8 +103,44 @@ pub fn entry_from(
     result: ExecResult,
     at_unix: u64,
 ) -> HistoryEntry {
-    let requested = before.pacman_missing.clone();
-    let missing_after: HashSet<&str> = after.pacman_missing.iter().map(String::as_str).collect();
+    install_entry(
+        Manager::Pacman,
+        &before.pacman_missing,
+        &after.pacman_missing,
+        command,
+        result,
+        at_unix,
+    )
+}
+
+/// Igual a `entry_from`, para o passo do Flatpak: lê só `flatpak_missing`.
+pub fn entry_from_flatpak(
+    before: &Plan,
+    after: &Plan,
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    install_entry(
+        Manager::Flatpak,
+        &before.flatpak_missing,
+        &after.flatpak_missing,
+        command,
+        result,
+        at_unix,
+    )
+}
+
+fn install_entry(
+    manager: Manager,
+    missing_before: &[String],
+    missing_after: &[String],
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    let requested = missing_before.to_vec();
+    let missing_after: HashSet<&str> = missing_after.iter().map(String::as_str).collect();
     let (still_missing, installed): (Vec<String>, Vec<String>) = requested
         .iter()
         .cloned()
@@ -118,7 +155,7 @@ pub fn entry_from(
         result,
         action: Action::Install,
         undoes: None,
-        manager: Manager::Pacman,
+        manager,
     }
 }
 
@@ -303,6 +340,71 @@ mod tests {
         assert_eq!(e.requested, v(&["sl"]));
         assert_eq!(e.installed, v(&["sl"]));
         assert!(e.still_missing.is_empty());
+    }
+
+    // --- entry_from_flatpak: mesmo registro, lido do lado Flatpak do plano ---
+
+    fn plano_flatpak(faltando: &[&str]) -> Plan {
+        Plan {
+            pacman_missing: v(&["sl"]),
+            pacman_present: 3,
+            flatpak_missing: v(faltando),
+            flatpak_present: 0,
+            flatpak_installed: true,
+        }
+    }
+
+    fn comando_flatpak(apps: &[&str]) -> Vec<String> {
+        let mut c = v(&["flatpak", "install", "--user", "--", "flathub"]);
+        c.extend(v(apps));
+        c
+    }
+
+    #[test]
+    fn entry_from_flatpak_separa_instalados_e_faltantes() {
+        let e = entry_from_flatpak(
+            &plano_flatpak(&["org.gnome.Calculator", "org.a.B"]),
+            &plano_flatpak(&["org.a.B"]),
+            &comando_flatpak(&["org.gnome.Calculator", "org.a.B"]),
+            ExecResult::Failed { code: Some(1) },
+            1_700_000_000,
+        );
+        assert_eq!(e.version, 3);
+        assert_eq!(e.manager, Manager::Flatpak);
+        assert_eq!(e.action, Action::Install);
+        assert_eq!(e.undoes, None);
+        assert_eq!(e.requested, v(&["org.gnome.Calculator", "org.a.B"]));
+        assert_eq!(e.installed, v(&["org.gnome.Calculator"]));
+        assert_eq!(e.still_missing, v(&["org.a.B"]));
+        assert_eq!(e.result, ExecResult::Failed { code: Some(1) });
+    }
+
+    #[test]
+    fn entry_from_flatpak_ignora_o_lado_do_pacman() {
+        // "sl" (pacman) falta antes e depois: não pode aparecer na entrada Flatpak.
+        let e = entry_from_flatpak(
+            &plano_flatpak(&["org.a.B"]),
+            &plano_flatpak(&[]),
+            &comando_flatpak(&["org.a.B"]),
+            ExecResult::Ok,
+            0,
+        );
+        assert_eq!(e.requested, v(&["org.a.B"]));
+        assert_eq!(e.installed, v(&["org.a.B"]));
+        assert!(e.still_missing.is_empty());
+    }
+
+    #[test]
+    fn entry_from_flatpak_passa_na_leitura_estrita_com_id_de_maiuscula() {
+        let e = entry_from_flatpak(
+            &plano_flatpak(&["org.gnome.Calculator"]),
+            &plano_flatpak(&[]),
+            &comando_flatpak(&["org.gnome.Calculator"]),
+            ExecResult::Ok,
+            1_700_000_000,
+        );
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+        assert!(to_line(&e).ends_with(r#""action":"install","manager":"flatpak"}"#));
     }
 
     // --- formato da linha (contrato de armazenamento) ---
