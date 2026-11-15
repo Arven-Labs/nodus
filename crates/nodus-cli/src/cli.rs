@@ -179,9 +179,16 @@ mod tests {
     }
 
     #[test]
-    fn repos_exige_a_pasta() {
-        let erro = Cli::try_parse_from(["nodus", "repos"]).unwrap_err();
-        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    fn repos_sem_pasta_e_aceito() {
+        let cli = Cli::try_parse_from(["nodus", "repos"]).unwrap();
+        match cli.command {
+            Command::Repos { dir, fetch, json } => {
+                assert_eq!(dir, None);
+                assert!(!fetch);
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
     }
 
     #[test]
@@ -189,7 +196,7 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "repos", "/ws"]).unwrap();
         match cli.command {
             Command::Repos { dir, fetch, json } => {
-                assert_eq!(dir, std::path::PathBuf::from("/ws"));
+                assert_eq!(dir, Some(std::path::PathBuf::from("/ws")));
                 assert!(!fetch);
                 assert!(!json);
             }

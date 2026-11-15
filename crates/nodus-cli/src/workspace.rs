@@ -459,6 +459,56 @@ mod tests {
         );
     }
 
+    // --- pick_dir: a pasta que o `repos` usa ---
+
+    #[test]
+    fn pick_dir_com_argumento_devolve_o_argumento_sem_origem() {
+        let tmp = TmpDir::novo();
+        // Mesmo com um workspace detectável, o argumento vence e não é revalidado nem canonicalizado.
+        com_repos(tmp.path(), "Documents/workspace", 2);
+        let dada = Path::new("/qualquer/coisa/que/nao/existe");
+        let (pasta, origem) = pick_dir(Some(dada), None, Some(&home(&tmp))).unwrap();
+        assert_eq!(pasta, dada);
+        assert_eq!(origem, None);
+    }
+
+    #[test]
+    fn pick_dir_sem_argumento_usa_a_variavel() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "meu-ws", 1);
+        let env = ws.to_str().unwrap();
+        let (pasta, origem) = pick_dir(None, Some(env), None).unwrap();
+        assert_eq!(pasta, real(&ws));
+        assert_eq!(origem, Some(Source::Environment));
+    }
+
+    #[test]
+    fn pick_dir_sem_argumento_nem_variavel_usa_a_deteccao() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "Documents/workspace", 3);
+        com_repos(tmp.path(), "Projects", 1);
+        let (pasta, origem) = pick_dir(None, None, Some(&home(&tmp))).unwrap();
+        assert_eq!(pasta, real(&ws));
+        assert_eq!(origem, Some(Source::Detected));
+    }
+
+    #[test]
+    fn pick_dir_sem_nada_detectavel_e_erro_com_a_instrucao() {
+        let tmp = TmpDir::novo();
+        let erro = pick_dir(None, None, Some(&home(&tmp))).unwrap_err();
+        let texto = format!("{erro:#}");
+        assert!(texto.contains("NODUS_WORKSPACE"), "{texto}");
+        assert!(texto.contains("nodusctl repos <pasta>"), "{texto}");
+    }
+
+    #[test]
+    fn pick_dir_com_variavel_invalida_e_erro_e_nao_cai_na_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 2);
+        let erro = pick_dir(None, Some("relativa"), Some(&home(&tmp))).unwrap_err();
+        assert!(format!("{erro:#}").contains("NODUS_WORKSPACE"));
+    }
+
     #[test]
     fn json_sem_escolha_tem_chosen_nulo_e_os_nomes_das_origens() {
         let vazio = Report {
