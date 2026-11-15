@@ -235,7 +235,7 @@ pub fn suggest(preset: &Preset, machine: &MachinePreset, foreign: &[String]) -> 
         .preset
         .pacman
         .iter()
-        .filter(|name| in_pacman.contains(name.as_str()))
+        .filter(|name| !in_pacman.contains(name.as_str()))
         .cloned()
         .partition(|name| foreign.contains(name.as_str()));
     let flatpak_extra = machine
