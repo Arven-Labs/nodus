@@ -146,6 +146,30 @@ mod tests {
     }
 
     #[test]
+    fn workspace_sem_argumento_e_em_texto() {
+        let cli = Cli::try_parse_from(["nodus", "workspace"]).unwrap();
+        match cli.command {
+            Command::Workspace { dir, json } => {
+                assert_eq!(dir, None);
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_com_pasta_e_json() {
+        let cli = Cli::try_parse_from(["nodus", "workspace", "/ws", "--json"]).unwrap();
+        match cli.command {
+            Command::Workspace { dir, json } => {
+                assert_eq!(dir, Some(std::path::PathBuf::from("/ws")));
+                assert!(json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
     fn repos_exige_a_pasta() {
         let erro = Cli::try_parse_from(["nodus", "repos"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);

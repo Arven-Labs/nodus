@@ -15,6 +15,7 @@ mod render;
 #[cfg(test)]
 mod testutil;
 mod undo;
+mod workspace;
 
 fn main() -> Result<()> {
     match Cli::parse().command {
