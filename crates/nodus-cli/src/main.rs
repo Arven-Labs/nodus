@@ -27,7 +27,7 @@ fn emit(text: &str) -> Result<()> {
     let mut out = std::io::stdout().lock();
     match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
         Ok(()) => Ok(()),
-        Err(erro) if erro.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(141),
+        Err(erro) if erro.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(0),
         Err(erro) => Err(erro).context("escrevendo no stdout"),
     }
 }
