@@ -528,9 +528,9 @@ mod tests {
         assert_eq!(
             read(&path).unwrap(),
             Config {
-                workspace: None,
                 ignore_pacman: nomes(&["a", "b"]),
                 ignore_flatpak: nomes(&["org.x.A"]),
+                ..Config::default()
             }
         );
     }
@@ -543,8 +543,7 @@ mod tests {
             read(&path).unwrap(),
             Config {
                 workspace: Some(PathBuf::from("/a")),
-                ignore_pacman: vec![],
-                ignore_flatpak: vec![],
+                ..Config::default()
             }
         );
         assert_eq!(read(&caminho(&tmp)).unwrap(), Config::default());
@@ -607,6 +606,7 @@ mod tests {
                 workspace: Some(PathBuf::from("/ws")),
                 ignore_pacman: nomes(&["a"]),
                 ignore_flatpak: nomes(&["org.x.A"]),
+                ..Config::default()
             }
         );
     }
@@ -692,5 +692,98 @@ mod tests {
             let erro = format!("{:#}", read(&path).unwrap_err());
             assert!(erro.contains("config.toml"), "{nome}: {erro}");
         }
+    }
+
+    // --- dotfiles_extra e dotfiles_skip (ADR 0021) ---
+
+    const COM_DOTFILES: &str = "version = 1\nworkspace = \"/ws\"\n\
+         dotfiles_extra = [\".config/starship.toml\"]\ndotfiles_skip = [\".zshrc\"]\n";
+
+    #[test]
+    fn le_as_listas_de_dotfiles() {
+        let tmp = TmpDir::novo();
+        let path = config_com(&tmp, COM_DOTFILES);
+        let config = read(&path).unwrap();
+        assert_eq!(config.dotfiles_extra, nomes(&[".config/starship.toml"]));
+        assert_eq!(config.dotfiles_skip, nomes(&[".zshrc"]));
+        assert_eq!(config.workspace, Some(PathBuf::from("/ws")));
+    }
+
+    #[test]
+    fn config_sem_as_listas_de_dotfiles_le_vazio() {
+        let tmp = TmpDir::novo();
+        let path = config_com(&tmp, "version = 1\nworkspace = \"/ws\"\n");
+        let config = read(&path).unwrap();
+        assert!(config.dotfiles_extra.is_empty() && config.dotfiles_skip.is_empty());
+    }
+
+    #[test]
+    fn read_recusa_dotfiles_invalidos_e_diz_o_arquivo_e_o_caminho() {
+        let casos = [
+            (
+                "segredo em extra",
+                "dotfiles_extra = [\".ssh/config\"]\n",
+                ".ssh/config",
+            ),
+            (
+                "chave gpg em extra",
+                "dotfiles_extra = [\".gnupg\"]\n",
+                ".gnupg",
+            ),
+            (
+                "gh em extra",
+                "dotfiles_extra = [\".config/gh/hosts.yml\"]\n",
+                "hosts.yml",
+            ),
+            (
+                "sobe com ..",
+                "dotfiles_extra = [\"../.ssh/config\"]\n",
+                "../.ssh/config",
+            ),
+            (
+                "absoluto",
+                "dotfiles_extra = [\"/etc/passwd\"]\n",
+                "/etc/passwd",
+            ),
+            ("repetido", "dotfiles_extra = [\".a\", \".a\"]\n", ".a"),
+            ("segredo em skip", "dotfiles_skip = [\".ssh\"]\n", ".ssh"),
+            ("skip repetido", "dotfiles_skip = [\".a\", \".a\"]\n", ".a"),
+            ("não é lista", "dotfiles_extra = \".a\"\n", "dotfiles_extra"),
+            (
+                "item que não é texto",
+                "dotfiles_skip = [1]\n",
+                "dotfiles_skip",
+            ),
+        ];
+        for (nome, linha, trecho) in casos {
+            let tmp = TmpDir::novo();
+            let path = config_com(&tmp, &format!("version = 1\n{linha}"));
+            let erro = format!("{:#}", read(&path).unwrap_err());
+            assert!(erro.contains("config.toml"), "{nome}: {erro}");
+            assert!(erro.contains(trecho), "{nome}: {erro}");
+        }
+    }
+
+    #[test]
+    fn write_workspace_e_add_ignored_preservam_os_dotfiles() {
+        let tmp = TmpDir::novo();
+        let path = config_com(&tmp, COM_DOTFILES);
+        write_workspace(&path, Path::new("/outro")).unwrap();
+        add_ignored(&path, &nomes(&["a"]), &[]).unwrap();
+        let config = read(&path).unwrap();
+        assert_eq!(config.workspace, Some(PathBuf::from("/outro")));
+        assert_eq!(config.ignore_pacman, nomes(&["a"]));
+        assert_eq!(config.dotfiles_extra, nomes(&[".config/starship.toml"]));
+        assert_eq!(config.dotfiles_skip, nomes(&[".zshrc"]));
+    }
+
+    #[test]
+    fn config_so_com_dotfiles_nao_e_apagado_ao_esquecer_o_workspace() {
+        let tmp = TmpDir::novo();
+        let path = config_com(&tmp, COM_DOTFILES);
+        assert!(clear_workspace(&path).unwrap());
+        let config = read(&path).unwrap();
+        assert_eq!(config.workspace, None);
+        assert_eq!(config.dotfiles_extra, nomes(&[".config/starship.toml"]));
     }
 }
