@@ -1084,4 +1084,56 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
         assert!(texto.ends_with(&format!("  faltando: sl\n{NOTA}")));
         assert!(!texto.contains("instalados:"));
     }
+
+    fn entrada(path: &str, kind: nodus_core::dotfiles::Kind) -> nodus_core::dotfiles::Entry {
+        nodus_core::dotfiles::Entry {
+            path: path.into(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn dotfiles_em_texto_uma_linha_por_item_e_o_resumo() {
+        use nodus_core::dotfiles::Kind;
+        let entradas = vec![
+            entrada(".bashrc", Kind::File { size: 1670 }),
+            entrada(
+                ".profile",
+                Kind::Symlink {
+                    target: "dotfiles/profile".into(),
+                    outside_home: false,
+                },
+            ),
+            entrada(".gitconfig", Kind::Missing),
+            entrada(
+                ".vimrc",
+                Kind::Symlink {
+                    target: "/etc/vimrc".into(),
+                    outside_home: true,
+                },
+            ),
+            entrada(".config/git", Kind::Dir),
+            entrada(".tmux.conf", Kind::Other),
+        ];
+        let texto = render_dotfiles(&entradas);
+
+        let linha = |path: &str| {
+            texto
+                .lines()
+                .find(|l| l.starts_with(path))
+                .unwrap_or_else(|| panic!("sem linha de {path}: {texto}"))
+        };
+        assert!(linha(".bashrc").ends_with("arquivo (1670 bytes)"));
+        assert!(linha(".profile").ends_with("symlink -> dotfiles/profile"));
+        assert!(linha(".gitconfig").ends_with("ausente"));
+        assert!(linha(".vimrc").ends_with("symlink -> /etc/vimrc (fora do HOME)"));
+        assert!(linha(".config/git").ends_with("pasta"));
+        assert!(linha(".tmux.conf").ends_with("outro tipo"));
+        assert!(texto.ends_with("Presentes: 5 de 6.\n"), "{texto}");
+    }
+
+    #[test]
+    fn dotfiles_com_lista_vazia_diz_que_nao_ha_nada() {
+        assert_eq!(render_dotfiles(&[]), "Nenhum dotfile na lista.\n");
+    }
 }

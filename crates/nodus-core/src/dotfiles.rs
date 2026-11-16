@@ -340,4 +340,31 @@ mod tests {
         // Passa por dentro e volta para fora.
         assert_eq!(link(".profile", "a/../../x"), outside("a/../../x"));
     }
+
+    #[test]
+    fn json_tem_path_kind_e_os_campos_do_tipo() {
+        let json = |entry: Entry| serde_json::to_value(entry).unwrap();
+        assert_eq!(
+            json(classify_at(".bashrc", Observed::File { size: 7 })),
+            serde_json::json!({"path": ".bashrc", "kind": "file", "size": 7})
+        );
+        assert_eq!(
+            json(classify_at(".gitconfig", Observed::Missing)),
+            serde_json::json!({"path": ".gitconfig", "kind": "missing"})
+        );
+        assert_eq!(
+            json(classify_at(
+                ".profile",
+                Observed::Symlink {
+                    target: "/etc/profile".into()
+                }
+            )),
+            serde_json::json!({
+                "path": ".profile",
+                "kind": "symlink",
+                "target": "/etc/profile",
+                "outside_home": true
+            })
+        );
+    }
 }

@@ -190,6 +190,19 @@ mod tests {
     }
 
     #[test]
+    fn dotfiles_em_texto_e_em_json() {
+        for (args, esperado) in [
+            (vec!["nodus", "dotfiles"], false),
+            (vec!["nodus", "dotfiles", "--json"], true),
+        ] {
+            match Cli::try_parse_from(&args).unwrap().command {
+                Command::Dotfiles { json } => assert_eq!(json, esperado, "{args:?}"),
+                outro => panic!("comando errado: {outro:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn workspace_sem_argumento_e_em_texto() {
         let cli = Cli::try_parse_from(["nodus", "workspace"]).unwrap();
         match cli.command {

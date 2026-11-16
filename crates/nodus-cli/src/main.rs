@@ -9,6 +9,7 @@ mod apply;
 mod cli;
 mod config;
 mod discovery;
+mod dotfiles;
 mod hardware;
 mod history;
 mod preset_file;
