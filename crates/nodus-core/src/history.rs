@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn recusa_versao_diferente() {
-        for ruim in [0, 4, 99] {
+        for ruim in [0, 5, 99] {
             let linha =
                 linha_valida().replacen(r#""version":3"#, &format!(r#""version":{ruim}"#), 1);
             assert_eq!(
@@ -757,6 +757,178 @@ mod tests {
         e.action = Action::Remove;
         e.undoes = Some(1);
         assert!(parse_line(&to_line(&e)).is_err());
+    }
+
+    // --- v4: `dotfiles adopt` (ADR 0022) ---
+
+    const DIR: &str = "/home/u/dotfiles";
+
+    fn adocao(path: &str) -> HistoryEntry {
+        entry_from_adopt(
+            path,
+            DIR,
+            &v(&["nodusctl", "dotfiles", "adopt", "--", path]),
+            1_700_000_300,
+        )
+    }
+
+    /// Linha v4 como o nodus a grava.
+    fn linha_v4() -> String {
+        to_line(&adocao(".bashrc"))
+    }
+
+    #[test]
+    fn entry_from_adopt_registra_o_caminho_adotado_e_a_pasta() {
+        let e = adocao(".bashrc");
+        assert_eq!(e.version, 4);
+        assert_eq!(e.action, Action::Adopt);
+        assert_eq!(e.manager, Manager::Dotfiles);
+        assert_eq!(e.requested, v(&[".bashrc"]));
+        assert_eq!(e.installed, v(&[".bashrc"]));
+        assert!(e.still_missing.is_empty());
+        assert_eq!(e.result, ExecResult::Ok);
+        assert_eq!(e.undoes, None);
+        assert_eq!(e.dir.as_deref(), Some(DIR));
+        assert_eq!(e.at_unix, 1_700_000_300);
+        assert_eq!(
+            e.command,
+            v(&["nodusctl", "dotfiles", "adopt", "--", ".bashrc"])
+        );
+    }
+
+    #[test]
+    fn linha_v4_tem_a_ordem_do_contrato_e_ida_e_volta() {
+        let linha = linha_v4();
+        assert!(
+            linha.ends_with(r#""action":"adopt","manager":"dotfiles","dir":"/home/u/dotfiles"}"#),
+            "{linha}"
+        );
+        assert!(linha.starts_with(r#"{"version":4,"#), "{linha}");
+        assert_eq!(parse_line(&linha).unwrap(), adocao(".bashrc"));
+        // caminho aninhado também volta igual
+        let aninhado = adocao(".config/git/config");
+        assert_eq!(parse_line(&to_line(&aninhado)).unwrap(), aninhado);
+    }
+
+    #[test]
+    fn v1_a_v3_nao_levam_dir_e_pacman_ou_flatpak_nao_gravam_v4() {
+        // `dir` só existe na v4: acrescentado ao fim de uma linha v1, v2 ou v3 válida, é recusado.
+        let v3 = linha_valida();
+        for linha in [LINHA_V1, LINHA_V2, v3.as_str()] {
+            assert!(parse_line(linha).is_ok(), "a linha base precisa ser válida");
+            let com_dir = format!(
+                "{},\"dir\":\"/home/u/dotfiles\"}}",
+                linha.strip_suffix('}').unwrap()
+            );
+            assert!(parse_line(&com_dir).is_err(), "{com_dir}");
+        }
+        // v4 com pacman ou flatpak
+        for manager in ["pacman", "flatpak"] {
+            let linha = linha_v4().replace(
+                r#""manager":"dotfiles""#,
+                &format!(r#""manager":"{manager}""#),
+            );
+            assert!(parse_line(&linha).is_err(), "{manager}");
+        }
+    }
+
+    #[test]
+    fn v3_nao_aceita_manager_dotfiles_nem_action_adopt() {
+        let com_dotfiles =
+            linha_valida().replace(r#""manager":"pacman""#, r#""manager":"dotfiles""#);
+        assert!(parse_line(&com_dotfiles).is_err());
+        let com_adopt = linha_valida().replace(r#""action":"install""#, r#""action":"adopt""#);
+        assert!(parse_line(&com_adopt).is_err());
+    }
+
+    #[test]
+    fn v4_recusa_combinacao_de_campos_invalida() {
+        let casos = [
+            (
+                "sem dir",
+                linha_v4().replace(r#","dir":"/home/u/dotfiles""#, ""),
+            ),
+            (
+                "dir relativo",
+                linha_v4().replace(r#""dir":"/home/u/dotfiles""#, r#""dir":"dotfiles""#),
+            ),
+            (
+                "dir vazio",
+                linha_v4().replace(r#""dir":"/home/u/dotfiles""#, r#""dir":"""#),
+            ),
+            (
+                "dir com escape de terminal",
+                linha_v4().replace(
+                    r#""dir":"/home/u/dotfiles""#,
+                    r#""dir":"/home/u/\u001b[31mx""#,
+                ),
+            ),
+            (
+                "action install",
+                linha_v4().replace(r#""action":"adopt""#, r#""action":"install""#),
+            ),
+            (
+                "action remove",
+                linha_v4().replace(r#""action":"adopt""#, r#""action":"remove","undoes":1"#),
+            ),
+            (
+                "undoes na adoção",
+                linha_v4().replace(r#""action":"adopt""#, r#""action":"adopt","undoes":1"#),
+            ),
+            (
+                "installed diferente do pedido",
+                linha_v4().replacen(r#""installed":[".bashrc"]"#, r#""installed":[]"#, 1),
+            ),
+            (
+                "still_missing preenchido",
+                linha_v4().replacen(r#""still_missing":[]"#, r#""still_missing":[".bashrc"]"#, 1),
+            ),
+            (
+                "dois caminhos no pedido",
+                linha_v4()
+                    .replacen(
+                        r#""requested":[".bashrc"]"#,
+                        r#""requested":[".bashrc",".profile"]"#,
+                        1,
+                    )
+                    .replacen(
+                        r#""installed":[".bashrc"]"#,
+                        r#""installed":[".bashrc",".profile"]"#,
+                        1,
+                    ),
+            ),
+        ];
+        for (nome, linha) in casos {
+            assert!(parse_line(&linha).is_err(), "{nome}: {linha}");
+        }
+    }
+
+    #[test]
+    fn v4_valida_o_caminho_com_a_regra_dos_dotfiles() {
+        // Mesma regra do relatório (ADR 0021): relativo, sem `..`, fora da denylist.
+        for ruim in [
+            ".ssh/config",
+            "../.bashrc",
+            "/etc/passwd",
+            "",
+            ".gnupg",
+            "\u{1b}[31m.bashrc",
+            ".bash_history",
+        ] {
+            let mut e = adocao(".bashrc");
+            e.requested = v(&[ruim]);
+            e.installed = v(&[ruim]);
+            assert_eq!(
+                parse_line(&to_line(&e)).unwrap_err(),
+                HistoryError::InvalidPackageName(ruim.to_string()),
+                "{ruim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn v4_aceita_maiuscula_que_o_pacman_recusaria() {
+        assert!(parse_line(&to_line(&adocao(".config/Code/User/settings.json"))).is_ok());
     }
 
     // --- data legível (UTC, sem crate de datas) ---
