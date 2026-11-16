@@ -32,6 +32,13 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<HistoryAction>,
     },
+    /// Mostra o estado dos dotfiles da lista curada (somente leitura; não abre os arquivos). A lista
+    /// padrão é ajustada com `dotfiles_extra` e `dotfiles_skip` no config.toml.
+    Dotfiles {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
     /// Sem pasta: a de workspace (NODUS_WORKSPACE, ou a detectada; ver `workspace`).
     Repos {
@@ -187,6 +194,19 @@ mod tests {
     fn updates_com_json() {
         let cli = Cli::try_parse_from(["nodus", "updates", "--json"]).unwrap();
         assert!(matches!(cli.command, Command::Updates { json: true }));
+    }
+
+    #[test]
+    fn dotfiles_em_texto_e_em_json() {
+        for (args, esperado) in [
+            (vec!["nodus", "dotfiles"], false),
+            (vec!["nodus", "dotfiles", "--json"], true),
+        ] {
+            match Cli::try_parse_from(&args).unwrap().command {
+                Command::Dotfiles { json } => assert_eq!(json, esperado, "{args:?}"),
+                outro => panic!("comando errado: {outro:?}"),
+            }
+        }
     }
 
     #[test]

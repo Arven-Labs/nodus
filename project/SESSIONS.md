@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-16 — Sessão 20, dotfiles (critério 11, fatia 1: relatório)
+
+- **Pedido**: seguir com a última frente do MVP, em plan mode. Corrigi minha própria recomendação: o `MVP.md` não tinha critério de dotfiles (só ROADMAP, SPEC §16 e SECURITY). Decisões do dono: criar o critério 11; primeira fatia = relatório de lista curada; lista fixa no código mais `config.toml`; o ADR 0021 criado a pedido.
+- **Feito**: PR #63 (só docs: critério 11 e ADR 0021, mesclado). PR #64: testes primeiro, CI **vermelho** nas três rodadas (módulo do core, campos do config, e `home_dir`/`observe`/`report`/`Command::Dotfiles`/`render_dotfiles`, sempre por item inexistente). Implementação: `nodus-core/src/dotfiles.rs` (puro: `validate_path`, denylist por componente, `effective_list`, `classify`, normalização léxica do alvo do symlink), `nodus-cli/src/dotfiles.rs` (só `symlink_metadata` e `read_link`), `config.rs` (`dotfiles_extra` e `dotfiles_skip`, validados na leitura e preservados por toda escrita do config), `render_dotfiles`, subcomando `dotfiles [--json]`. CI verde.
+- **Mutação**: tirar `.ssh` da denylist e deixar `..` passar: **4 testes** falharam (2 no core, 2 no CLI: `recusa_a_denylist_de_segredos`, `recusa_caminho_vazio_absoluto_ou_com_componente_estranho`, `report_recusa_caminho_da_denylist...`, `read_recusa_dotfiles_invalidos...`); revertida com `git revert`.
+- **Diferença do plano**: o texto de erro das listas antigas do config mudou de `nome inválido no item N` para `` `chave`: item N: nome inválido `` (refator `name_list_with`); os testes antigos só conferiam o nome do arquivo.
+- **Verificado no Arch real (dono, terminal real, `cargo build --release` na branch do PR #64, 2026-11-16)**: `nodusctl dotfiles` listou os 9 da lista padrão (`.bashrc` 1670, `.bash_profile` 78, `.bash_logout` 21, `.profile` 21 e `.gitconfig` 289 bytes como arquivo; `.config/git/config`, `.zshrc`, `.vimrc` e `.tmux.conf` ausentes) e fechou com `Presentes: 5 de 9.`; com `config.toml` em `XDG_CONFIG_HOME` temporário, `dotfiles_extra = [".ssh/config"]` deu erro citando `.ssh/config` e nenhuma listagem. Rodei depois, no mesmo binário: `--json` é JSON válido (`python3 -m json.tool`; o `jq` não existe nessa máquina), e `dotfiles_skip` com `dotfiles_extra` (`.config/starship.toml`, 1533 bytes) deu `Presentes: 6 de 8.`
+- **Não verificado**: symlink real e dotfile de pasta no Arch (só testes de unidade); nenhum teste de CLI de ponta a ponta; caminho cujo pai intermediário é symlink (o `symlink_metadata` segue o pai, só metadados); nome de arquivo fora de UTF-8 (sai com substituição); `.gitconfig` com segredo dentro (o nodus não lê o conteúdo, ADR 0021, lacunas).
+- **Fica**: decidir se vincular dotfile entra no MVP (hoje não está nos critérios); `apply` confirmado com `s`; P-02, P-14, P-17.
+
 ### 2026-11-15 — Sessão 19, ignorar para sempre (critério 5, fatia 3)
 
 - **Pedido**: o PR B do critério 5, em plan mode. Decisões do dono: lista no `config.toml`; `suggest` **esconde e conta** (`--all` mostra); desfazer por `preset ignored` e `preset unignore`.
