@@ -225,7 +225,7 @@ pub fn select_dotfile_entry(
             && other.manager == Manager::Dotfiles
             && other.undoes == Some(n)
     });
-    if undone && n == 0 {
+    if undone {
         return Err(UndoError::AlreadyUndone(n));
     }
     Ok((entry, kind))

@@ -347,7 +347,7 @@ pub fn plan_undo_link(
     let target = dir.join(path);
     let expected = target.to_string_lossy().into_owned();
     match link {
-        Observed::Symlink { target: found } if *found == expected || !found.is_empty() => {}
+        Observed::Symlink { target: found } if *found == expected => {}
         Observed::Symlink { target: found } => {
             return Err(UndoLinkError::WrongTarget {
                 expected,
