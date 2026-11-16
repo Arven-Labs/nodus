@@ -824,4 +824,60 @@ mod tests {
         assert_eq!(config.workspace, None);
         assert_eq!(config.dotfiles_extra, nomes(&[".config/starship.toml"]));
     }
+
+    // --- dotfiles_dir: a pasta-fonte do `dotfiles adopt` (ADR 0022) ---
+
+    #[test]
+    fn le_a_pasta_fonte_e_sem_a_chave_ela_e_nenhuma() {
+        let tmp = TmpDir::novo();
+        let path = config_com(&tmp, "version = 1\ndotfiles_dir = \"/home/u/dotfiles\"\n");
+        assert_eq!(
+            read(&path).unwrap().dotfiles_dir,
+            Some(PathBuf::from("/home/u/dotfiles"))
+        );
+        // O `TmpDir` precisa viver até o fim do teste: ele apaga a pasta ao ser descartado.
+        let tmp_sem = TmpDir::novo();
+        let sem = config_com(&tmp_sem, "version = 1\nworkspace = \"/ws\"\n");
+        assert!(sem.exists());
+        assert_eq!(read(&sem).unwrap().dotfiles_dir, None);
+    }
+
+    #[test]
+    fn read_recusa_pasta_fonte_invalida_e_diz_o_arquivo_e_a_chave() {
+        let casos = [
+            ("relativa", "dotfiles_dir = \"dotfiles\"\n"),
+            ("vazia", "dotfiles_dir = \"\"\n"),
+            ("com ..", "dotfiles_dir = \"/home/u/../x\"\n"),
+            ("com .", "dotfiles_dir = \"/home/u/./x\"\n"),
+            ("barra dupla", "dotfiles_dir = \"/home//u\"\n"),
+            ("com escape", "dotfiles_dir = \"/home/\\u001b[31mx\"\n"),
+            ("não é texto", "dotfiles_dir = 1\n"),
+            ("é lista", "dotfiles_dir = [\"/a\"]\n"),
+        ];
+        for (nome, linha) in casos {
+            let tmp = TmpDir::novo();
+            let path = config_com(&tmp, &format!("version = 1\n{linha}"));
+            let erro = format!("{:#}", read(&path).unwrap_err());
+            assert!(erro.contains("config.toml"), "{nome}: {erro}");
+            assert!(erro.contains("dotfiles_dir"), "{nome}: {erro}");
+        }
+    }
+
+    #[test]
+    fn toda_escrita_do_config_preserva_a_pasta_fonte() {
+        let tmp = TmpDir::novo();
+        let path = config_com(
+            &tmp,
+            "version = 1\nworkspace = \"/ws\"\ndotfiles_dir = \"/home/u/dotfiles\"\n",
+        );
+        write_workspace(&path, Path::new("/outro")).unwrap();
+        add_ignored(&path, &nomes(&["a"]), &[]).unwrap();
+        remove_ignored(&path, &nomes(&["a"])).unwrap();
+        assert!(clear_workspace(&path).unwrap());
+        // Só sobrou a pasta-fonte: o arquivo não pode ser apagado.
+        assert_eq!(
+            read(&path).unwrap().dotfiles_dir,
+            Some(PathBuf::from("/home/u/dotfiles"))
+        );
+    }
 }
