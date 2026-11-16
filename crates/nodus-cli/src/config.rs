@@ -108,7 +108,7 @@ pub fn write_workspace(path: &Path, workspace: &Path) -> Result<()> {
     let file = OpenOptions::new()
         .create_new(true)
         .write(true)
-        .mode(0o600)
+        .mode(0o644)
         .open(&tmp)
         .with_context(|| format!("criando {}", tmp.display()))?;
     let written =
