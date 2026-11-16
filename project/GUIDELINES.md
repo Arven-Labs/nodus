@@ -6,6 +6,7 @@ Valem para o código Rust do workspace (ADR 0006). Regras gerais do fluxo estão
 - Build, clippy e testes rodam **só no CI** (ADR 0009 do workspace). Local só `cargo fmt --check`.
 - Clippy com `-D warnings`; `unsafe_code = "forbid"` no workspace.
 - Testes primeiro: o teste falha antes (o CI mostra) e passa depois.
+- Saída de comando vai por `emit` (`main.rs`), não por `print!`/`println!`: o `print!` do std entra em pânico com pipe fechado (P-19). Recados ao humano vão para stderr (`eprintln!`).
 
 ## Estrutura
 - `crates/nodus-core`: domínio (presets, planos, adaptadores). Sem I/O de terminal.
