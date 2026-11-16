@@ -6,7 +6,8 @@ Mais recente no topo.
 
 - **Pedido**: depois do fechamento da Fase 0 (PR #54), corrigir a P-19 em plan mode. Medi antes (só leitura): `unsafe_code = "forbid"` impede resetar o `SIGPIPE`; 17 pontos de saída em `main.rs`; `std::io::pipe()` permite um pipe com a leitura já fechada (teste sem corrida). Escolhi, sem perguntar ao dono, o exit 141 (plano aprovado com isso dito).
 - **Feito (PR #55)**: teste de ponta a ponta primeiro (`tests/broken_pipe.rs`, o primeiro teste de CLI do projeto), CI **vermelho** (exit 101, `panicked` em `stdio.rs`; o teste de controle com stdout aberto passou). Depois `emit` e a troca dos 17 `print!`/`println!` em `main.rs`; GUIDELINES com a regra. CI **verde** (2 testes novos). **Mutação**: `exit(0)` no lugar de 141; pega por **1 teste** (`left: Some(0)`, `right: Some(141)`), CI vermelho; revertida com `git revert`.
-- **Não verificado**: no Arch real (`nodusctl repos | head -1`, `echo ${PIPESTATUS[0]}` = 141, `repos --json | jq .` sem pânico); só `workspace` é exercitado pelo teste; o `--help` do clap com pipe fechado; o `apply` com EPIPE no "Depois:".
+- **Verificado no Arch real depois do merge (PR #55, `304ec9e`, dono, binário novo)**: `repos --json | jq .` com o `jq` ausente: sem pânico, só `bash: jq: command not found`, e `${PIPESTATUS[0]}` = **141**. `repos | head -1` imprimiu a linha e deu `0`: correto, o `repos` escreve tudo de uma vez e o `head` fecha depois, então não há `EPIPE` (a expectativa de 141 que eu escrevi para esse caso estava errada).
+- **Não verificado**: só `workspace` é exercitado pelo teste; o `--help` do clap com pipe fechado; o `apply` com EPIPE no "Depois:".
 - **Fica**: o dono conferir no Arch; `apply` confirmado com `s`; P-02, P-14, P-17; lembrar a escolha do workspace; critério 5 interativo.
 
 ### 2026-11-15 — Sessão 19, fechamento formal da Fase 0
