@@ -80,4 +80,91 @@ mod tests {
         let erro = format!("{:#}", read_preset(&path).unwrap_err());
         assert!(erro.contains("nodus-preset-nao-existe.toml"), "{erro}");
     }
+
+    // --- write_preset: troca o conteúdo do preset de forma atômica ---
+
+    use crate::testutil::TmpDir;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    fn preset_em(tmp: &TmpDir, conteudo: &str, modo: u32) -> PathBuf {
+        let path = tmp.path().join("preset.toml");
+        fs::write(&path, conteudo).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(modo)).unwrap();
+        path
+    }
+
+    fn modo(path: &Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn grava_o_texto_novo_e_preserva_as_permissoes() {
+        for original in [0o600, 0o644, 0o640] {
+            let tmp = TmpDir::novo();
+            let path = preset_em(&tmp, "version = 1\n", original);
+            write_preset(&path, "version = 1\n", "version = 1\npacman = []\n").unwrap();
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                "version = 1\npacman = []\n"
+            );
+            assert_eq!(modo(&path), original);
+        }
+    }
+
+    #[test]
+    fn segue_o_symlink_e_grava_no_alvo_sem_trocar_o_link() {
+        let tmp = TmpDir::novo();
+        let real = preset_em(&tmp, "version = 1\n", 0o644);
+        let link = tmp.path().join("link.toml");
+        symlink(&real, &link).unwrap();
+        write_preset(&link, "version = 1\n", "version = 1\npacman = []\n").unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_to_string(&real).unwrap(),
+            "version = 1\npacman = []\n"
+        );
+    }
+
+    #[test]
+    fn arquivo_que_mudou_desde_a_leitura_e_erro_e_nao_e_sobrescrito() {
+        let tmp = TmpDir::novo();
+        let path = preset_em(&tmp, "version = 1\n# mudei na mão\n", 0o644);
+        let erro = write_preset(&path, "version = 1\n", "version = 1\npacman = []\n")
+            .unwrap_err()
+            .to_string();
+        assert!(erro.contains("mudou"), "{erro}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "version = 1\n# mudei na mão\n"
+        );
+    }
+
+    #[test]
+    fn nao_deixa_arquivo_temporario_sobrando() {
+        let tmp = TmpDir::novo();
+        let path = preset_em(&tmp, "version = 1\n", 0o644);
+        write_preset(&path, "version = 1\n", "version = 1\npacman = []\n").unwrap();
+        let _ = write_preset(&path, "outro\n", "x\n");
+        let nomes: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(nomes, ["preset.toml"]);
+    }
+
+    #[test]
+    fn recusa_o_que_nao_e_arquivo_comum_e_o_que_nao_existe() {
+        let tmp = TmpDir::novo();
+        let erro = format!("{:#}", write_preset(tmp.path(), "", "x").unwrap_err());
+        assert!(erro.contains("arquivo comum"), "{erro}");
+        let inexistente = tmp.path().join("nao-existe.toml");
+        let erro = format!("{:#}", write_preset(&inexistente, "", "x").unwrap_err());
+        assert!(erro.contains("nao-existe.toml"), "{erro}");
+        assert!(!inexistente.exists());
+    }
 }

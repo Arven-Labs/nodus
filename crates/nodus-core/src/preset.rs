@@ -1123,4 +1123,228 @@ mod tests {
         assert_eq!(json["pacman_missing"], serde_json::json!(["zsh"]));
         assert_eq!(json["pacman_unavailable"], serde_json::json!(["brave-bin"]));
     }
+
+    // --- add_to_preset: acrescenta nomes ao texto do preset sem mexer no resto ---
+
+    fn add(texto: &str, pacman: &[&str], flatpak: &[&str]) -> Result<String, PresetError> {
+        let a: Vec<String> = pacman.iter().map(|s| s.to_string()).collect();
+        let b: Vec<String> = flatpak.iter().map(|s| s.to_string()).collect();
+        add_to_preset(texto, &a, &b)
+    }
+
+    fn adicionado(texto: &str, pacman: &[&str], flatpak: &[&str]) -> String {
+        add(texto, pacman, flatpak).unwrap()
+    }
+
+    #[test]
+    fn multilinha_com_virgula_final_acrescenta_linhas_antes_do_colchete() {
+        let texto = "version = 1\npacman = [\n    \"git\",\n]\nflatpak = []\n";
+        assert_eq!(
+            adicionado(texto, &["vim", "curl"], &[]),
+            "version = 1\npacman = [\n    \"git\",\n    \"vim\",\n    \"curl\",\n]\nflatpak = []\n"
+        );
+    }
+
+    #[test]
+    fn multilinha_sem_virgula_final_poe_a_virgula_no_ultimo() {
+        let texto = "version = 1\npacman = [\n    \"git\"\n]\n";
+        assert_eq!(
+            adicionado(texto, &["vim"], &[]),
+            "version = 1\npacman = [\n    \"git\",\n    \"vim\",\n]\n"
+        );
+    }
+
+    #[test]
+    fn comentario_depois_do_ultimo_elemento_fica_onde_estava() {
+        let com_virgula = "version = 1\npacman = [\n    \"git\", # base\n]\n";
+        assert_eq!(
+            adicionado(com_virgula, &["vim"], &[]),
+            "version = 1\npacman = [\n    \"git\", # base\n    \"vim\",\n]\n"
+        );
+        let sem_virgula = "version = 1\npacman = [\n    \"git\" # base\n]\n";
+        assert_eq!(
+            adicionado(sem_virgula, &["vim"], &[]),
+            "version = 1\npacman = [\n    \"git\", # base\n    \"vim\",\n]\n"
+        );
+    }
+
+    #[test]
+    fn comentario_solto_antes_do_colchete_fica_antes_do_novo() {
+        let texto = "version = 1\npacman = [\n    \"git\",\n    # editores abaixo\n]\n";
+        assert_eq!(
+            adicionado(texto, &["vim"], &[]),
+            "version = 1\npacman = [\n    \"git\",\n    # editores abaixo\n    \"vim\",\n]\n"
+        );
+    }
+
+    #[test]
+    fn lista_inline_ganha_os_nomes_no_fim_da_mesma_linha() {
+        let texto = "version = 1\npacman = [\"git\", \"zsh\"]\n";
+        assert_eq!(
+            adicionado(texto, &["vim", "curl"], &[]),
+            "version = 1\npacman = [\"git\", \"zsh\", \"vim\", \"curl\"]\n"
+        );
+    }
+
+    #[test]
+    fn lista_vazia_inline_e_multilinha() {
+        assert_eq!(
+            adicionado("version = 1\npacman = []\n", &["vim", "curl"], &[]),
+            "version = 1\npacman = [\"vim\", \"curl\"]\n"
+        );
+        assert_eq!(
+            adicionado("version = 1\npacman = [\n]\n", &["vim", "curl"], &[]),
+            "version = 1\npacman = [\n    \"vim\",\n    \"curl\",\n]\n"
+        );
+        assert_eq!(
+            adicionado(
+                "version = 1\npacman = [\n    # nada ainda\n]\n",
+                &["vim"],
+                &[]
+            ),
+            "version = 1\npacman = [\n    # nada ainda\n    \"vim\",\n]\n"
+        );
+    }
+
+    #[test]
+    fn colchete_na_mesma_linha_do_ultimo_elemento_vira_insercao_inline() {
+        let texto = "version = 1\npacman = [\n    \"git\"]\n";
+        assert_eq!(
+            adicionado(texto, &["vim"], &[]),
+            "version = 1\npacman = [\n    \"git\", \"vim\"]\n"
+        );
+    }
+
+    #[test]
+    fn chave_ausente_e_criada_no_fim_do_arquivo() {
+        let texto = "version = 1\npacman = [\n    \"git\",\n]\n";
+        assert_eq!(
+            adicionado(texto, &[], &["org.gnome.Calculator"]),
+            "version = 1\npacman = [\n    \"git\",\n]\nflatpak = [\n    \"org.gnome.Calculator\",\n]\n"
+        );
+        // Sem quebra de linha no fim do arquivo: ela é posta antes da chave nova.
+        assert_eq!(
+            adicionado("version = 1\npacman = [\"git\"]", &[], &["org.a.B"]),
+            "version = 1\npacman = [\"git\"]\nflatpak = [\n    \"org.a.B\",\n]\n"
+        );
+        // As duas ausentes.
+        assert_eq!(
+            adicionado("version = 1\n", &["vim"], &["org.a.B"]),
+            "version = 1\npacman = [\n    \"vim\",\n]\nflatpak = [\n    \"org.a.B\",\n]\n"
+        );
+    }
+
+    #[test]
+    fn pacman_e_flatpak_juntos_mesmo_com_o_flatpak_declarado_primeiro() {
+        let texto = "version = 1\nflatpak = [\n    \"org.a.B\",\n]\npacman = [\n    \"git\",\n]\n";
+        assert_eq!(
+            adicionado(texto, &["vim"], &["org.c.D"]),
+            "version = 1\nflatpak = [\n    \"org.a.B\",\n    \"org.c.D\",\n]\npacman = [\n    \"git\",\n    \"vim\",\n]\n"
+        );
+    }
+
+    #[test]
+    fn nome_ja_presente_e_repetido_nos_novos_entram_uma_vez_so() {
+        let texto = "version = 1\npacman = [\n    \"git\",\n]\n";
+        assert_eq!(
+            adicionado(texto, &["git", "vim", "vim"], &[]),
+            "version = 1\npacman = [\n    \"git\",\n    \"vim\",\n]\n"
+        );
+    }
+
+    #[test]
+    fn nada_a_acrescentar_devolve_o_texto_identico() {
+        let esquisito = "# topo\nversion   =   1\npacman=[ \"git\" ,\"zsh\"   ]  # fim\n";
+        assert_eq!(adicionado(esquisito, &[], &[]), esquisito);
+        assert_eq!(adicionado(esquisito, &["git", "zsh"], &[]), esquisito);
+    }
+
+    #[test]
+    fn so_o_trecho_inserido_muda_o_resto_fica_byte_a_byte() {
+        let texto = "# Meu preset\n\nversion = 1   # formato\n\n# pacotes\npacman = [\n    \"git\",   # controle\n\n    \"zsh\"\n]\n\n# apps\nflatpak = [\n    \"org.a.B\",\n]\n# fim\n";
+        assert_eq!(
+            adicionado(texto, &["vim"], &["org.c.D"]),
+            "# Meu preset\n\nversion = 1   # formato\n\n# pacotes\npacman = [\n    \"git\",   # controle\n\n    \"zsh\",\n    \"vim\",\n]\n\n# apps\nflatpak = [\n    \"org.a.B\",\n    \"org.c.D\",\n]\n# fim\n"
+        );
+    }
+
+    #[test]
+    fn fim_de_linha_crlf_e_mantido() {
+        let texto = "version = 1\r\npacman = [\r\n    \"git\",\r\n]\r\n";
+        assert_eq!(
+            adicionado(texto, &["vim"], &["org.a.B"]),
+            "version = 1\r\npacman = [\r\n    \"git\",\r\n    \"vim\",\r\n]\r\nflatpak = [\r\n    \"org.a.B\",\r\n]\r\n"
+        );
+    }
+
+    #[test]
+    fn o_resultado_sempre_reparseia_com_os_antigos_e_depois_os_novos() {
+        let formas = [
+            "version = 1\n",
+            "version = 1\npacman = []\nflatpak = []\n",
+            "version = 1\npacman = [\"git\",]\n",
+            "version = 1\npacman = [ \"git\" , \"zsh\" ]\nflatpak = [ ]\n",
+            "version = 1\npacman = [\n\t\"git\"\n]\n",
+            "version = 1\npacman = [\n    \"git\", \"zsh\", # dois\n]\n",
+            "version = 1\npacman = [\n    \"git\"] # cola\nflatpak = [\"org.a.B\"]\n",
+            "version = 1\npacman = [\n\n    \"git\"\n\n]\n",
+            "version = 1\npacman = [ # abre\n    \"git\"\n]\n",
+            "version = 1\npacman = [\n    'git',\n]\n",
+        ];
+        for texto in formas {
+            let antes = parse_preset(texto).unwrap();
+            let depois = parse_preset(&adicionado(texto, &["vim", "curl"], &["org.x.Y"]))
+                .unwrap_or_else(|erro| panic!("{texto:?}: {erro}"));
+            let esperado_pacman: Vec<String> = antes
+                .pacman
+                .iter()
+                .cloned()
+                .chain(["vim".to_string(), "curl".to_string()])
+                .collect();
+            let esperado_flatpak: Vec<String> = antes
+                .flatpak
+                .iter()
+                .cloned()
+                .chain(["org.x.Y".to_string()])
+                .collect();
+            assert_eq!(depois.pacman, esperado_pacman, "{texto:?}");
+            assert_eq!(depois.flatpak, esperado_flatpak, "{texto:?}");
+        }
+    }
+
+    #[test]
+    fn preset_de_entrada_invalido_e_erro_e_nao_edita() {
+        assert!(matches!(
+            add("version = = 1\n", &["vim"], &[]),
+            Err(PresetError::Toml(_))
+        ));
+        assert_eq!(
+            add("version = 2\n", &["vim"], &[]),
+            Err(PresetError::UnsupportedVersion(2))
+        );
+        assert!(matches!(
+            add("version = 1\npacman = [\"git\", \"git\"]\n", &["vim"], &[]),
+            Err(PresetError::Duplicate { .. })
+        ));
+        assert!(add("version = 1\nextra = 1\n", &["vim"], &[]).is_err());
+    }
+
+    #[test]
+    fn nome_novo_invalido_e_erro_e_nao_vira_texto() {
+        for (pacman, flatpak) in [
+            (vec!["-Rns"], vec![]),
+            (vec!["a\"b"], vec![]),
+            (vec!["vim\n"], vec![]),
+            (vec![], vec!["semponto"]),
+            (vec![], vec!["org.a.B\"\nx = \"y"]),
+        ] {
+            assert!(
+                matches!(
+                    add("version = 1\n", &pacman, &flatpak),
+                    Err(PresetError::InvalidName { .. })
+                ),
+                "{pacman:?} {flatpak:?}"
+            );
+        }
+    }
 }

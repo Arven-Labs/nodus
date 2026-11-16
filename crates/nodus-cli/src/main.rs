@@ -4,6 +4,7 @@ use cli::{Cli, Command, HistoryAction, PresetAction, WorkspaceAction};
 use nodus_core::history::Manager;
 use nodus_core::runner::CommandRunner;
 
+mod adopt;
 mod apply;
 mod cli;
 mod config;

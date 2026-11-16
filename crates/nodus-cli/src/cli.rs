@@ -392,6 +392,26 @@ mod tests {
     }
 
     #[test]
+    fn preset_adopt_leva_o_arquivo() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "adopt", "p.toml"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Adopt { file },
+            } => assert_eq!(file, std::path::PathBuf::from("p.toml")),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn preset_adopt_exige_o_arquivo_e_nao_tem_json() {
+        let erro = Cli::try_parse_from(["nodus", "preset", "adopt"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+        let erro =
+            Cli::try_parse_from(["nodus", "preset", "adopt", "p.toml", "--json"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
     fn preset_plan_exige_o_arquivo() {
         let erro = Cli::try_parse_from(["nodus", "preset", "plan"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
