@@ -960,6 +960,66 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
     }
 
     #[test]
+    fn nota_de_ignorados_sem_nenhum_e_vazia() {
+        assert_eq!(render_ignored_note(&[], false), "");
+        assert_eq!(render_ignored_note(&[], true), "");
+    }
+
+    #[test]
+    fn nota_de_ignorados_conta_e_manda_usar_all() {
+        let um = vec!["a".to_string()];
+        assert_eq!(
+            render_ignored_note(&um, false),
+            "1 ignorado (use --all para ver).\n"
+        );
+        let tres: Vec<String> = ["a", "b", "org.x.A"].map(String::from).to_vec();
+        assert_eq!(
+            render_ignored_note(&tres, false),
+            "3 ignorados (use --all para ver).\n"
+        );
+    }
+
+    #[test]
+    fn nota_de_ignorados_com_all_diz_quais_dos_listados_estao_ignorados() {
+        let dois: Vec<String> = ["a", "org.x.A"].map(String::from).to_vec();
+        assert_eq!(
+            render_ignored_note(&dois, true),
+            "Ignorados entre os listados (2): a, org.x.A\n"
+        );
+    }
+
+    #[test]
+    fn json_das_sugestoes_traz_os_campos_de_sempre_e_os_ignorados() {
+        let escondidos = vec!["x".to_string()];
+        let json = suggestions_json(
+            &sugestoes(&["a"], &["aur"], &["org.x.A"], true),
+            &escondidos,
+        );
+        assert_eq!(json["pacman_extra"], serde_json::json!(["a"]));
+        assert_eq!(json["foreign_extra"], serde_json::json!(["aur"]));
+        assert_eq!(json["flatpak_extra"], serde_json::json!(["org.x.A"]));
+        assert_eq!(json["flatpak_installed"], serde_json::json!(true));
+        assert_eq!(json["ignored"], serde_json::json!(["x"]));
+        let sem = suggestions_json(&sugestoes(&[], &[], &[], true), &[]);
+        assert_eq!(sem["ignored"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn lista_de_ignorados_em_texto() {
+        let pacman: Vec<String> = ["a", "b"].map(String::from).to_vec();
+        let flatpak = vec!["org.x.A".to_string()];
+        assert_eq!(
+            render_ignored(&pacman, &flatpak),
+            "Ignorados, pacman (2):\n  a\n  b\nIgnorados, flatpak (1):\n  org.x.A\n"
+        );
+        assert_eq!(
+            render_ignored(&[], &flatpak),
+            "Ignorados, flatpak (1):\n  org.x.A\n"
+        );
+        assert_eq!(render_ignored(&[], &[]), "Nenhum item ignorado.\n");
+    }
+
+    #[test]
     fn historico_com_falha_sem_codigo() {
         let e = execucao(0, &["sl"], &[], &["sl"], ExecResult::Failed { code: None });
         let texto = render_history(&[e]);

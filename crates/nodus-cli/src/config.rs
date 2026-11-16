@@ -376,4 +376,190 @@ mod tests {
         assert!(erro.contains("symlink"), "{erro}");
         assert!(alvo.exists());
     }
+
+    // --- ignorados: listas opcionais no mesmo config (ADR 0020) ---
+
+    fn nomes(lista: &[&str]) -> Vec<String> {
+        lista.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn caminho(tmp: &TmpDir) -> PathBuf {
+        tmp.path().join("nodus/config.toml")
+    }
+
+    #[test]
+    fn le_as_duas_listas_de_ignorados() {
+        let tmp = TmpDir::novo();
+        let path = config_com(
+            &tmp,
+            "version = 1\nignore_pacman = [\"a\", \"b\"]\nignore_flatpak = [\"org.x.A\"]\n",
+        );
+        assert_eq!(
+            read(&path).unwrap(),
+            Config {
+                workspace: None,
+                ignore_pacman: nomes(&["a", "b"]),
+                ignore_flatpak: nomes(&["org.x.A"]),
+            }
+        );
+    }
+
+    #[test]
+    fn config_sem_as_listas_ou_sem_arquivo_le_listas_vazias() {
+        let tmp = TmpDir::novo();
+        let path = config_com(&tmp, "version = 1\nworkspace = \"/a\"\n");
+        assert_eq!(
+            read(&path).unwrap(),
+            Config {
+                workspace: Some(PathBuf::from("/a")),
+                ignore_pacman: vec![],
+                ignore_flatpak: vec![],
+            }
+        );
+        assert_eq!(read(&caminho(&tmp)).unwrap(), Config::default());
+    }
+
+    #[test]
+    fn read_workspace_so_devolve_a_pasta_mesmo_com_listas() {
+        let tmp = TmpDir::novo();
+        let path = config_com(
+            &tmp,
+            "version = 1\nworkspace = \"/a\"\nignore_pacman = [\"x\"]\n",
+        );
+        assert_eq!(read_workspace(&path).unwrap(), Some(PathBuf::from("/a")));
+    }
+
+    #[test]
+    fn add_ignored_cria_o_config_sem_repetir_nem_reordenar() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        add_ignored(&path, &nomes(&["a", "b"]), &nomes(&["org.x.A"])).unwrap();
+        add_ignored(&path, &nomes(&["b", "c", "c"]), &[]).unwrap();
+        let config = read(&path).unwrap();
+        assert_eq!(config.ignore_pacman, nomes(&["a", "b", "c"]));
+        assert_eq!(config.ignore_flatpak, nomes(&["org.x.A"]));
+        assert_eq!(modo(&path), 0o600);
+        assert_eq!(modo(path.parent().unwrap()), 0o700);
+    }
+
+    #[test]
+    fn add_ignored_sem_nada_novo_nao_cria_o_arquivo_e_o_conteudo_segue_igual() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        add_ignored(&path, &[], &[]).unwrap();
+        assert!(!path.exists());
+        add_ignored(&path, &nomes(&["a"]), &[]).unwrap();
+        let antes = fs::read_to_string(&path).unwrap();
+        add_ignored(&path, &nomes(&["a"]), &[]).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), antes);
+    }
+
+    #[test]
+    fn add_ignored_recusa_nome_invalido_e_nao_grava() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        assert!(add_ignored(&path, &nomes(&["-Rns"]), &[]).is_err());
+        assert!(add_ignored(&path, &[], &nomes(&["semponto"])).is_err());
+        assert!(add_ignored(&path, &nomes(&["a\"b"]), &[]).is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn write_workspace_preserva_as_listas_de_ignorados() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        add_ignored(&path, &nomes(&["a"]), &nomes(&["org.x.A"])).unwrap();
+        write_workspace(&path, Path::new("/ws")).unwrap();
+        assert_eq!(
+            read(&path).unwrap(),
+            Config {
+                workspace: Some(PathBuf::from("/ws")),
+                ignore_pacman: nomes(&["a"]),
+                ignore_flatpak: nomes(&["org.x.A"]),
+            }
+        );
+    }
+
+    #[test]
+    fn add_ignored_preserva_a_pasta_de_workspace() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        write_workspace(&path, Path::new("/ws")).unwrap();
+        add_ignored(&path, &nomes(&["a"]), &[]).unwrap();
+        assert_eq!(read_workspace(&path).unwrap(), Some(PathBuf::from("/ws")));
+    }
+
+    #[test]
+    fn clear_workspace_preserva_as_listas_e_so_apaga_o_arquivo_se_nao_sobra_nada() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        add_ignored(&path, &nomes(&["a"]), &[]).unwrap();
+        write_workspace(&path, Path::new("/ws")).unwrap();
+        assert!(clear_workspace(&path).unwrap());
+        assert!(path.exists());
+        let config = read(&path).unwrap();
+        assert_eq!(config.workspace, None);
+        assert_eq!(config.ignore_pacman, nomes(&["a"]));
+        // Sem pasta gravada, `clear` diz que não havia e não mexe nas listas.
+        assert!(!clear_workspace(&path).unwrap());
+        assert_eq!(read(&path).unwrap().ignore_pacman, nomes(&["a"]));
+    }
+
+    #[test]
+    fn remove_ignored_tira_dos_dois_tipos_e_apaga_o_arquivo_quando_nao_sobra_nada() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        add_ignored(&path, &nomes(&["a", "b"]), &nomes(&["org.x.A"])).unwrap();
+        remove_ignored(&path, &nomes(&["a"])).unwrap();
+        let config = read(&path).unwrap();
+        assert_eq!(config.ignore_pacman, nomes(&["b"]));
+        assert_eq!(config.ignore_flatpak, nomes(&["org.x.A"]));
+        remove_ignored(&path, &nomes(&["b", "org.x.A"])).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn remove_ignored_com_nome_que_falta_e_erro_e_nao_grava() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        add_ignored(&path, &nomes(&["a", "b"]), &[]).unwrap();
+        let antes = fs::read_to_string(&path).unwrap();
+        let erro = format!(
+            "{:#}",
+            remove_ignored(&path, &nomes(&["a", "nao-esta", "outro"])).unwrap_err()
+        );
+        assert!(
+            erro.contains("nao-esta") && erro.contains("outro"),
+            "{erro}"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), antes);
+    }
+
+    #[test]
+    fn remove_ignored_sem_config_e_erro() {
+        let tmp = TmpDir::novo();
+        let path = caminho(&tmp);
+        assert!(remove_ignored(&path, &nomes(&["a"])).is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn read_recusa_lista_de_ignorados_invalida_e_diz_o_arquivo() {
+        let casos = [
+            ("nome de pacman inválido", "ignore_pacman = [\"-Rns\"]\n"),
+            (
+                "id de flatpak inválido",
+                "ignore_flatpak = [\"semponto\"]\n",
+            ),
+            ("nome repetido", "ignore_pacman = [\"a\", \"a\"]\n"),
+            ("não é lista", "ignore_pacman = \"a\"\n"),
+            ("item que não é texto", "ignore_pacman = [1]\n"),
+        ];
+        for (nome, linha) in casos {
+            let tmp = TmpDir::novo();
+            let path = config_com(&tmp, &format!("version = 1\n{linha}"));
+            let erro = format!("{:#}", read(&path).unwrap_err());
+            assert!(erro.contains("config.toml"), "{nome}: {erro}");
+        }
+    }
 }

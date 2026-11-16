@@ -418,6 +418,54 @@ mod tests {
     }
 
     #[test]
+    fn preset_suggest_all_e_opcional() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "suggest", "p.toml"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Preset {
+                action: PresetAction::Suggest {
+                    all: false,
+                    json: false,
+                    ..
+                }
+            }
+        ));
+        let cli = Cli::try_parse_from(["nodus", "preset", "suggest", "p.toml", "--all"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Preset {
+                action: PresetAction::Suggest { all: true, .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn preset_ignored_nao_leva_argumento() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "ignored"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Preset {
+                action: PresetAction::Ignored
+            }
+        ));
+        let erro = Cli::try_parse_from(["nodus", "preset", "ignored", "x"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn preset_unignore_leva_um_ou_mais_nomes() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "unignore", "a", "org.x.A"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Unignore { names },
+            } => assert_eq!(names, ["a", "org.x.A"]),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let erro = Cli::try_parse_from(["nodus", "preset", "unignore"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
     fn preset_plan_exige_o_arquivo() {
         let erro = Cli::try_parse_from(["nodus", "preset", "plan"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);

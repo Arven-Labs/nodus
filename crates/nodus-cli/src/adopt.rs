@@ -173,8 +173,8 @@ mod tests {
         let adocao = r.unwrap();
         assert_eq!(adocao.pacman, nomes(&["vim"]));
         assert_eq!(adocao.flatpak, nomes(&["org.a.B"]));
-        let vim = out.find("Adotar vim (pacman)? [s/N/q]").expect(&out);
-        let app = out.find("Adotar org.a.B (flatpak)? [s/N/q]").expect(&out);
+        let vim = out.find("Adotar vim (pacman)? [s/N/i/q]").expect(&out);
+        let app = out.find("Adotar org.a.B (flatpak)? [s/N/i/q]").expect(&out);
         assert!(vim < app, "{out}");
     }
 
@@ -211,6 +211,51 @@ mod tests {
         let (r, out) = rodar(&sugestoes(&[], &[], &[]), "s\n");
         assert!(r.unwrap().is_empty());
         assert!(!out.contains("Adotar "), "{out}");
+    }
+
+    #[test]
+    fn i_e_ignorar_vao_para_a_lista_de_ignorados_e_nao_para_o_preset() {
+        let sug = sugestoes(&["a", "b", "c"], &[], &["org.x.A"]);
+        let (r, _) = rodar(&sug, "i\nignorar\nI\nIGNORAR\n");
+        let adocao = r.unwrap();
+        assert!(adocao.is_empty(), "nada foi adotado");
+        assert!(adocao.has_ignored());
+        assert_eq!(adocao.ignored_pacman, nomes(&["a", "b", "c"]));
+        assert_eq!(adocao.ignored_flatpak, nomes(&["org.x.A"]));
+    }
+
+    #[test]
+    fn adotar_pular_e_ignorar_na_mesma_rodada() {
+        let sug = sugestoes(&["a", "b", "c"], &[], &[]);
+        let (r, _) = rodar(&sug, "s\nn\ni\n");
+        let adocao = r.unwrap();
+        assert_eq!(adocao.pacman, nomes(&["a"]));
+        assert_eq!(adocao.ignored_pacman, nomes(&["c"]));
+        assert!(adocao.ignored_flatpak.is_empty());
+    }
+
+    #[test]
+    fn q_guarda_o_que_ja_foi_ignorado() {
+        let sug = sugestoes(&["a", "b", "c"], &[], &["org.x.A"]);
+        let (r, out) = rodar(&sug, "i\nq\ni\n");
+        let adocao = r.unwrap();
+        assert_eq!(adocao.ignored_pacman, nomes(&["a"]));
+        assert!(adocao.ignored_flatpak.is_empty());
+        assert_eq!(out.matches("Adotar ").count(), 2, "{out}");
+    }
+
+    #[test]
+    fn fim_da_entrada_guarda_o_que_ja_foi_ignorado() {
+        let sug = sugestoes(&["a", "b"], &[], &[]);
+        let (r, _) = rodar(&sug, "i\n");
+        assert_eq!(r.unwrap().ignored_pacman, nomes(&["a"]));
+    }
+
+    #[test]
+    fn sem_ignorar_nada_has_ignored_e_falso() {
+        let sug = sugestoes(&["a"], &[], &[]);
+        let (r, _) = rodar(&sug, "s\n");
+        assert!(!r.unwrap().has_ignored());
     }
 
     #[test]

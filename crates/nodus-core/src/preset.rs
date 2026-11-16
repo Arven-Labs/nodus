@@ -1500,4 +1500,67 @@ mod tests {
             );
         }
     }
+
+    // --- hide_ignored: tira das sugestões o que o dono mandou ignorar ---
+
+    fn sugestoes(pacman: &[&str], foreign: &[&str], flatpak: &[&str]) -> Suggestions {
+        let lista = |nomes: &[&str]| nomes.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        Suggestions {
+            pacman_extra: lista(pacman),
+            foreign_extra: lista(foreign),
+            flatpak_extra: lista(flatpak),
+            flatpak_installed: true,
+        }
+    }
+
+    fn nomes(lista: &[&str]) -> Vec<String> {
+        lista.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn esconde_pacman_flatpak_e_fora_dos_repositorios_por_nome() {
+        let s = sugestoes(&["a", "b", "c"], &["aur1", "aur2"], &["org.x.A", "org.x.B"]);
+        let (visivel, escondidos) = hide_ignored(&s, &nomes(&["b", "aur2"]), &nomes(&["org.x.A"]));
+        assert_eq!(visivel.pacman_extra, nomes(&["a", "c"]));
+        assert_eq!(visivel.foreign_extra, nomes(&["aur1"]));
+        assert_eq!(visivel.flatpak_extra, nomes(&["org.x.B"]));
+        // Na ordem em que aparecem: pacman, fora dos repositórios, Flatpak.
+        assert_eq!(escondidos, nomes(&["b", "aur2", "org.x.A"]));
+    }
+
+    #[test]
+    fn sem_ignorados_nada_muda_e_nada_e_escondido() {
+        let s = sugestoes(&["a"], &["aur1"], &["org.x.A"]);
+        let (visivel, escondidos) = hide_ignored(&s, &[], &[]);
+        assert_eq!(visivel, s);
+        assert!(escondidos.is_empty());
+    }
+
+    #[test]
+    fn ignorado_que_nao_esta_nas_sugestoes_e_ignorado_em_silencio() {
+        let s = sugestoes(&["a"], &[], &[]);
+        let (visivel, escondidos) =
+            hide_ignored(&s, &nomes(&["nao-sugerido"]), &nomes(&["org.x.Z"]));
+        assert_eq!(visivel, s);
+        assert!(escondidos.is_empty());
+    }
+
+    #[test]
+    fn a_lista_do_pacman_nao_esconde_flatpak_e_vice_versa() {
+        let s = sugestoes(&["org.x.A"], &[], &["org.x.A"]);
+        let (visivel, escondidos) = hide_ignored(&s, &nomes(&["org.x.A"]), &[]);
+        assert!(visivel.pacman_extra.is_empty());
+        assert_eq!(visivel.flatpak_extra, nomes(&["org.x.A"]));
+        assert_eq!(escondidos, nomes(&["org.x.A"]));
+    }
+
+    #[test]
+    fn esconder_tudo_deixa_as_sugestoes_vazias_e_preserva_o_flag_do_flatpak() {
+        let mut s = sugestoes(&["a"], &[], &["org.x.A"]);
+        s.flatpak_installed = false;
+        let (visivel, escondidos) = hide_ignored(&s, &nomes(&["a"]), &nomes(&["org.x.A"]));
+        assert!(visivel.is_empty());
+        assert!(!visivel.flatpak_installed);
+        assert_eq!(escondidos.len(), 2);
+    }
 }
