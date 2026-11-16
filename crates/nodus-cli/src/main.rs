@@ -10,6 +10,7 @@ mod cli;
 mod config;
 mod discovery;
 mod dotfiles;
+mod dotfiles_adopt;
 mod hardware;
 mod history;
 mod preset_file;
