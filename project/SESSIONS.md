@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, `preset adopt` (critério 5, fatia 2)
+
+- **Pedido**: seguir com o critério 5, em plan mode. Decisões do dono: **dois PRs** (adotar agora, ignorar depois); escrita por **inserção de texto com `toml::Spanned`** (sem `toml_edit`, sem crate novo: `serde_spanned` já está no lockfile); os ignorados do PR B ficam no `config.toml` do ADR 0018.
+- **Feito (PR #59)**: testes primeiro, CI **vermelho** (`add_to_preset`, `ask`, `Adoption`, `write_preset` e `PresetAction::Adopt` inexistentes). Implementação: `add_to_preset` (núcleo, puro, com reparse do resultado), `adopt.rs` (pergunta com entrada e saída injetadas), `preset_file::write_preset` (segue symlink, preserva permissões, compara o conteúdo com o lido, atômico), `config::commit` como `pub(crate)`, `preset adopt` no CLI. ADR 0019, emenda ao 0016, SECURITY, MVP, OVERVIEW, README. CI **verde** de primeira (232 testes no núcleo, 220 na CLI): confirmou que o span do `toml::Spanned` inclui os colchetes. **Mutação**: a checagem de "arquivo mudou" desligada (1 teste vermelho) e a vírgula do último elemento nunca inserida (4 testes vermelhos); revertida com `git revert`.
+- **Diferenças do plano**: `add_to_preset` recebe duas listas em vez de um tipo `Additions` (sem tipo novo); a checagem de mudança compara o **conteúdo** lido, não tamanho e `mtime` (determinística e testável).
+- **Não verificado**: o comando no Arch real (esperado, numa cópia: `preset init > /tmp/p.toml`, apagar uma linha de pacman e uma de Flatpak, `preset adopt /tmp/p.toml` respondendo `s`, `N`, `q`; o `diff` mostra só as linhas adotadas); nenhum teste de CLI de ponta a ponta; falha do `rename`; preset com strings multilinha ou tabelas inline.
+- **Fica**: o dono conferir no Arch; PR B (`i`, ignorar para sempre, no `config.toml`); `apply` confirmado com `s`; P-02, P-14, P-17; dotfiles.
+
 ### 2026-11-15 — Sessão 19, `workspace set`/`unset` (critério 6, fatia 3)
 
 - **Pedido**: lembrar a escolha do workspace, em plan mode. Decisões do dono: `config.toml` em TOML no XDG, e precedência argumento, variável, gravada, detecção. Medi antes (só leitura) o padrão do histórico (`history_path`, `check_file`, 0700/0600) para reusar.

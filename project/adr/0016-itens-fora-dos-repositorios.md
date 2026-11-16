@@ -28,7 +28,7 @@ Medido em 2026-11-15, nesta máquina, só leitura (`pacman -S --print`, `pacman 
 - **Recusar o `apply` inteiro se houver indisponível:** descartada pelo dono; um preset do `init` nunca rodaria sem edição manual.
 - **Capturar o stderr do pacman para ler o nome do culpado em uma só chamada:** descartada; mudaria `RunnerError` e o `CommandRunner` para todos os chamadores.
 - **Instalar do AUR por helper:** descartada; o AUR não é revisado e rodar `makepkg` é execução de código de terceiro (supply chain), fora do que o MVP assume.
-- **`suggest` interativo, escrevendo no preset, com lista de ignorados:** adiado para a fatia seguinte do critério 5 (precisa de estado e de escrita; o TOML sem perder comentários pede dependência nova).
+- **`suggest` interativo, escrevendo no preset, com lista de ignorados:** adiado para a fatia seguinte do critério 5 (precisa de estado e de escrita; o TOML sem perder comentários pede dependência nova). **Emenda (PR #59):** a pergunta e a escrita foram feitas no `preset adopt` (ADR 0019), sem dependência nova (inserção de texto com `toml::Spanned`); o "ignorar" continua adiado.
 
 ## Consequências
 - Uma chamada extra ao `pacman` por `plan`/`apply` quando falta algo; N chamadas só se o lote falhar. O custo em máquina nova com muitos itens faltando não foi medido.
