@@ -13,13 +13,13 @@ Medido em 2026-11-15, nesta máquina, só leitura:
 
 ## Decisão
 1. **Detecção por candidatos conhecidos, não por varredura.** Lista fixa sob o `$HOME`, nesta ordem: `Documents/workspace`, `workspace`, `Projects`, `projects`, `dev`, `src`, `code`, `repos`, `git`. Para cada candidato que é pasta, conta os repositórios filhos com `find_repos`. Vence o de mais repositórios (precisa ter pelo menos 1); empate pela ordem da lista; candidatos que resolvem ao mesmo caminho real aparecem uma vez; candidato ilegível ou que não é pasta é pulado.
-2. **Escolha manual sem estado:** `nodusctl workspace [pasta]` e a variável `NODUS_WORKSPACE`. Precedência: argumento, variável, detecção. A pasta informada precisa existir e ser pasta; vale o caminho real; aceita 0 repositórios com um aviso. A variável vazia é ignorada; **relativa, inexistente ou que não é pasta é erro**, não cai em silêncio na detecção.
+2. **Escolha manual sem estado** (**emenda, PR #57:** a escolha pode ser gravada com `workspace set`, entre a variável e a detecção; ver ADR 0018)**:** `nodusctl workspace [pasta]` e a variável `NODUS_WORKSPACE`. Precedência: argumento, variável, detecção. A pasta informada precisa existir e ser pasta; vale o caminho real; aceita 0 repositórios com um aviso. A variável vazia é ignorada; **relativa, inexistente ou que não é pasta é erro**, não cai em silêncio na detecção.
 3. **Só relatório:** o comando não escreve nada e não guarda estado; `--json` traz `chosen` (com `path`, `source`, `repo_count`) e `candidates`. Sem workspace detectado, exit 0, com a lista dos candidatos vazios e a instrução para informar a pasta.
 4. **O `repos` não muda:** continua exigindo a pasta. **Emenda (PR #52, 2026-11-15):** a pasta do `repos` passou a ser opcional. Com argumento, nada muda (não é revalidado). Sem argumento, vale `workspace::pick_dir`, que reusa `resolve` (variável, depois detecção; variável inválida é erro) e imprime `Workspace: <pasta> (<origem>)` em **stderr**, para o `--json` seguir puro. Sem workspace achável, erro que manda informar a pasta ou definir `NODUS_WORKSPACE`.
 
 ## Alternativas
 - **Varredura do `$HOME`:** descartada; lenta, entra em pastas privadas e erra nesta máquina (escolheria o `$HOME`).
-- **Salvar a escolha (`workspace set`, arquivo de configuração):** descartada nesta fatia por escolha do dono; é o "solicitar e lembrar" da SPEC, mas exige um arquivo novo (onde fica, permissão, symlink, formato) e deixa de ser só relatório. A escolha manual não fica gravada: vale por chamada, ou fixa na variável do shell.
+- **Salvar a escolha (`workspace set`, arquivo de configuração):** descartada nesta fatia por escolha do dono (feita depois, no ADR 0018); é o "solicitar e lembrar" da SPEC, mas exige um arquivo novo (onde fica, permissão, symlink, formato) e deixa de ser só relatório. A escolha manual não fica gravada: vale por chamada, ou fixa na variável do shell.
 - **`repos` sem argumento usar o workspace detectado:** descartada nesta fatia; mexe no contrato do `repos` e nos testes dele. É o passo natural seguinte (feito no PR #52, ver a emenda ao item 4).
 - **Ler `~/.config/user-dirs.dirs` para o `XDG_PROJECTS_DIR`:** descartada; a chave não é do padrão do xdg-user-dirs e `~/Projects` já está na lista.
 - **Cair na detecção quando a variável é inválida:** descartada; esconderia o engano de quem a definiu.
@@ -30,7 +30,7 @@ Medido em 2026-11-15, nesta máquina, só leitura:
 - Candidato que é symlink é resolvido ao caminho real e mostrado assim (só lê, não escreve).
 - O desempate pela ordem da lista é arbitrário (`workspace` ganha de `Projects` com o mesmo número de repositórios); o dono corrige informando a pasta.
 - Só Arch Linux/Unix: o SPEC pede um caminho equivalente configurável no Windows, fora do MVP.
-- Reabrir se: o dono quiser lembrar a escolha (ADR de configuração) ou o `repos` passar a usar o workspace detectado.
+- Reabrir se: a detecção por lista fixa se mostrar insuficiente. (Lembrar a escolha e o `repos` usar o workspace já foram feitos: PR #52 e ADR 0018.)
 
 ## Não verificado
 - **Verificado no Arch real em 2026-11-15:** `nodusctl workspace` detectou `~/Documents/workspace` (9 repositórios) e listou `~/Projects` (0); `workspace /tmp` deu "informado, 0 repositórios" com o aviso; `NODUS_WORKSPACE` válido venceu a detecção; inexistente e relativa deram erro com exit 1; `--json` trouxe `chosen` e `candidates`.

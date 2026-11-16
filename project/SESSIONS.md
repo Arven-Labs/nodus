@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, `workspace set`/`unset` (critério 6, fatia 3)
+
+- **Pedido**: lembrar a escolha do workspace, em plan mode. Decisões do dono: `config.toml` em TOML no XDG, e precedência argumento, variável, gravada, detecção. Medi antes (só leitura) o padrão do histórico (`history_path`, `check_file`, 0700/0600) para reusar.
+- **Feito (PR #57)**: testes primeiro, CI **vermelho** (`config_path` e o campo `action` inexistentes). Implementação: `config.rs` (caminho, leitura estrita com limite de 64 KiB, gravação atômica com temporário e `rename`, `clear`), `Source::Stored`, `resolve` e `pick_dir` com o parâmetro `stored` (closure: o config só é lido se nem argumento nem variável decidem), `workspace::validate`, `workspace set <pasta>` e `unset` no `cli.rs` e no `main.rs`; `history::check_file` passou a `pub(crate)` e `toml` entrou nas dependências da CLI (já aprovado; `Cargo.lock` editado à mão e aceito pelo `--locked` do CI). ADR 0018; emendas ao ADR 0017; SECURITY, README, MVP, OVERVIEW. CI **verde** (214 testes do CLI). **Mutação**: `0o600` virou `0o644` no temporário e a variável deixou de vencer; **11 testes** vermelhos (5 do `config`, 6 do `workspace`); revertida com `git revert`.
+- **Não verificado**: `workspace set`, `unset` e a precedência no Arch real (esperado: `set ~/Documents/workspace`, depois `workspace` e `repos` dão `(gravado)`; `ls -l ~/.config/nodus/config.toml` dá `-rw-------`; `NODUS_WORKSPACE=/tmp nodusctl workspace` ainda vence; `unset` volta à detecção); nenhum teste de CLI de ponta a ponta de `set`/`unset`; falha do `rename` e temporário já existente; `set` numa pasta com 0 repositórios (grava e avisa em stderr).
+- **Fica**: o dono conferir no Arch; critério 5 interativo; `apply` confirmado com `s`; P-02, P-14, P-17.
+
 ### 2026-11-15 — Sessão 19, P-19 (`Broken pipe`)
 
 - **Pedido**: depois do fechamento da Fase 0 (PR #54), corrigir a P-19 em plan mode. Medi antes (só leitura): `unsafe_code = "forbid"` impede resetar o `SIGPIPE`; 17 pontos de saída em `main.rs`; `std::io::pipe()` permite um pipe com a leitura já fechada (teste sem corrida). Escolhi, sem perguntar ao dono, o exit 141 (plano aprovado com isso dito).
