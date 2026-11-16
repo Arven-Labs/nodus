@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-16 — Sessão 20, `history undo` de dotfile (critério 11, fatia 3a)
+
+- **Pedido**: seguir com a fatia 3, em plan mode. Decisões do dono: só o undo (o `link` vira a fatia 4); copiar de volta e **manter** a fonte; se o symlink divergiu, **recusar e explicar**; ADR 0023 criado a pedido (PR #67, mesclado).
+- **Feito (PR #68)**: testes primeiro, CI **vermelho** por item inexistente (`select_adoption`, `plan_undo_adopt`, `entry_for_dotfile_undo`, `undo_dotfile`, variantes novas). Implementação: core (`plan_undo_adopt` com revalidação de `path` e `dir`, `select_adoption`, `entry_for_dotfile_undo`, `parse_line` v4 aceita `remove` com `undoes` e `dotfiles`), CLI (`dotfiles_undo.rs`: cópia para temporário ao lado do symlink, conferência byte a byte, reconferência do alvo, `rename`; desvio no `main.rs` antes de consultar o pacman; render). Helpers `snapshot` e `check_parents` do `adopt` ficaram `pub(crate)`.
+- **Mutação**: a 1ª tentativa não compilou no clippy (variável sem uso) e não provou nada; a 2ª (tirar a conferência do alvo do symlink, a de "já desfeita" e a do pai symlink) derrubou **5 testes** (3 no CLI, 2 no core); revertidas com `git revert`. **A reconferência do symlink antes do `rename` não tem teste** (quebrada, nada falhou).
+- **Verificado no Arch real, em HOME temporário (dono, terminal real, `cargo build --release` na branch do PR #68, `HOME=/tmp/hx`)**: adotar `.bashrc`, `history undo 1` com plano e `s`, arquivo comum de 10 bytes, `diff` igual à fonte, `history` com `desfez [1]`, segundo `undo 1` recusado.
+- **Não verificado**: num dotfile real; recusas no binário real; `git config --global`, editores e KDE com a cópia de volta; se o runner do CI é root (o teste de falha do histórico sai cedo como root).
+- **Fica**: `dotfiles link` (fatia 4, ADR próprio); decidir se testa a reconferência do symlink com um gancho; o `~/dotfiles` do dono (commit, remoto privado) e adotar os outros quatro; `dotfiles dir set`; `apply` confirmado com `s`; P-02, P-14, P-17.
+
 ### 2026-11-16 — Sessão 20, `dotfiles adopt` (critério 11, fatia 2)
 
 - **Pedido**: o dono decidiu que vincular dotfile entra no MVP; em plan mode. Decisões do dono: pasta-fonte espelhando o HOME (`dotfiles_dir`), `adopt` primeiro e `undo` depois, repo privado fora do workspace; ADR 0022 criado a pedido (PR #65, mesclado).

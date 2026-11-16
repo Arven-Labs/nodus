@@ -22,7 +22,7 @@ Medido em 2026-11-14 (pacman 7.1.0, Arch, só leitura):
 5. **Dependências que vieram junto na instalação:** a fatia 3 não as registrou. O `-Rs` remove apenas as que ficam sem uso e não são explícitas; o que outro pacote passou a usar fica. Essa semântica de `-s` vem do conhecimento do pacman, **não** foi medida aqui (ver "Não verificado").
 6. **Registro, sempre acrescentando:** a reversão grava uma **entrada nova** (formato `version = 2`, com `action = "remove"` e `undoes = <n>`); `version = 1` continua sendo lida como instalação. Nenhuma linha existente é editada. Falha do `sudo`/`pacman` também é gravada, como na fatia 3.
 7. **Resíduo declarado (T5):** a validação barra o que já não está instalado e o que não é explícito (por exemplo, uma biblioteca de dependência), mas uma linha plantada pedindo a remoção de um pacote **explícito qualquer** (ex.: `linux`) passa nela, porque o pacman protege dependências, não pacotes-folha. A defesa que sobra é o dono **ler o plano antes de confirmar**, e é por isso que a simulação (item 3) é obrigatória e aparece inteira.
-8. **O que a reversão não desfaz:** dados e configurações em `$HOME`, serviços habilitados, apps Flatpak (o nodus ainda não instala), dotfiles.
+8. **O que a reversão não desfaz:** dados e configurações em `$HOME`, serviços habilitados, apps Flatpak (o nodus ainda não instala), dotfiles. *(Emenda, ADR 0023: a reversão de pacman continua não tocando em dotfile; a adoção de dotfile tem a sua própria reversão, `history undo` numa entrada v4, que não passa pelo pacman.)*
 
 ## Alternativas descartadas
 - **`-Rns`:** também apaga os `.pacsave`; perde o único rastro das configurações do pacote e não dá para refazer.

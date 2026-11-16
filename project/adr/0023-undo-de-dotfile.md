@@ -38,6 +38,7 @@ O ADR 0022 entregou `dotfiles adopt`: o arquivo real do HOME vira symlink para a
 
 ## Lacunas
 - Resíduo de corrida (igual ao 0022): um processo do mesmo usuário pode trocar o symlink entre a conferência e o `rename`; as checagens estreitam a janela, não a fecham.
-- Ainda não implementado nem verificado no Arch real; comportamento de `git config --global`, editores e KDE com a cópia de volta não verificado.
+- **Implementado no PR #68** (testes primeiro, CI vermelho por item inexistente; mutação de propósito: 3 quebras derrubaram 5 testes). **A reconferência do symlink logo antes do `rename` não tem teste** (cobre corrida; testar exigiria um gancho no código de produção): quebrá-la não derrubou nada.
+- Verificado no Arch real em 2026-11-16, em HOME temporário (`HOME=/tmp/hx`): adotar `.bashrc`, `history undo 1` (plano, `s`), arquivo comum de 10 bytes com `diff` igual à fonte, `history` listando a adoção e `desfez [1]`, segundo `undo 1` recusado ("já foi desfeita"). **Não verificado:** num dotfile real do HOME do dono; recusas no binário real (symlink trocado, fonte apagada, sem terminal); comportamento de `git config --global`, editores e KDE com a cópia de volta.
 - Ao desfazer, só o dono sabe se a fonte tem segredo que agora voltou ao HOME (o nodus não lê para classificar, 0021).
 - Este ADR foi escrito por IA e revisado só pelo dono.
