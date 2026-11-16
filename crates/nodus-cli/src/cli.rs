@@ -99,6 +99,12 @@ pub enum PresetAction {
         #[arg(long)]
         json: bool,
     },
+    /// Pergunta, item a item (s/N/q), se o que está instalado de propósito e fora do preset entra
+    /// nele, e acrescenta só o que você adotar, sem mexer no resto do arquivo. Não instala nada.
+    Adopt {
+        /// Arquivo TOML do preset (é editado no lugar; se for um symlink, grava no alvo).
+        file: PathBuf,
+    },
     /// Lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para
     /// colar nele (não executa nem escreve nada).
     Suggest {

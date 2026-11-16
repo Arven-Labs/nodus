@@ -31,6 +31,8 @@ pub enum PresetError {
     },
     #[error("nome repetido em `{list}`: {name:?}")]
     Duplicate { list: &'static str, name: String },
+    #[error("não consegui acrescentar ao preset sem alterar o resto: {0}")]
+    Edit(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -127,6 +129,157 @@ pub(crate) fn is_valid_flatpak_id(id: &str) -> bool {
     let allowed = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let segment_ok = |s: &str| !s.is_empty() && !s.starts_with('-') && s.chars().all(allowed);
     id.split('.').count() >= 2 && id.split('.').all(segment_ok)
+}
+
+/// As listas do preset com a posição (em bytes) de cada valor no texto, para editar sem reescrever.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SpannedPreset {
+    #[allow(dead_code)] // só confere o formato; quem valida a versão é `parse_preset`
+    version: i64,
+    pacman: Option<toml::Spanned<Vec<toml::Spanned<String>>>>,
+    flatpak: Option<toml::Spanned<Vec<toml::Spanned<String>>>>,
+}
+
+/// Acrescenta nomes ao texto de um preset **sem mexer em mais nada**: comentários, ordem, linhas em
+/// branco e formatação ficam byte a byte (só o trecho inserido muda). Nome já presente é ignorado e
+/// repetido entre os novos entra uma vez; sem nada a acrescentar devolve o texto igual. Uma lista
+/// que não existe é criada no fim. O resultado é reparseado e precisa ter os nomes antigos seguidos
+/// dos novos, senão é erro e nada é devolvido (o chamador não grava um preset que não confere).
+pub fn add_to_preset(
+    text: &str,
+    pacman: &[String],
+    flatpak: &[String],
+) -> Result<String, PresetError> {
+    let before = parse_preset(text)?;
+    let new_pacman = only_new(pacman, &before.pacman);
+    let new_flatpak = only_new(flatpak, &before.flatpak);
+    validate("pacman", &new_pacman, is_valid_pacman_name)?;
+    validate("flatpak", &new_flatpak, is_valid_flatpak_id)?;
+    if new_pacman.is_empty() && new_flatpak.is_empty() {
+        return Ok(text.to_string());
+    }
+
+    let raw: SpannedPreset = toml::from_str(text).map_err(|e| PresetError::Toml(e.to_string()))?;
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut edits: Vec<(usize, String)> = Vec::new();
+    let mut appended = String::new();
+    for (key, array, new) in [
+        ("pacman", raw.pacman, &new_pacman),
+        ("flatpak", raw.flatpak, &new_flatpak),
+    ] {
+        if new.is_empty() {
+            continue;
+        }
+        match array {
+            Some(array) => {
+                let last_end = array.get_ref().last().map(|item| item.span().end);
+                edits.extend(insert_into_array(text, array.span(), last_end, new, eol)?);
+            }
+            None => {
+                appended.push_str(&format!("{key} = [{eol}"));
+                for name in new {
+                    appended.push_str(&format!("    \"{name}\",{eol}"));
+                }
+                appended.push_str(&format!("]{eol}"));
+            }
+        }
+    }
+    // Do fim para o começo: inserir antes não desloca as posições que ainda faltam (a ordenação é
+    // estável, então duas inserções na mesma posição ficam na ordem em que foram pedidas).
+    edits.sort_by_key(|(position, _)| std::cmp::Reverse(*position));
+    let mut out = text.to_string();
+    for (position, inserted) in edits {
+        out.insert_str(position, &inserted);
+    }
+    if !appended.is_empty() {
+        if !out.ends_with('\n') {
+            out.push_str(eol);
+        }
+        out.push_str(&appended);
+    }
+
+    let after = parse_preset(&out).map_err(|e| PresetError::Edit(e.to_string()))?;
+    let expected = |old: &[String], new: &[String]| -> Vec<String> {
+        old.iter().chain(new).cloned().collect()
+    };
+    if after.pacman != expected(&before.pacman, &new_pacman)
+        || after.flatpak != expected(&before.flatpak, &new_flatpak)
+    {
+        return Err(PresetError::Edit(
+            "o texto resultante não tem os mesmos nomes que o esperado".into(),
+        ));
+    }
+    Ok(out)
+}
+
+/// Os nomes de `wanted` que ainda não estão em `present`, sem repetir, na ordem pedida.
+fn only_new(wanted: &[String], present: &[String]) -> Vec<String> {
+    let mut seen: HashSet<&str> = present.iter().map(String::as_str).collect();
+    wanted
+        .iter()
+        .filter(|name| seen.insert(name.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// As inserções (posição, texto) que põem `new` numa lista cujo `[` e `]` estão em `span`.
+/// `last_end` é onde termina o último elemento, se houver. Os nomes já foram validados (sem aspas
+/// nem barra invertida), então vão entre aspas sem escapar.
+fn insert_into_array(
+    text: &str,
+    span: std::ops::Range<usize>,
+    last_end: Option<usize>,
+    new: &[String],
+    eol: &str,
+) -> Result<Vec<(usize, String)>, PresetError> {
+    let open = span.start;
+    let close = span.end.saturating_sub(1);
+    if text.get(open..=open) != Some("[") || text.get(close..=close) != Some("]") {
+        return Err(PresetError::Edit("não achei os colchetes da lista".into()));
+    }
+    let line_start = text[..close].rfind('\n').map_or(0, |index| index + 1);
+    let closes_on_its_own_line = text[line_start..close].trim().is_empty();
+    let mut edits = Vec::new();
+    if closes_on_its_own_line {
+        // Uma linha por nome, logo antes da linha do `]`. O último elemento precisa de vírgula.
+        if let Some(end) = last_end
+            && next_significant(&text[end..close]) != Some(',')
+        {
+            edits.push((end, ",".to_string()));
+        }
+        let lines: String = new
+            .iter()
+            .map(|name| format!("    \"{name}\",{eol}"))
+            .collect();
+        edits.push((line_start, lines));
+    } else if let Some(end) = last_end {
+        // Na mesma linha: `, "nome"` depois do último elemento (uma vírgula final que já exista
+        // continua depois do que entrou, o que o TOML aceita).
+        let names: String = new.iter().map(|name| format!(", \"{name}\"")).collect();
+        edits.push((end, names));
+    } else {
+        let names: Vec<String> = new.iter().map(|name| format!("\"{name}\"")).collect();
+        edits.push((open + 1, names.join(", ")));
+    }
+    Ok(edits)
+}
+
+/// O primeiro caractere que não é espaço nem comentário (`#` até o fim da linha).
+fn next_significant(text: &str) -> Option<char> {
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '#' {
+            for skipped in chars.by_ref() {
+                if skipped == '\n' {
+                    break;
+                }
+            }
+        } else if !c.is_whitespace() {
+            return Some(c);
+        }
+    }
+    None
 }
 
 /// Texto TOML de um preset, um nome por linha (fácil de editar e de ver no diff). Os nomes já foram

@@ -1,6 +1,7 @@
 //! Leitura do arquivo de preset, com limite de tamanho (o preset pode vir de terceiro).
 
 use anyhow::{Context, Result, bail};
+use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::Path;
 
@@ -18,6 +19,49 @@ pub fn read_preset(path: &Path) -> Result<String> {
         bail!("{} é maior que 1 MiB", path.display());
     }
     String::from_utf8(bytes).with_context(|| format!("{} não é UTF-8", path.display()))
+}
+
+/// Troca o conteúdo do preset por `new_text`, de forma atômica. Se `path` é um symlink (um preset
+/// que vive no seu repositório de dotfiles), grava no alvo real: um `rename` por cima do link o
+/// trocaria por um arquivo comum. Preserva as permissões do original e só escreve se o arquivo
+/// ainda tem exatamente `old_text` (o que foi lido e editado): se mudou no meio, é erro e nada é
+/// escrito.
+pub fn write_preset(path: &Path, old_text: &str, new_text: &str) -> Result<()> {
+    let real =
+        std::fs::canonicalize(path).with_context(|| format!("abrindo {}", path.display()))?;
+    let meta =
+        std::fs::metadata(&real).with_context(|| format!("examinando {}", real.display()))?;
+    if !meta.is_file() {
+        bail!("{} não é um arquivo comum", real.display());
+    }
+    if read_preset(&real)? != old_text {
+        bail!(
+            "{} mudou desde a leitura; nada foi escrito: rode o comando de novo",
+            real.display()
+        );
+    }
+    let dir = real.parent().context("caminho do preset sem pasta")?;
+    let name = real
+        .file_name()
+        .context("caminho do preset sem nome de arquivo")?
+        .to_string_lossy();
+    let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    let file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&tmp)
+        .with_context(|| format!("criando {}", tmp.display()))?;
+    let written = file
+        .set_permissions(meta.permissions())
+        .with_context(|| format!("ajustando as permissões de {}", tmp.display()))
+        .and_then(|()| {
+            crate::config::commit(file, new_text, &tmp, &real)
+                .with_context(|| format!("gravando {}", real.display()))
+        });
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 #[cfg(test)]
