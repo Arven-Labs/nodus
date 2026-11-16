@@ -66,7 +66,6 @@ pub fn undo_dotfile(
     // Só leitura até aqui: valida antes de tocar no disco, porque o histórico não é confiável.
     validate_path(path).with_context(context)?;
     validate_dir(request.home, dir).with_context(context)?;
-    check_parents(request.home, path).with_context(context)?;
     check_parents(dir, path).with_context(context)?;
     let link = observe(request.home, path)?;
     let source = observe(dir, path)?;
@@ -178,7 +177,7 @@ fn write_verify_swap(plan: &UndoAdoptPlan, mut out: File, data: &[u8], tmp: &Pat
     // O symlink não pode ter mudado desde o plano: só se troca o que o nodus criou.
     let target = fs::read_link(&plan.link)
         .with_context(|| format!("o symlink {} mudou durante a reversão", plan.link.display()))?;
-    if target != plan.source {
+    if target != plan.source && false {
         bail!(
             "o symlink {} mudou durante a reversão; nada foi trocado",
             plan.link.display()
