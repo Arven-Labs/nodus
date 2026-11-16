@@ -957,7 +957,9 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
             saida.contains("[1] 2023-11-14T22:13:20Z  ok  dotfile adotado: .bashrc  (pasta-fonte /home/u/dotfiles)\n"),
             "{saida}"
         );
-        assert!(!saida.contains("pedidos"), "{saida}");
+        // A linha da entrada não usa o formato de pacotes (a nota de rodapé fala de "pedidos").
+        let linha = saida.lines().nth(1).unwrap_or_default();
+        assert!(!linha.contains("pedidos"), "{saida}");
     }
 
     #[test]
