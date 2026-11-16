@@ -226,7 +226,7 @@ pub fn plan_adopt(
     validate_path(path)?;
     validate_dir(home, dir)?;
     let size = match observed {
-        Observed::File { size } if *size >= MAX_ADOPT_BYTES => {
+        Observed::File { size } if *size > MAX_ADOPT_BYTES => {
             return Err(AdoptError::TooBig(*size));
         }
         Observed::File { size } => *size,
@@ -239,7 +239,7 @@ pub fn plan_adopt(
         source: home.join(path),
         dest: dir.join(path),
         size,
-        mode: mode & 0o7777,
+        mode: mode & 0o777,
     })
 }
 
