@@ -1,3 +1,213 @@
+//! `nodusctl dotfiles adopt`: o I/O que leva um arquivo real do HOME para a pasta-fonte e deixa um
+//! symlink no lugar (ADR 0022). A ordem importa: copia, confere byte a byte, confere que o original
+//! não mudou, e só então troca (um `rename` atômico por cima). Antes da troca, qualquer falha deixa
+//! o original intacto e remove só a cópia que este código criou (`create_new`).
+
+use anyhow::{Context, Result, bail};
+use nodus_core::dotfiles::AdoptPlan;
+use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::io::{ErrorKind, Read, Write};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::path::{Path, PathBuf};
+
+/// O que identifica o original: se qualquer um mudar entre a leitura e a troca, a troca não ocorre.
+/// Não é à prova de corrida (uma regravação do mesmo tamanho no mesmo tick do relógio passa), só
+/// estreita a janela; ver as lacunas do ADR 0022.
+#[derive(Debug, PartialEq, Eq)]
+struct Snapshot {
+    dev: u64,
+    ino: u64,
+    size: u64,
+    mtime: i64,
+    mtime_nsec: i64,
+}
+
+fn snapshot(path: &Path) -> Result<Snapshot> {
+    let meta = fs::symlink_metadata(path).with_context(|| format!("lendo {}", path.display()))?;
+    if !meta.file_type().is_file() {
+        bail!(
+            "o original mudou: {} não é mais um arquivo comum",
+            path.display()
+        );
+    }
+    Ok(Snapshot {
+        dev: meta.dev(),
+        ino: meta.ino(),
+        size: meta.len(),
+        mtime: meta.mtime(),
+        mtime_nsec: meta.mtime_nsec(),
+    })
+}
+
+/// Cada pasta entre o HOME e o arquivo precisa ser pasta comum: um pai symlink faria a troca
+/// acontecer fora do HOME (T2).
+fn check_parents(home: &Path, path: &str) -> Result<()> {
+    let mut current = home.to_path_buf();
+    let parts: Vec<&str> = path.split('/').collect();
+    for part in &parts[..parts.len() - 1] {
+        current.push(part);
+        let meta = fs::symlink_metadata(&current)
+            .with_context(|| format!("lendo {}", current.display()))?;
+        if meta.file_type().is_symlink() {
+            bail!(
+                "{} é um symlink; o nodus só adota arquivo em pastas comuns",
+                current.display()
+            );
+        }
+        if !meta.is_dir() {
+            bail!("{} não é uma pasta", current.display());
+        }
+    }
+    Ok(())
+}
+
+/// Cria, uma a uma, as pastas do destino dentro da pasta-fonte. Não usa `create_dir_all`, que
+/// seguiria um symlink e criaria pasta fora da pasta-fonte.
+fn ensure_dirs(dir: &Path, path: &str) -> Result<()> {
+    let meta =
+        fs::metadata(dir).with_context(|| format!("lendo a pasta-fonte {}", dir.display()))?;
+    if !meta.is_dir() {
+        bail!("a pasta-fonte {} não é uma pasta", dir.display());
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    let mut current: PathBuf = dir.to_path_buf();
+    for part in &parts[..parts.len() - 1] {
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => bail!(
+                "o destino escapa da pasta-fonte: {} é um symlink",
+                current.display()
+            ),
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => bail!("{} existe e não é uma pasta", current.display()),
+            Err(erro) if erro.kind() == ErrorKind::NotFound => {
+                DirBuilder::new()
+                    .mode(0o700)
+                    .create(&current)
+                    .with_context(|| format!("criando {}", current.display()))?;
+            }
+            Err(erro) => {
+                return Err(erro).with_context(|| format!("lendo {}", current.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Adota um arquivo conforme o plano (já validado pelo core). `after_copy` roda depois de a cópia
+/// ser gravada e antes de conferida, e `before_swap` depois da conferência e antes da troca: no
+/// uso real são vazios; existem para os testes provarem as recusas no meio da operação.
+pub fn adopt_file(
+    home: &Path,
+    plan: &AdoptPlan,
+    after_copy: impl FnOnce(&Path),
+    before_swap: impl FnOnce(),
+) -> Result<()> {
+    check_parents(home, &plan.path)?;
+    let before = snapshot(&plan.source)?;
+    if before.size != plan.size {
+        bail!(
+            "o original mudou desde o plano: tem {} bytes, eram {}",
+            before.size,
+            plan.size
+        );
+    }
+    let depth = plan.path.split('/').count();
+    let dir = plan
+        .dest
+        .ancestors()
+        .nth(depth)
+        .context("destino sem pasta-fonte")?;
+    ensure_dirs(dir, &plan.path)?;
+
+    let mut source =
+        File::open(&plan.source).with_context(|| format!("abrindo {}", plan.source.display()))?;
+    let opened = source.metadata().context("lendo o original aberto")?;
+    if opened.dev() != before.dev || opened.ino() != before.ino {
+        bail!("o original mudou: foi trocado enquanto era aberto");
+    }
+    // No máximo um byte além do plano: um arquivo que cresceu é detectado sem ler tudo.
+    let mut data = Vec::new();
+    (&mut source)
+        .take(plan.size + 1)
+        .read_to_end(&mut data)
+        .with_context(|| format!("lendo {}", plan.source.display()))?;
+    if data.len() as u64 != plan.size {
+        bail!(
+            "o original mudou: tem mais de {} bytes, eram {}",
+            data.len(),
+            plan.size
+        );
+    }
+
+    let out = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&plan.dest)
+    {
+        Ok(file) => file,
+        Err(erro) if erro.kind() == ErrorKind::AlreadyExists => bail!(
+            "o destino {} já existe; o nodus nunca sobrescreve",
+            plan.dest.display()
+        ),
+        Err(erro) => {
+            return Err(erro).with_context(|| format!("criando {}", plan.dest.display()));
+        }
+    };
+    // A cópia é nossa (`create_new`): se algo falhar daqui até a troca, só ela é removida.
+    let outcome = copy_verify_swap(plan, out, &data, &before, after_copy, before_swap);
+    if outcome.is_err() {
+        let _ = fs::remove_file(&plan.dest);
+    }
+    outcome
+}
+
+fn copy_verify_swap(
+    plan: &AdoptPlan,
+    mut out: File,
+    data: &[u8],
+    before: &Snapshot,
+    after_copy: impl FnOnce(&Path),
+    before_swap: impl FnOnce(),
+) -> Result<()> {
+    out.write_all(data)
+        .with_context(|| format!("gravando {}", plan.dest.display()))?;
+    // Permissão exata (fchmod ignora o umask), só os 9 bits que o plano trouxe.
+    out.set_permissions(fs::Permissions::from_mode(plan.mode))
+        .context("ajustando a permissão da cópia")?;
+    out.sync_all().context("gravando a cópia no disco")?;
+    drop(out);
+
+    after_copy(&plan.dest);
+    let copied =
+        fs::read(&plan.dest).with_context(|| format!("relendo {}", plan.dest.display()))?;
+    if copied != data {
+        bail!("a cópia não confere com o original; nada foi trocado");
+    }
+
+    before_swap();
+    if &snapshot(&plan.source)? != before {
+        bail!("o original mudou durante a adoção; nada foi trocado");
+    }
+
+    // Symlink temporário no mesmo diretório e `rename` por cima: a troca é atômica.
+    let name = plan
+        .source
+        .file_name()
+        .context("origem sem nome de arquivo")?
+        .to_string_lossy();
+    let tmp = plan
+        .source
+        .with_file_name(format!(".{name}.nodus-{}", std::process::id()));
+    symlink(&plan.dest, &tmp).with_context(|| format!("criando o link {}", tmp.display()))?;
+    if let Err(erro) = fs::rename(&tmp, &plan.source) {
+        let _ = fs::remove_file(&tmp);
+        return Err(erro).with_context(|| format!("trocando {}", plan.source.display()));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
