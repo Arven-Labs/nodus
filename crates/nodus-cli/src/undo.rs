@@ -154,6 +154,7 @@ mod tests {
             action: Action::Install,
             undoes: None,
             manager: Manager::Pacman,
+            dir: None,
         }
     }
 

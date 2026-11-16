@@ -7,10 +7,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
-/// Versão do formato que o nodus grava. Mudar o formato exige subir este número. A leitura aceita
-/// também a versão 1 (só instalações, sem `action` nem `undoes`) e a 2 (sem `manager`, sempre
-/// pacman).
+/// Versão do formato que o nodus grava para pacman e Flatpak. Mudar o formato exige subir este
+/// número. A leitura aceita também a versão 1 (só instalações, sem `action` nem `undoes`), a 2 (sem
+/// `manager`, sempre pacman) e a 4 (`dotfiles adopt`, ADR 0022).
 pub const ENTRY_VERSION: u32 = 3;
+
+/// Versão das entradas de dotfile: só `adopt`, com `manager = "dotfiles"` e `dir`. Pacman e Flatpak
+/// continuam v3; um nodus antigo recusa a linha v4 (`UnsupportedVersion`), como no ADR 0014.
+pub const DOTFILES_ENTRY_VERSION: u32 = 4;
 
 /// O que a entrada registra.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +24,8 @@ pub enum Action {
     Install,
     /// `history undo`: reversão de uma instalação anterior.
     Remove,
+    /// `dotfiles adopt`: o arquivo foi para a pasta-fonte e o original virou symlink (v4).
+    Adopt,
 }
 
 /// Qual gerenciador a entrada registra. Define a regra de validação dos nomes (pacote do pacman ou
@@ -29,6 +35,8 @@ pub enum Action {
 pub enum Manager {
     Pacman,
     Flatpak,
+    /// Só na v4: os nomes são caminhos de dotfile (regra de `dotfiles::validate_path`).
+    Dotfiles,
 }
 
 /// Como a execução terminou, pelo status do processo. O que de fato mudou está em
@@ -64,8 +72,12 @@ pub struct HistoryEntry {
     /// Número (a partir de 1) da entrada que esta reversão desfaz; só existe em `Action::Remove`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub undoes: Option<u32>,
-    /// A partir da v3. A leitura de v1 e v2 preenche `Pacman`; a escrita só grava v3.
+    /// A partir da v3. A leitura de v1 e v2 preenche `Pacman`; pacman e Flatpak gravam v3.
     pub manager: Manager,
+    /// Só na v4 (`adopt`): a pasta-fonte, absoluta, onde a cópia ficou. O `undo` futuro não depende
+    /// do config de hoje.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
 }
 
 /// A linha como está no arquivo, antes de validar a combinação de campos por versão.
@@ -82,13 +94,16 @@ struct RawEntry {
     action: Option<Action>,
     undoes: Option<u32>,
     manager: Option<Manager>,
+    dir: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HistoryError {
     #[error("linha de histórico inválida: {0}")]
     Invalid(String),
-    #[error("versão {0} do histórico não é suportada (esta versão lê da 1 à {ENTRY_VERSION})")]
+    #[error(
+        "versão {0} do histórico não é suportada (esta versão lê da 1 à {DOTFILES_ENTRY_VERSION})"
+    )]
     UnsupportedVersion(u32),
     #[error("nome de pacote inválido no histórico: {0:?}")]
     InvalidPackageName(String),
@@ -156,6 +171,25 @@ fn install_entry(
         action: Action::Install,
         undoes: None,
         manager,
+        dir: None,
+    }
+}
+
+/// Entrada de uma adoção concluída (v4). Só se grava depois da troca por symlink; falha antes dela
+/// deixa o original intacto e não há o que registrar.
+pub fn entry_from_adopt(path: &str, dir: &str, command: &[String], at_unix: u64) -> HistoryEntry {
+    HistoryEntry {
+        version: DOTFILES_ENTRY_VERSION,
+        at_unix,
+        command: command.to_vec(),
+        requested: vec![path.to_string()],
+        installed: vec![path.to_string()],
+        still_missing: vec![],
+        result: ExecResult::Ok,
+        action: Action::Adopt,
+        undoes: None,
+        manager: Manager::Dotfiles,
+        dir: Some(dir.to_string()),
     }
 }
 
@@ -169,29 +203,52 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
     let raw: RawEntry =
         serde_json::from_str(line).map_err(|e| HistoryError::Invalid(e.to_string()))?;
     let invalid = |why: &str| HistoryError::Invalid(why.to_string());
-    let (action, undoes, manager) = match (raw.version, raw.action, raw.undoes, raw.manager) {
-        (1, None, None, None) => (Action::Install, None, Manager::Pacman),
+    let (action, undoes, manager, dir) = match (
+        raw.version,
+        raw.action,
+        raw.undoes,
+        raw.manager,
+        raw.dir,
+    ) {
+        (1, None, None, None, None) => (Action::Install, None, Manager::Pacman, None),
         (1, ..) => {
             return Err(invalid(
-                "a versão 1 não tem `action`, `undoes` nem `manager`",
+                "a versão 1 não tem `action`, `undoes`, `manager` nem `dir`",
             ));
         }
-        (2, Some(Action::Install), None, None) => (Action::Install, None, Manager::Pacman),
-        (2, Some(Action::Remove), Some(n), None) if n >= 1 => {
-            (Action::Remove, Some(n), Manager::Pacman)
+        (2, Some(Action::Install), None, None, None) => {
+            (Action::Install, None, Manager::Pacman, None)
+        }
+        (2, Some(Action::Remove), Some(n), None, None) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman, None)
         }
         (2, ..) => {
             return Err(invalid(
-                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager`",
+                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager` nem `dir`",
             ));
         }
-        (3, Some(Action::Install), None, Some(manager)) => (Action::Install, None, manager),
-        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman)) if n >= 1 => {
-            (Action::Remove, Some(n), Manager::Pacman)
+        (3, Some(Action::Install), None, Some(manager), None) if manager != Manager::Dotfiles => {
+            (Action::Install, None, manager, None)
+        }
+        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman), None) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman, None)
         }
         (3, ..) => {
             return Err(invalid(
-                "a versão 3 exige `manager`; `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman",
+                "a versão 3 exige `manager` (pacman ou flatpak); `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman; não tem `dir`",
+            ));
+        }
+        (4, Some(Action::Adopt), None, Some(Manager::Dotfiles), Some(dir)) => {
+            if !dir.starts_with('/') || dir.chars().any(char::is_control) {
+                return Err(invalid(
+                    "`dir` precisa ser um caminho absoluto, sem caractere de controle",
+                ));
+            }
+            (Action::Adopt, None, Manager::Dotfiles, Some(dir))
+        }
+        (4, ..) => {
+            return Err(invalid(
+                "a versão 4 só tem `adopt` com `manager` dotfiles e `dir`, sem `undoes`",
             ));
         }
         (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
@@ -207,11 +264,23 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         action,
         undoes,
         manager,
+        dir,
     };
+    if entry.action == Action::Adopt
+        && (entry.requested.len() != 1
+            || entry.installed != entry.requested
+            || !entry.still_missing.is_empty()
+            || entry.result != ExecResult::Ok)
+    {
+        return Err(invalid(
+            "`adopt` registra um caminho, adotado (`installed` igual a `requested`), sem `still_missing` e com resultado ok",
+        ));
+    }
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.
     let is_valid_name: fn(&str) -> bool = match entry.manager {
         Manager::Pacman => is_valid_pacman_name,
         Manager::Flatpak => is_valid_flatpak_id,
+        Manager::Dotfiles => |path| crate::dotfiles::validate_path(path).is_ok(),
     };
     let names = entry
         .requested
@@ -440,6 +509,7 @@ mod tests {
             action: Action::Remove,
             undoes: Some(undoes),
             manager: Manager::Pacman,
+            dir: None,
         }
     }
 
@@ -681,6 +751,7 @@ mod tests {
             action: Action::Install,
             undoes: None,
             manager: Manager::Flatpak,
+            dir: None,
         }
     }
 

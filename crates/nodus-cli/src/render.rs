@@ -191,10 +191,19 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
                     let _ = writeln!(out, "  ainda instalados: {}", entry.installed.join(", "));
                 }
             }
+            (Action::Adopt, _) => {
+                let dir = entry.dir.as_deref().unwrap_or("?");
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  dotfile adotado: {}  (pasta-fonte {dir})",
+                    entry.requested.join(", ")
+                );
+            }
             _ => {
                 let manager = match entry.manager {
                     Manager::Pacman => "",
                     Manager::Flatpak => "  flatpak",
+                    Manager::Dotfiles => "  dotfiles",
                 };
                 let _ = writeln!(
                     out,
@@ -903,6 +912,7 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
             action: Action::Install,
             undoes: None,
             manager: Manager::Pacman,
+            dir: None,
             at_unix: at,
             command: v(&["sudo", "pacman", "-S", "--needed", "--"]),
             requested: v(requested),
@@ -932,6 +942,22 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
         );
         let pacman = execucao(1_700_000_000, &["sl"], &["sl"], &[], ExecResult::Ok);
         assert!(!render_history(&[pacman]).contains("flatpak"));
+    }
+
+    #[test]
+    fn historico_mostra_a_adocao_de_dotfile_com_o_caminho_e_a_pasta_fonte() {
+        let adocao = nodus_core::history::entry_from_adopt(
+            ".bashrc",
+            "/home/u/dotfiles",
+            &["nodusctl".to_string()],
+            1_700_000_000,
+        );
+        let saida = render_history(&[adocao]);
+        assert!(
+            saida.contains("[1] 2023-11-14T22:13:20Z  ok  dotfile adotado: .bashrc  (pasta-fonte /home/u/dotfiles)\n"),
+            "{saida}"
+        );
+        assert!(!saida.contains("pedidos"), "{saida}");
     }
 
     #[test]

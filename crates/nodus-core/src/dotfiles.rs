@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 use std::ffi::OsString;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
 /// Lista padrão. `.gtkrc-2.0` e os `rc` do KDE ficam fora de propósito: o desktop os reescreve.
@@ -31,7 +31,7 @@ pub enum DotfileError {
     Empty,
     #[error("o caminho precisa ser relativo ao HOME, não absoluto")]
     Absolute,
-    #[error("componente inválido (vazio, `.`, `..` ou byte nulo)")]
+    #[error("componente inválido (vazio, `.`, `..` ou caractere de controle)")]
     BadComponent,
     #[error("caminho de segredo ou credencial, que o nodus não lista")]
     Denied,
@@ -46,9 +46,10 @@ pub fn validate_path(path: &str) -> Result<(), DotfileError> {
         return Err(DotfileError::Absolute);
     }
     let parts: Vec<&str> = path.split('/').collect();
+    // O caminho vai para a tela (relatório, plano): nada de escape de terminal.
     if parts
         .iter()
-        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\0'))
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.chars().any(char::is_control))
     {
         return Err(DotfileError::BadComponent);
     }
@@ -128,6 +129,111 @@ pub fn classify(home: &Path, path: &str, observed: Observed) -> Entry {
         path: path.to_string(),
         kind,
     }
+}
+
+/// Tamanho máximo de um arquivo adotado: dotfile é pequeno; barra bancos, históricos e blobs.
+pub const MAX_ADOPT_BYTES: u64 = 1 << 20;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum DirError {
+    #[error("a pasta-fonte precisa ser um caminho absoluto")]
+    Relative,
+    #[error(
+        "a pasta-fonte tem componente inválido (vazio, `.`, `..`, fora de UTF-8 ou caractere de controle)"
+    )]
+    BadComponent,
+    #[error("a pasta-fonte não pode ser o próprio HOME")]
+    IsHome,
+    #[error("a pasta-fonte está dentro de um caminho de segredo ou credencial")]
+    Denied,
+}
+
+/// A pasta-fonte (ADR 0022): absoluta, sem componente estranho, diferente do HOME e, se estiver
+/// dentro dele, fora da denylist de segredos. Pura: não toca o disco (o CLI resolve o caminho real).
+pub fn validate_dir(home: &Path, dir: &Path) -> Result<(), DirError> {
+    if !dir.is_absolute() {
+        return Err(DirError::Relative);
+    }
+    let text = dir.to_str().ok_or(DirError::BadComponent)?;
+    let trimmed = if text.len() > 1 {
+        text.strip_suffix('/').unwrap_or(text)
+    } else {
+        text
+    };
+    // `dir` é absoluto, então `trimmed` começa por `/`.
+    if trimmed[1..]
+        .split('/')
+        .any(|p| p.is_empty() || p == "." || p == ".." || p.chars().any(char::is_control))
+    {
+        return Err(DirError::BadComponent);
+    }
+    if dir == home {
+        return Err(DirError::IsHome);
+    }
+    if let Ok(relative) = dir.strip_prefix(home) {
+        let parts: Vec<&str> = relative.iter().filter_map(|c| c.to_str()).collect();
+        if !parts.is_empty() && is_denied(&parts) {
+            return Err(DirError::Denied);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum AdoptError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o arquivo não existe")]
+    Missing,
+    #[error("o caminho já é um symlink; o nodus só adota arquivo comum")]
+    Symlink,
+    #[error("o caminho não é um arquivo comum (pasta, dispositivo etc.)")]
+    NotAFile,
+    #[error("o arquivo tem {0} bytes; o limite é 1 MiB")]
+    TooBig(u64),
+}
+
+/// O que o `adopt` vai fazer, calculado a partir do que o I/O observou. Dado, sem efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdoptPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: o arquivo real que será trocado por um symlink.
+    pub source: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: onde a cópia será criada (nunca sobrescreve).
+    pub dest: PathBuf,
+    pub size: u64,
+    /// Só os 9 bits de permissão; setuid, setgid e sticky ficam de fora.
+    pub mode: u32,
+}
+
+/// Valida tudo o que dá para validar sem tocar o disco. `mode` é o `st_mode` observado.
+pub fn plan_adopt(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    observed: &Observed,
+    mode: u32,
+) -> Result<AdoptPlan, AdoptError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let size = match observed {
+        Observed::File { size } if *size > MAX_ADOPT_BYTES => {
+            return Err(AdoptError::TooBig(*size));
+        }
+        Observed::File { size } => *size,
+        Observed::Missing => return Err(AdoptError::Missing),
+        Observed::Symlink { .. } => return Err(AdoptError::Symlink),
+        Observed::Dir | Observed::Other => return Err(AdoptError::NotAFile),
+    };
+    Ok(AdoptPlan {
+        path: path.to_string(),
+        source: home.join(path),
+        dest: dir.join(path),
+        size,
+        mode: mode & 0o777,
+    })
 }
 
 /// O alvo, resolvido a partir da pasta do link, cai fora do `$HOME`? Normalização léxica: `..`
