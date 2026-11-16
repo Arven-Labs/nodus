@@ -140,7 +140,7 @@ pub fn write_workspace(path: &Path, workspace: &Path) -> Result<()> {
             workspace.display()
         );
     }
-    let mut config = Config::default();
+    let mut config = read(path)?;
     config.workspace = Some(workspace.to_path_buf());
     store(path, &config)
 }
