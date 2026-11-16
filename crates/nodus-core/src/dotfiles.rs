@@ -22,7 +22,7 @@ pub const DEFAULT_PATHS: &[&str] = &[
 
 /// Primeiro componente que nunca entra na lista (segredos e credenciais). Fixa, não configurável.
 const DENIED_FIRST: &[&str] = &[
-    ".gnupg", ".aws", ".docker", ".pki", ".mozilla", ".npmrc",
+    ".ssh", ".gnupg", ".aws", ".docker", ".pki", ".mozilla", ".npmrc",
 ];
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub fn validate_path(path: &str) -> Result<(), DotfileError> {
     let parts: Vec<&str> = path.split('/').collect();
     if parts
         .iter()
-        .any(|p| p.is_empty() || *p == "." || p.contains('\0'))
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\0'))
     {
         return Err(DotfileError::BadComponent);
     }
