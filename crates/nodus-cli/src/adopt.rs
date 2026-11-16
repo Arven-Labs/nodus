@@ -5,34 +5,45 @@ use anyhow::{Result, bail};
 use nodus_core::preset::Suggestions;
 use std::io::{self, BufRead, Write};
 
-/// O que o dono aceitou adotar, na ordem em que foi perguntado.
+/// O que o dono respondeu, na ordem em que foi perguntado: o que entra no preset e o que ele mandou
+/// ignorar para sempre (`i`).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Adoption {
     pub pacman: Vec<String>,
     pub flatpak: Vec<String>,
+    pub ignored_pacman: Vec<String>,
+    pub ignored_flatpak: Vec<String>,
 }
 
 impl Adoption {
+    /// Nada foi adotado (o preset não precisa ser escrito). Pode haver ignorados.
     pub fn is_empty(&self) -> bool {
         self.pacman.is_empty() && self.flatpak.is_empty()
+    }
+
+    /// Algo foi mandado ignorar (o config precisa ser escrito).
+    pub fn has_ignored(&self) -> bool {
+        !self.ignored_pacman.is_empty() || !self.ignored_flatpak.is_empty()
     }
 }
 
 enum Answer {
     Adopt,
+    Ignore,
     Skip,
     Quit,
 }
 
-/// `s` ou `sim` adotam; `q` ou `sair` e o fim da entrada param de perguntar; qualquer outra coisa
-/// (inclusive vazio) pula só este item. Não existe "sim para todos", como no `apply`.
+/// `s` ou `sim` adotam; `i` ou `ignorar` mandam ignorar para sempre; `q` ou `sair` e o fim da
+/// entrada param de perguntar; qualquer outra coisa (inclusive vazio) pula só este item, e ele volta
+/// a ser perguntado na próxima rodada. Não existe "sim para todos", como no `apply`.
 fn read_answer(
     input: &mut impl BufRead,
     output: &mut impl Write,
     name: &str,
     kind: &str,
 ) -> io::Result<Answer> {
-    write!(output, "Adotar {name} ({kind})? [s/N/q] ")?;
+    write!(output, "Adotar {name} ({kind})? [s/N/i/q] ")?;
     output.flush()?;
     let mut line = String::new();
     if input.read_line(&mut line)? == 0 {
@@ -41,27 +52,43 @@ fn read_answer(
     }
     Ok(match line.trim().to_lowercase().as_str() {
         "s" | "sim" => Answer::Adopt,
+        "i" | "ignorar" => Answer::Ignore,
         "q" | "sair" => Answer::Quit,
         _ => Answer::Skip,
     })
 }
 
-/// Pergunta cada nome de `names`; devolve os adotados e se o dono mandou parar.
+/// O resultado de perguntar uma lista: adotados, ignorados e se o dono mandou parar.
+struct Asked {
+    adopted: Vec<String>,
+    ignored: Vec<String>,
+    quit: bool,
+}
+
+/// Pergunta cada nome de `names`.
 fn ask_list(
     input: &mut impl BufRead,
     output: &mut impl Write,
     kind: &str,
     names: &[String],
-) -> io::Result<(Vec<String>, bool)> {
-    let mut adopted = Vec::new();
+) -> io::Result<Asked> {
+    let mut asked = Asked {
+        adopted: Vec::new(),
+        ignored: Vec::new(),
+        quit: false,
+    };
     for name in names {
         match read_answer(input, output, name, kind)? {
-            Answer::Adopt => adopted.push(name.clone()),
+            Answer::Adopt => asked.adopted.push(name.clone()),
+            Answer::Ignore => asked.ignored.push(name.clone()),
             Answer::Skip => {}
-            Answer::Quit => return Ok((adopted, true)),
+            Answer::Quit => {
+                asked.quit = true;
+                break;
+            }
         }
     }
-    Ok((adopted, false))
+    Ok(asked)
 }
 
 /// Faz as perguntas, pacman primeiro e depois Flatpak. `interactive`: a entrada é um terminal (sem
@@ -87,11 +114,13 @@ pub fn ask(
         )?;
     }
     let mut adoption = Adoption::default();
-    let (pacman, quit) = ask_list(input, output, "pacman", &suggestions.pacman_extra)?;
-    adoption.pacman = pacman;
-    if !quit {
-        let (flatpak, _) = ask_list(input, output, "flatpak", &suggestions.flatpak_extra)?;
-        adoption.flatpak = flatpak;
+    let pacman = ask_list(input, output, "pacman", &suggestions.pacman_extra)?;
+    adoption.pacman = pacman.adopted;
+    adoption.ignored_pacman = pacman.ignored;
+    if !pacman.quit {
+        let flatpak = ask_list(input, output, "flatpak", &suggestions.flatpak_extra)?;
+        adoption.flatpak = flatpak.adopted;
+        adoption.ignored_flatpak = flatpak.ignored;
     }
     Ok(adoption)
 }
@@ -173,8 +202,8 @@ mod tests {
         let adocao = r.unwrap();
         assert_eq!(adocao.pacman, nomes(&["vim"]));
         assert_eq!(adocao.flatpak, nomes(&["org.a.B"]));
-        let vim = out.find("Adotar vim (pacman)? [s/N/q]").expect(&out);
-        let app = out.find("Adotar org.a.B (flatpak)? [s/N/q]").expect(&out);
+        let vim = out.find("Adotar vim (pacman)? [s/N/i/q]").expect(&out);
+        let app = out.find("Adotar org.a.B (flatpak)? [s/N/i/q]").expect(&out);
         assert!(vim < app, "{out}");
     }
 
@@ -211,6 +240,51 @@ mod tests {
         let (r, out) = rodar(&sugestoes(&[], &[], &[]), "s\n");
         assert!(r.unwrap().is_empty());
         assert!(!out.contains("Adotar "), "{out}");
+    }
+
+    #[test]
+    fn i_e_ignorar_vao_para_a_lista_de_ignorados_e_nao_para_o_preset() {
+        let sug = sugestoes(&["a", "b", "c"], &[], &["org.x.A"]);
+        let (r, _) = rodar(&sug, "i\nignorar\nI\nIGNORAR\n");
+        let adocao = r.unwrap();
+        assert!(adocao.is_empty(), "nada foi adotado");
+        assert!(adocao.has_ignored());
+        assert_eq!(adocao.ignored_pacman, nomes(&["a", "b", "c"]));
+        assert_eq!(adocao.ignored_flatpak, nomes(&["org.x.A"]));
+    }
+
+    #[test]
+    fn adotar_pular_e_ignorar_na_mesma_rodada() {
+        let sug = sugestoes(&["a", "b", "c"], &[], &[]);
+        let (r, _) = rodar(&sug, "s\nn\ni\n");
+        let adocao = r.unwrap();
+        assert_eq!(adocao.pacman, nomes(&["a"]));
+        assert_eq!(adocao.ignored_pacman, nomes(&["c"]));
+        assert!(adocao.ignored_flatpak.is_empty());
+    }
+
+    #[test]
+    fn q_guarda_o_que_ja_foi_ignorado() {
+        let sug = sugestoes(&["a", "b", "c"], &[], &["org.x.A"]);
+        let (r, out) = rodar(&sug, "i\nq\ni\n");
+        let adocao = r.unwrap();
+        assert_eq!(adocao.ignored_pacman, nomes(&["a"]));
+        assert!(adocao.ignored_flatpak.is_empty());
+        assert_eq!(out.matches("Adotar ").count(), 2, "{out}");
+    }
+
+    #[test]
+    fn fim_da_entrada_guarda_o_que_ja_foi_ignorado() {
+        let sug = sugestoes(&["a", "b"], &[], &[]);
+        let (r, _) = rodar(&sug, "i\n");
+        assert_eq!(r.unwrap().ignored_pacman, nomes(&["a"]));
+    }
+
+    #[test]
+    fn sem_ignorar_nada_has_ignored_e_falso() {
+        let sug = sugestoes(&["a"], &[], &[]);
+        let (r, _) = rodar(&sug, "s\n");
+        assert!(!r.unwrap().has_ignored());
     }
 
     #[test]

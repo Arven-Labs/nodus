@@ -51,8 +51,10 @@ fn main() -> Result<()> {
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
             PresetAction::Plan { file, json } => preset_plan(&file, json),
-            PresetAction::Suggest { file, json } => preset_suggest(&file, json),
+            PresetAction::Suggest { file, json, all } => preset_suggest(&file, json, all),
             PresetAction::Adopt { file } => preset_adopt(&file),
+            PresetAction::Ignored => preset_ignored(),
+            PresetAction::Unignore { names } => preset_unignore(&names),
             PresetAction::Apply { file } => preset_apply(&file),
         },
     }
@@ -202,18 +204,43 @@ fn preset_plan(file: &std::path::Path, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn preset_suggest(file: &std::path::Path, json: bool) -> Result<()> {
+fn preset_suggest(file: &std::path::Path, json: bool, all: bool) -> Result<()> {
     let preset = read_and_parse(file)?;
     let suggestions = nodus_core::preset::collect_suggestions(&process::RealRunner, &preset)?;
+    let config = config::read(&config_file()?)?;
+    let (visible, hidden) = nodus_core::preset::hide_ignored(
+        &suggestions,
+        &config.ignore_pacman,
+        &config.ignore_flatpak,
+    );
+    // Com `--all` mostra tudo; sem ele, só o que não foi ignorado, e conta o resto.
+    let shown = if all { &suggestions } else { &visible };
     if json {
         emit(&format!(
             "{}\n",
-            serde_json::to_string_pretty(&suggestions)?
+            serde_json::to_string_pretty(&render::suggestions_json(shown, &hidden)?)?
         ))?;
     } else {
-        emit(&render::render_suggestions(&suggestions))?;
+        emit(&render::render_suggestions(shown))?;
+        emit(&render::render_ignored_note(&hidden, all))?;
     }
     Ok(())
+}
+
+fn preset_ignored() -> Result<()> {
+    let config = config::read(&config_file()?)?;
+    emit(&render::render_ignored(
+        &config.ignore_pacman,
+        &config.ignore_flatpak,
+    ))
+}
+
+fn preset_unignore(names: &[String]) -> Result<()> {
+    config::remove_ignored(&config_file()?, names)?;
+    emit(&format!(
+        "Voltam a aparecer no adopt e no suggest: {}\n",
+        names.join(", ")
+    ))
 }
 
 fn preset_adopt(file: &std::path::Path) -> Result<()> {
@@ -222,8 +249,17 @@ fn preset_adopt(file: &std::path::Path) -> Result<()> {
     let preset = nodus_core::preset::parse_preset(&old_text)
         .with_context(|| format!("lendo {}", file.display()))?;
     let suggestions = nodus_core::preset::collect_suggestions(&process::RealRunner, &preset)?;
+    // O que foi ignorado antes não é perguntado de novo.
+    let config_path = config_file()?;
+    let config = config::read(&config_path)?;
+    let (suggestions, hidden) = nodus_core::preset::hide_ignored(
+        &suggestions,
+        &config.ignore_pacman,
+        &config.ignore_flatpak,
+    );
     if suggestions.is_empty() {
-        return emit(&render::render_suggestions(&suggestions));
+        emit(&render::render_suggestions(&suggestions))?;
+        return emit(&render::render_ignored_note(&hidden, false));
     }
     let stdin = std::io::stdin();
     let adoption = adopt::ask(
@@ -232,20 +268,48 @@ fn preset_adopt(file: &std::path::Path) -> Result<()> {
         &mut stdin.lock(),
         &mut std::io::stdout(),
     )?;
-    if adoption.is_empty() {
+    if adoption.is_empty() && !adoption.has_ignored() {
         return emit("Nada foi adotado; o preset não foi alterado.\n");
     }
-    let new_text =
-        nodus_core::preset::add_to_preset(&old_text, &adoption.pacman, &adoption.flatpak)?;
-    preset_file::write_preset(file, &old_text, &new_text)?;
-    emit(&format!(
-        "Adotado em {}: pacman {} ({}), flatpak {} ({}).\n",
-        file.display(),
-        adoption.pacman.len(),
-        adoption.pacman.join(", "),
-        adoption.flatpak.len(),
-        adoption.flatpak.join(", ")
-    ))
+    let mut report = String::new();
+    if !adoption.is_empty() {
+        let new_text =
+            nodus_core::preset::add_to_preset(&old_text, &adoption.pacman, &adoption.flatpak)?;
+        preset_file::write_preset(file, &old_text, &new_text)?;
+        report.push_str(&format!(
+            "Adotado em {}: pacman {} ({}), flatpak {} ({}).\n",
+            file.display(),
+            adoption.pacman.len(),
+            adoption.pacman.join(", "),
+            adoption.flatpak.len(),
+            adoption.flatpak.join(", ")
+        ));
+    }
+    if adoption.has_ignored() {
+        // O preset vem primeiro: se gravar a lista de ignorados falhar, o que foi adotado já está.
+        let preset_written = !adoption.is_empty();
+        config::add_ignored(
+            &config_path,
+            &adoption.ignored_pacman,
+            &adoption.ignored_flatpak,
+        )
+        .with_context(|| {
+            if preset_written {
+                "o preset já foi escrito, mas não consegui gravar os itens ignorados"
+            } else {
+                "não consegui gravar os itens ignorados"
+            }
+        })?;
+        report.push_str(&format!(
+            "Ignorados para sempre (config {}): pacman {} ({}), flatpak {} ({}).\n",
+            config_path.display(),
+            adoption.ignored_pacman.len(),
+            adoption.ignored_pacman.join(", "),
+            adoption.ignored_flatpak.len(),
+            adoption.ignored_flatpak.join(", ")
+        ));
+    }
+    emit(&report)
 }
 
 /// Onde fica o config, a partir do ambiente.

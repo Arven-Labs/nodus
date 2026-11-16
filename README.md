@@ -8,8 +8,9 @@ Plataforma open source e extensível para conhecer, configurar, padronizar, moni
 - `nodusctl updates`: atualizações pendentes (pacman e Flatpak).
 - `nodusctl repos [pasta]`: estado dos repositórios Git da pasta, lendo só refs. Sem pasta, usa o workspace (variável `NODUS_WORKSPACE` ou detecção; a origem sai em stderr).
 - `nodusctl workspace [pasta]`: mostra qual é a pasta de workspace (argumento, depois a variável `NODUS_WORKSPACE`, depois a pasta gravada, depois a detecção entre pastas conhecidas sob o `$HOME`, a com mais repositórios Git); só lê. `nodusctl workspace set <pasta>` grava a escolha em `~/.config/nodus/config.toml` e `nodusctl workspace unset` a esquece.
-- `nodusctl preset suggest <arquivo>`: lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para colar nele (só relatório, não escreve em arquivo).
-- `nodusctl preset adopt <arquivo>`: pergunta item a item (`s`/`N`/`q`, só em terminal) se o que está fora do preset entra nele e acrescenta o que você adotar, sem mexer no resto do arquivo (comentários e formatação ficam); não instala nada.
+- `nodusctl preset suggest <arquivo>`: lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para colar nele (só relatório, não escreve em arquivo). Esconde o que você mandou ignorar e conta quantos são; `--all` mostra tudo.
+- `nodusctl preset adopt <arquivo>`: pergunta item a item (`s`/`N`/`i`/`q`, só em terminal) se o que está fora do preset entra nele e acrescenta o que você adotar, sem mexer no resto do arquivo (comentários e formatação ficam); `i` ignora o item para sempre (fica em `~/.config/nodus/config.toml`); não instala nada.
+- `nodusctl preset ignored` e `nodusctl preset unignore <nome>...`: lista o que você mandou ignorar e desfaz.
 - `nodusctl preset init | plan | apply`: descrever os pacotes desejados em TOML, ver o que falta e instalar o que falta, com uma confirmação por passo: pacotes do pacman (`sudo pacman -S`) e depois apps Flatpak (`flatpak install --user`, remote `flathub`).
 - `nodusctl history` e `nodusctl history undo <n>`: listar as execuções do `apply` (o que foi pedido, não as dependências que vieram junto) e desfazer uma instalação, com simulação e confirmação.
 

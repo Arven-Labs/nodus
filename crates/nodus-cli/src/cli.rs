@@ -99,20 +99,32 @@ pub enum PresetAction {
         #[arg(long)]
         json: bool,
     },
-    /// Pergunta, item a item (s/N/q), se o que está instalado de propósito e fora do preset entra
-    /// nele, e acrescenta só o que você adotar, sem mexer no resto do arquivo. Não instala nada.
+    /// Pergunta, item a item (s/N/i/q), se o que está instalado de propósito e fora do preset entra
+    /// nele, e acrescenta só o que você adotar, sem mexer no resto do arquivo. `i` ignora o item
+    /// para sempre (fica no config do usuário). Não instala nada.
     Adopt {
         /// Arquivo TOML do preset (é editado no lugar; se for um symlink, grava no alvo).
         file: PathBuf,
     },
     /// Lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para
-    /// colar nele (não executa nem escreve nada).
+    /// colar nele (não executa nem escreve nada). Os itens ignorados ficam de fora e são contados.
     Suggest {
         /// Arquivo TOML do preset.
         file: PathBuf,
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
+        /// Mostra também os itens ignorados.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Lista os itens que você mandou ignorar (no config do usuário).
+    Ignored,
+    /// Tira itens da lista de ignorados: eles voltam a aparecer no `adopt` e no `suggest`.
+    Unignore {
+        /// Nomes (pacman) ou IDs (Flatpak) a tirar da lista.
+        #[arg(required = true)]
+        names: Vec<String>,
     },
     /// Instala o que falta: pacotes pacman (`sudo pacman -S --needed`) e depois apps Flatpak
     /// (`flatpak install --user`, remote `flathub`). Cada passo mostra o comando e pede confirmação.
@@ -415,6 +427,54 @@ mod tests {
         let erro =
             Cli::try_parse_from(["nodus", "preset", "adopt", "p.toml", "--json"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn preset_suggest_all_e_opcional() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "suggest", "p.toml"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Preset {
+                action: PresetAction::Suggest {
+                    all: false,
+                    json: false,
+                    ..
+                }
+            }
+        ));
+        let cli = Cli::try_parse_from(["nodus", "preset", "suggest", "p.toml", "--all"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Preset {
+                action: PresetAction::Suggest { all: true, .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn preset_ignored_nao_leva_argumento() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "ignored"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Preset {
+                action: PresetAction::Ignored
+            }
+        ));
+        let erro = Cli::try_parse_from(["nodus", "preset", "ignored", "x"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn preset_unignore_leva_um_ou_mais_nomes() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "unignore", "a", "org.x.A"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Unignore { names },
+            } => assert_eq!(names, ["a", "org.x.A"]),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let erro = Cli::try_parse_from(["nodus", "preset", "unignore"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
     }
 
     #[test]

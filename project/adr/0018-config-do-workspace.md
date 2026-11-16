@@ -7,7 +7,7 @@ O ADR 0017 resolve o workspace por argumento, `NODUS_WORKSPACE` ou detecção, e
 
 ## Decisão
 1. **Arquivo:** `$XDG_CONFIG_HOME/nodus/config.toml` (ou `~/.config/nodus/config.toml`; só valem caminhos absolutos, como no histórico). TOML com `version = 1` e `workspace = "/caminho/absoluto"`. Escolhido pelo dono em plan mode.
-2. **Comandos:** `nodusctl workspace set <pasta>` valida (existe, é pasta, a mesma conferência da pasta informada), grava o **caminho real** e diz quantos repositórios há; `nodusctl workspace unset` apaga o config (a única chave que ele tem é o workspace). `workspace <pasta>` e `workspace --json` seguem como antes; `set` e `unset` não aceitam `--json` nem a pasta posicional (`args_conflicts_with_subcommands`: uma pasta chamada `set` exige `./set`).
+2. **Comandos:** `nodusctl workspace set <pasta>` valida (existe, é pasta, a mesma conferência da pasta informada), grava o **caminho real** e diz quantos repositórios há; `nodusctl workspace unset` esquece a pasta e apaga o config **só se não sobrar mais nada nele** (**emenda, PR #61:** o config ganhou as listas de ignorados, ADR 0020, que `set` e `unset` preservam). `workspace <pasta>` e `workspace --json` seguem como antes; `set` e `unset` não aceitam `--json` nem a pasta posicional (`args_conflicts_with_subcommands`: uma pasta chamada `set` exige `./set`).
 3. **Precedência:** argumento, `NODUS_WORKSPACE`, **gravada**, detecção. O config só é lido se não houver argumento nem variável. Escolhido pelo dono em plan mode.
 4. **Pasta gravada inválida é erro**, não detecção em silêncio (a pasta sumiu, virou arquivo, ou o config está corrompido): a mensagem diz para informar outra pasta, ou usar `set`/`unset`. Mesma regra da variável (ADR 0017, item 2).
 5. **Mesma disciplina do histórico (SECURITY.md T5):** diretório 0700, arquivo 0600; gravação e leitura recusam symlink, o que não é arquivo comum e permissão mais larga que 0600 (reusa `history::check_file`, agora `pub(crate)`); leitura com limite de 64 KiB, UTF-8, chave desconhecida, versão diferente e caminho relativo são erro.
@@ -27,7 +27,7 @@ O ADR 0017 resolve o workspace por argumento, `NODUS_WORKSPACE` ou detecção, e
 - Primeira superfície de escrita em config do usuário: um config plantado por quem já escreve na conta só muda qual pasta o `repos` lê (só leitura de refs, com o isolamento do ADR 0009), sem execução nem escrita. O config não é assinado.
 - `resolve` e `pick_dir` ganham o parâmetro `stored` (uma closure, para o config só ser lido quando decide).
 - O `rename` só é atômico no mesmo sistema de arquivos; o temporário fica ao lado do config, então vale. `sync_all` no arquivo e não no diretório: uma queda de energia logo após o `rename` pode perder a troca (o config antigo continua inteiro).
-- Reabrir se: surgir uma segunda chave de config (formato e migração), ou se quisermos o config por projeto.
+- Reabrir se: surgir uma segunda chave de config (formato e migração), ou se quisermos o config por projeto. **Emenda (PR #61):** as chaves opcionais `ignore_pacman` e `ignore_flatpak` entraram (ADR 0020) dentro da versão 1, sem migração; toda escrita virou leitura-modificação-escrita sobre `Config`.
 
 ## Lacunas
 - Verificado no Arch real em 2026-11-15 (`set`, `unset`, precedência, arquivo 0600, diretório 0700; ver `SESSIONS.md`). O conteúdo do `config.toml` não foi lido lá, só no teste de ida e volta do CI. O `unset` deixa o diretório `~/.config/nodus` vazio, de propósito.
