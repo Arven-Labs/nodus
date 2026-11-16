@@ -99,6 +99,12 @@ pub enum PresetAction {
         #[arg(long)]
         json: bool,
     },
+    /// Pergunta, item a item (s/N/q), se o que está instalado de propósito e fora do preset entra
+    /// nele, e acrescenta só o que você adotar, sem mexer no resto do arquivo. Não instala nada.
+    Adopt {
+        /// Arquivo TOML do preset (é editado no lugar; se for um symlink, grava no alvo).
+        file: PathBuf,
+    },
     /// Lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para
     /// colar nele (não executa nem escreve nada).
     Suggest {
@@ -389,6 +395,26 @@ mod tests {
     fn preset_apply_exige_o_arquivo() {
         let erro = Cli::try_parse_from(["nodus", "preset", "apply"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn preset_adopt_leva_o_arquivo() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "adopt", "p.toml"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Adopt { file },
+            } => assert_eq!(file, std::path::PathBuf::from("p.toml")),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn preset_adopt_exige_o_arquivo_e_nao_tem_json() {
+        let erro = Cli::try_parse_from(["nodus", "preset", "adopt"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+        let erro =
+            Cli::try_parse_from(["nodus", "preset", "adopt", "p.toml", "--json"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
     }
 
     #[test]

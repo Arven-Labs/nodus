@@ -119,9 +119,9 @@ pub fn write_workspace(path: &Path, workspace: &Path) -> Result<()> {
     written
 }
 
-/// Escreve no temporário, força para o disco e só então troca pelo config (o `rename` no mesmo
-/// diretório é atômico).
-fn commit(mut file: File, body: &str, tmp: &Path, path: &Path) -> std::io::Result<()> {
+/// Escreve no temporário, força para o disco e só então troca pelo destino (o `rename` no mesmo
+/// diretório é atômico). Também usado pelo `write_preset`.
+pub(crate) fn commit(mut file: File, body: &str, tmp: &Path, path: &Path) -> std::io::Result<()> {
     file.write_all(body.as_bytes())?;
     file.sync_all()?;
     std::fs::rename(tmp, path)

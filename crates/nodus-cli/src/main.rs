@@ -4,6 +4,7 @@ use cli::{Cli, Command, HistoryAction, PresetAction, WorkspaceAction};
 use nodus_core::history::Manager;
 use nodus_core::runner::CommandRunner;
 
+mod adopt;
 mod apply;
 mod cli;
 mod config;
@@ -51,6 +52,7 @@ fn main() -> Result<()> {
             PresetAction::Init => preset_init(),
             PresetAction::Plan { file, json } => preset_plan(&file, json),
             PresetAction::Suggest { file, json } => preset_suggest(&file, json),
+            PresetAction::Adopt { file } => preset_adopt(&file),
             PresetAction::Apply { file } => preset_apply(&file),
         },
     }
@@ -212,6 +214,38 @@ fn preset_suggest(file: &std::path::Path, json: bool) -> Result<()> {
         emit(&render::render_suggestions(&suggestions))?;
     }
     Ok(())
+}
+
+fn preset_adopt(file: &std::path::Path) -> Result<()> {
+    use std::io::IsTerminal;
+    let old_text = preset_file::read_preset(file)?;
+    let preset = nodus_core::preset::parse_preset(&old_text)
+        .with_context(|| format!("lendo {}", file.display()))?;
+    let suggestions = nodus_core::preset::collect_suggestions(&process::RealRunner, &preset)?;
+    if suggestions.is_empty() {
+        return emit(&render::render_suggestions(&suggestions));
+    }
+    let stdin = std::io::stdin();
+    let adoption = adopt::ask(
+        &suggestions,
+        stdin.is_terminal(),
+        &mut stdin.lock(),
+        &mut std::io::stdout(),
+    )?;
+    if adoption.is_empty() {
+        return emit("Nada foi adotado; o preset não foi alterado.\n");
+    }
+    let new_text =
+        nodus_core::preset::add_to_preset(&old_text, &adoption.pacman, &adoption.flatpak)?;
+    preset_file::write_preset(file, &old_text, &new_text)?;
+    emit(&format!(
+        "Adotado em {}: pacman {} ({}), flatpak {} ({}).\n",
+        file.display(),
+        adoption.pacman.len(),
+        adoption.pacman.join(", "),
+        adoption.flatpak.len(),
+        adoption.flatpak.join(", ")
+    ))
 }
 
 /// Onde fica o config, a partir do ambiente.
