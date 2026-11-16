@@ -161,6 +161,9 @@ mod tests {
         history: PathBuf,
     }
 
+    /// Prepara um estado do HOME ou da pasta-fonte antes de rodar o `link`.
+    type Preparo = fn(&Cenario);
+
     fn cenario() -> Cenario {
         let tmp = TmpDir::novo();
         let home = tmp.path().join("home");
@@ -320,7 +323,7 @@ mod tests {
     #[test]
     fn destino_que_existe_e_recusado_antes_da_pergunta_e_nada_muda() {
         // arquivo comum (o `.bashrc` padrão da distro), pasta e symlink para outro lugar
-        let preparos: [(&str, fn(&Cenario)); 3] = [
+        let preparos: [(&str, Preparo); 3] = [
             ("arquivo", |c| {
                 fs::write(c.home.join(".bashrc"), b"da distro\n").unwrap()
             }),
@@ -357,7 +360,7 @@ mod tests {
 
     #[test]
     fn fonte_ausente_pasta_symlink_ou_acima_de_1_mib_e_recusada() {
-        let preparos: [(&str, fn(&Cenario)); 4] = [
+        let preparos: [(&str, Preparo); 4] = [
             ("ausente", |c| {
                 fs::remove_file(c.dir.join(".bashrc")).unwrap()
             }),
