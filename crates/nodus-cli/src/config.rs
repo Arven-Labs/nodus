@@ -1,15 +1,35 @@
-//! Config do nodus em `$XDG_CONFIG_HOME/nodus/config.toml`: hoje só a pasta de workspace escolhida
-//! com `nodusctl workspace set` (ADR 0018). Mesma disciplina do histórico (SECURITY.md T5):
-//! diretório 0700, arquivo 0600, sem symlink, leitura estrita e com limite, gravação atômica.
+//! Config do nodus em `$XDG_CONFIG_HOME/nodus/config.toml`: a pasta de workspace escolhida com
+//! `nodusctl workspace set` (ADR 0018) e as listas de itens ignorados no `preset adopt` (ADR 0020).
+//! Mesma disciplina do histórico (SECURITY.md T5): diretório 0700, arquivo 0600, sem symlink,
+//! leitura estrita e com limite, gravação atômica. Toda escrita lê o config, muda o campo certo e
+//! grava tudo de volta, para uma escrita não apagar os outros campos.
 
 use crate::history::check_file;
 use anyhow::{Context, Result, bail};
+use nodus_core::preset::{is_valid_flatpak_id, is_valid_pacman_name};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 const FORMAT_VERSION: i64 = 1;
+
+/// O que o config guarda. Sem arquivo, é o valor vazio.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Config {
+    /// Pasta gravada com `workspace set`.
+    pub workspace: Option<PathBuf>,
+    /// Nomes de pacman que o `adopt` e o `suggest` não mostram mais.
+    pub ignore_pacman: Vec<String>,
+    /// IDs de app Flatpak que o `adopt` e o `suggest` não mostram mais.
+    pub ignore_flatpak: Vec<String>,
+}
+
+impl Config {
+    fn is_empty(&self) -> bool {
+        self.workspace.is_none() && self.ignore_pacman.is_empty() && self.ignore_flatpak.is_empty()
+    }
+}
 
 /// O config tem poucas linhas; 64 KiB barra arquivo gigante antes do parse.
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
@@ -27,11 +47,16 @@ pub fn config_path(xdg_config_home: Option<&str>, home: Option<&str>) -> Result<
     bail!("não achei onde guardar a config: defina XDG_CONFIG_HOME ou HOME com um caminho absoluto")
 }
 
-/// A pasta de workspace gravada, ou `None` se não há config (ou ele não traz a chave). Formato
-/// estrito: chave desconhecida, versão diferente, caminho relativo ou TOML inválido são erro.
+/// A pasta de workspace gravada, ou `None` se não há config (ou ele não traz a chave).
 pub fn read_workspace(path: &Path) -> Result<Option<PathBuf>> {
+    Ok(read(path)?.workspace)
+}
+
+/// Lê o config; sem arquivo, devolve o config vazio. Formato estrito: chave desconhecida, versão
+/// diferente, caminho relativo, nome inválido ou repetido nas listas, ou TOML inválido são erro.
+pub fn read(path: &Path) -> Result<Config> {
     if !check_file(path)? {
-        return Ok(None);
+        return Ok(Config::default());
     }
     let file = File::open(path).with_context(|| format!("abrindo {}", path.display()))?;
     // Lê no máximo um byte além do limite: não confia no tamanho informado pelo sistema de arquivos.
@@ -47,12 +72,14 @@ pub fn read_workspace(path: &Path) -> Result<Option<PathBuf>> {
     parse(&text).with_context(|| format!("lendo {}", path.display()))
 }
 
-fn parse(text: &str) -> Result<Option<PathBuf>> {
+fn parse(text: &str) -> Result<Config> {
     let table: toml::Table = toml::from_str(text).context("TOML inválido")?;
-    if let Some(key) = table
-        .keys()
-        .find(|key| !matches!(key.as_str(), "version" | "workspace"))
-    {
+    if let Some(key) = table.keys().find(|key| {
+        !matches!(
+            key.as_str(),
+            "version" | "workspace" | "ignore_pacman" | "ignore_flatpak"
+        )
+    }) {
         bail!("chave desconhecida: {key:?}");
     }
     match table.get("version") {
@@ -63,22 +90,49 @@ fn parse(text: &str) -> Result<Option<PathBuf>> {
         Some(_) => bail!("`version` precisa ser um número inteiro"),
         None => bail!("falta `version`"),
     }
-    match table.get("workspace") {
-        None => Ok(None),
+    let workspace = match table.get("workspace") {
+        None => None,
         Some(toml::Value::String(value)) => {
             let path = Path::new(value);
             if !path.is_absolute() {
                 bail!("`workspace` precisa ser um caminho absoluto: {value:?}");
             }
-            Ok(Some(path.to_path_buf()))
+            Some(path.to_path_buf())
         }
         Some(_) => bail!("`workspace` precisa ser texto"),
-    }
+    };
+    Ok(Config {
+        workspace,
+        ignore_pacman: name_list(&table, "ignore_pacman", is_valid_pacman_name)?,
+        ignore_flatpak: name_list(&table, "ignore_flatpak", is_valid_flatpak_id)?,
+    })
 }
 
-/// Grava a pasta de workspace. Atômico: escreve num temporário (0600) ao lado e troca por `rename`,
-/// então uma falha no meio deixa o config antigo inteiro, nunca pela metade. Recusa symlink e
-/// permissão mais larga que 0600 no config que já existe.
+/// Uma lista de nomes do config: cada item é texto, passa na regra de nome do preset e não repete.
+fn name_list(table: &toml::Table, key: &str, is_valid: fn(&str) -> bool) -> Result<Vec<String>> {
+    let items = match table.get(key) {
+        None => return Ok(Vec::new()),
+        Some(toml::Value::Array(items)) => items,
+        Some(_) => bail!("`{key}` precisa ser uma lista de nomes"),
+    };
+    let mut names: Vec<String> = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let number = index + 1;
+        let toml::Value::String(name) = item else {
+            bail!("`{key}`: o item {number} precisa ser texto");
+        };
+        if !is_valid(name) {
+            bail!("`{key}`: nome inválido no item {number}: {name:?}");
+        }
+        if names.contains(name) {
+            bail!("`{key}`: nome repetido: {name:?}");
+        }
+        names.push(name.clone());
+    }
+    Ok(names)
+}
+
+/// Grava a pasta de workspace, mantendo o resto do config.
 pub fn write_workspace(path: &Path, workspace: &Path) -> Result<()> {
     if !workspace.is_absolute() {
         bail!(
@@ -86,14 +140,100 @@ pub fn write_workspace(path: &Path, workspace: &Path) -> Result<()> {
             workspace.display()
         );
     }
-    let value = workspace
-        .to_str()
-        .with_context(|| format!("caminho fora de UTF-8: {}", workspace.display()))?;
+    let mut config = read(path)?;
+    config.workspace = Some(workspace.to_path_buf());
+    store(path, &config)
+}
+
+/// Esquece a pasta de workspace, mantendo as listas. `false` se não havia pasta gravada.
+pub fn clear_workspace(path: &Path) -> Result<bool> {
+    let mut config = read(path)?;
+    if config.workspace.is_none() {
+        return Ok(false);
+    }
+    config.workspace = None;
+    store(path, &config)?;
+    Ok(true)
+}
+
+/// Acrescenta nomes às listas de ignorados, sem repetir e na ordem em que chegam. Nome inválido é
+/// erro e nada é gravado; se não há nada novo, o arquivo nem é tocado.
+pub fn add_ignored(path: &Path, pacman: &[String], flatpak: &[String]) -> Result<()> {
+    if let Some(name) = pacman.iter().find(|name| !is_valid_pacman_name(name)) {
+        bail!("nome de pacman inválido: {name:?}");
+    }
+    if let Some(id) = flatpak.iter().find(|id| !is_valid_flatpak_id(id)) {
+        bail!("ID de Flatpak inválido: {id:?}");
+    }
+    let mut config = read(path)?;
+    let added =
+        push_new(&mut config.ignore_pacman, pacman) | push_new(&mut config.ignore_flatpak, flatpak);
+    if !added {
+        return Ok(());
+    }
+    store(path, &config)
+}
+
+/// `true` se entrou algum nome.
+fn push_new(list: &mut Vec<String>, names: &[String]) -> bool {
+    let mut added = false;
+    for name in names {
+        if !list.contains(name) {
+            list.push(name.clone());
+            added = true;
+        }
+    }
+    added
+}
+
+/// Tira nomes das listas de ignorados (de qualquer uma que os tenha). Se algum nome não está
+/// ignorado, é erro e nada é gravado.
+pub fn remove_ignored(path: &Path, names: &[String]) -> Result<()> {
+    let mut config = read(path)?;
+    let missing: Vec<&str> = names
+        .iter()
+        .filter(|name| {
+            !config.ignore_pacman.contains(name) && !config.ignore_flatpak.contains(name)
+        })
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        bail!("não está na lista de ignorados: {}", missing.join(", "));
+    }
+    config.ignore_pacman.retain(|name| !names.contains(name));
+    config.ignore_flatpak.retain(|name| !names.contains(name));
+    store(path, &config)
+}
+
+/// Grava o config inteiro, ou apaga o arquivo se não sobrou nada nele. Atômico: escreve num
+/// temporário (0600) ao lado e troca por `rename`, então uma falha no meio deixa o config antigo
+/// inteiro, nunca pela metade. Recusa symlink e permissão mais larga que 0600 no que já existe.
+fn store(path: &Path, config: &Config) -> Result<()> {
+    if config.is_empty() {
+        if check_file(path)? {
+            std::fs::remove_file(path).with_context(|| format!("apagando {}", path.display()))?;
+        }
+        return Ok(());
+    }
     let mut table = toml::Table::new();
     table.insert("version".into(), toml::Value::Integer(FORMAT_VERSION));
-    table.insert("workspace".into(), toml::Value::String(value.into()));
+    if let Some(workspace) = &config.workspace {
+        let value = workspace
+            .to_str()
+            .with_context(|| format!("caminho fora de UTF-8: {}", workspace.display()))?;
+        table.insert("workspace".into(), toml::Value::String(value.into()));
+    }
+    for (key, names) in [
+        ("ignore_pacman", &config.ignore_pacman),
+        ("ignore_flatpak", &config.ignore_flatpak),
+    ] {
+        if !names.is_empty() {
+            let items = names.iter().cloned().map(toml::Value::String).collect();
+            table.insert(key.into(), toml::Value::Array(items));
+        }
+    }
     let body = format!(
-        "# Config do nodus. Gerado por `nodusctl workspace set`; edite à vontade.\n{}",
+        "# Config do nodus. Gerado por `nodusctl`; edite à vontade.\n{}",
         toml::to_string(&table).context("montando o config")?
     );
 
@@ -125,15 +265,6 @@ pub(crate) fn commit(mut file: File, body: &str, tmp: &Path, path: &Path) -> std
     file.write_all(body.as_bytes())?;
     file.sync_all()?;
     std::fs::rename(tmp, path)
-}
-
-/// Apaga o config (a única chave que ele tem é o workspace). `false` se não havia config.
-pub fn clear_workspace(path: &Path) -> Result<bool> {
-    if !check_file(path)? {
-        return Ok(false);
-    }
-    std::fs::remove_file(path).with_context(|| format!("apagando {}", path.display()))?;
-    Ok(true)
 }
 
 #[cfg(test)]

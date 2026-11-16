@@ -118,14 +118,14 @@ fn validate(
 }
 
 /// Regra de nome do pacman (`PKGBUILD(5)`): `[a-z0-9@._+-]`, sem começar por `-` ou `.`.
-pub(crate) fn is_valid_pacman_name(name: &str) -> bool {
+pub fn is_valid_pacman_name(name: &str) -> bool {
     let allowed = |c: char| matches!(c, 'a'..='z' | '0'..='9' | '@' | '.' | '_' | '+' | '-');
     !name.is_empty() && !name.starts_with(['-', '.']) && name.chars().all(allowed)
 }
 
 /// ID de app Flatpak: segmentos `[A-Za-z0-9_-]` separados por `.`, pelo menos 2, nenhum vazio
 /// nem começando por `-`. O Flatpak pode exigir mais (3 segmentos); aqui basta barrar injeção.
-pub(crate) fn is_valid_flatpak_id(id: &str) -> bool {
+pub fn is_valid_flatpak_id(id: &str) -> bool {
     let allowed = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let segment_ok = |s: &str| !s.is_empty() && !s.starts_with('-') && s.chars().all(allowed);
     id.split('.').count() >= 2 && id.split('.').all(segment_ok)
@@ -409,6 +409,36 @@ pub fn suggest(preset: &Preset, machine: &MachinePreset, foreign: &[String]) -> 
         flatpak_extra,
         flatpak_installed: machine.flatpak_installed,
     }
+}
+
+/// Tira das sugestões o que o dono mandou ignorar (critério 5 do MVP). `ignore_pacman` vale para as
+/// duas listas do pacman (de dentro e de fora dos repositórios) e `ignore_flatpak` para a do Flatpak;
+/// um nome ignorado que não está nas sugestões não faz nada. Devolve o que ficou visível e os nomes
+/// escondidos, na ordem pacman, fora dos repositórios, Flatpak. Pura: o config é da CLI.
+pub fn hide_ignored(
+    suggestions: &Suggestions,
+    ignore_pacman: &[String],
+    ignore_flatpak: &[String],
+) -> (Suggestions, Vec<String>) {
+    fn split(names: &[String], ignored: &[String], hidden: &mut Vec<String>) -> Vec<String> {
+        let mut kept = Vec::new();
+        for name in names {
+            if ignored.contains(name) {
+                hidden.push(name.clone());
+            } else {
+                kept.push(name.clone());
+            }
+        }
+        kept
+    }
+    let mut hidden = Vec::new();
+    let visible = Suggestions {
+        pacman_extra: split(&suggestions.pacman_extra, ignore_pacman, &mut hidden),
+        foreign_extra: split(&suggestions.foreign_extra, ignore_pacman, &mut hidden),
+        flatpak_extra: split(&suggestions.flatpak_extra, ignore_flatpak, &mut hidden),
+        flatpak_installed: suggestions.flatpak_installed,
+    };
+    (visible, hidden)
 }
 
 /// Sugestões contra a máquina: lê `pacman -Qe`, `pacman -Qem` e `flatpak list`. Dependências ficam de
