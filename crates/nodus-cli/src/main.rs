@@ -17,6 +17,21 @@ mod testutil;
 mod undo;
 mod workspace;
 
+/// Toda saída de comando passa por aqui, não por `print!`: o `print!` do std entra em pânico com o
+/// stdout fechado (`| head`, `| jq` ausente), porque o Rust ignora o `SIGPIPE` e o `write` falha com
+/// `EPIPE`. Pipe fechado encerra em silêncio com 141 (128 + SIGPIPE, como `cat` e `ls`); qualquer
+/// outro erro de escrita sobe normalmente. `exit` não roda destrutores: nenhum estado a gravar
+/// depende de um `emit` que ainda não rodou (o `apply` grava o histórico antes do "Depois:").
+fn emit(text: &str) -> Result<()> {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => Ok(()),
+        Err(erro) if erro.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(141),
+        Err(erro) => Err(erro).context("escrevendo no stdout"),
+    }
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Inventory { json } => inventory(json),
@@ -53,9 +68,9 @@ fn history_file() -> Result<std::path::PathBuf> {
 fn show_history(json: bool) -> Result<()> {
     let entries = history::read(&history_file()?)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&entries)?);
+        emit(&format!("{}\n", serde_json::to_string_pretty(&entries)?))?;
     } else {
-        print!("{}", render::render_history(&entries));
+        emit(&render::render_history(&entries))?;
     }
     Ok(())
 }
@@ -113,7 +128,7 @@ fn preset_apply(file: &std::path::Path) -> Result<()> {
     let history_path = history_file()?;
     let preset = read_and_parse(file)?;
     let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
-    print!("{}", render::render_plan(&plan));
+    emit(&render::render_plan(&plan))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .context("o relógio do sistema está antes de 1970")?
@@ -147,8 +162,8 @@ fn preset_apply(file: &std::path::Path) -> Result<()> {
         now,
     )?;
     if let (apply::Outcome::Executed, Some(after)) = (applied.outcome, applied.after) {
-        println!("Depois:");
-        print!("{}", render::render_plan(&after));
+        emit("Depois:\n")?;
+        emit(&render::render_plan(&after))?;
         // Só cobra o que foi executado: um passo recusado continua faltando por escolha do dono.
         if applied.executed.contains(&Manager::Pacman) && !after.pacman_missing.is_empty() {
             anyhow::bail!("ainda faltam pacotes do pacman depois da instalação");
@@ -165,7 +180,7 @@ fn preset_init() -> Result<()> {
     if let Some(aviso) = render::init_warning(machine.flatpak_installed) {
         eprintln!("{aviso}");
     }
-    print!("{}", nodus_core::preset::to_toml(&machine.preset));
+    emit(&nodus_core::preset::to_toml(&machine.preset))?;
     Ok(())
 }
 
@@ -173,9 +188,9 @@ fn preset_plan(file: &std::path::Path, json: bool) -> Result<()> {
     let preset = read_and_parse(file)?;
     let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&plan)?);
+        emit(&format!("{}\n", serde_json::to_string_pretty(&plan)?))?;
     } else {
-        print!("{}", render::render_plan(&plan));
+        emit(&render::render_plan(&plan))?;
     }
     Ok(())
 }
@@ -184,9 +199,12 @@ fn preset_suggest(file: &std::path::Path, json: bool) -> Result<()> {
     let preset = read_and_parse(file)?;
     let suggestions = nodus_core::preset::collect_suggestions(&process::RealRunner, &preset)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&suggestions)?);
+        emit(&format!(
+            "{}\n",
+            serde_json::to_string_pretty(&suggestions)?
+        ))?;
     } else {
-        print!("{}", render::render_suggestions(&suggestions));
+        emit(&render::render_suggestions(&suggestions))?;
     }
     Ok(())
 }
@@ -198,12 +216,12 @@ fn workspace_command(dir: Option<&std::path::Path>, json: bool) -> Result<()> {
         std::env::var("HOME").ok().as_deref(),
     )?;
     if json {
-        println!(
-            "{}",
+        emit(&format!(
+            "{}\n",
             serde_json::to_string_pretty(&workspace::report_json(&report))?
-        );
+        ))?;
     } else {
-        print!("{}", render::render_workspace(&report));
+        emit(&render::render_workspace(&report))?;
     }
     Ok(())
 }
@@ -233,9 +251,9 @@ fn repos(dir: Option<&std::path::Path>, fetch: bool, json: bool) -> Result<()> {
         ));
     }
     if json {
-        println!("{}", serde_json::to_string_pretty(&statuses)?);
+        emit(&format!("{}\n", serde_json::to_string_pretty(&statuses)?))?;
     } else {
-        print!("{}", render::render_repos(&statuses));
+        emit(&render::render_repos(&statuses))?;
     }
     Ok(())
 }
@@ -243,9 +261,9 @@ fn repos(dir: Option<&std::path::Path>, fetch: bool, json: bool) -> Result<()> {
 fn updates(json: bool) -> Result<()> {
     let updates = nodus_core::updates::collect_updates(&process::RealRunner)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&updates)?);
+        emit(&format!("{}\n", serde_json::to_string_pretty(&updates)?))?;
     } else {
-        print!("{}", render::render_updates(&updates));
+        emit(&render::render_updates(&updates))?;
     }
     Ok(())
 }
@@ -258,9 +276,9 @@ fn inventory(json: bool) -> Result<()> {
     let inventory =
         nodus_core::inventory::collect(&process::RealRunner, &os_release, &kernel, hardware)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&inventory)?);
+        emit(&format!("{}\n", serde_json::to_string_pretty(&inventory)?))?;
     } else {
-        print!("{}", render::render_text(&inventory));
+        emit(&render::render_text(&inventory))?;
     }
     Ok(())
 }
