@@ -1,3 +1,157 @@
+//! Relatório de dotfiles (ADR 0021): lista curada de caminhos relativos ao `$HOME`, validada contra
+//! uma denylist de segredos, e a classificação do que o I/O observou. Núcleo puro: quem toca o
+//! disco (só `symlink_metadata` e `read_link`, nunca o conteúdo) é o CLI.
+
+use serde::Serialize;
+use std::ffi::OsString;
+use std::path::{Component, Path};
+use thiserror::Error;
+
+/// Lista padrão. `.gtkrc-2.0` e os `rc` do KDE ficam fora de propósito: o desktop os reescreve.
+pub const DEFAULT_PATHS: &[&str] = &[
+    ".bashrc",
+    ".bash_profile",
+    ".bash_logout",
+    ".profile",
+    ".gitconfig",
+    ".config/git/config",
+    ".zshrc",
+    ".vimrc",
+    ".tmux.conf",
+];
+
+/// Primeiro componente que nunca entra na lista (segredos e credenciais). Fixa, não configurável.
+const DENIED_FIRST: &[&str] = &[
+    ".ssh", ".gnupg", ".aws", ".docker", ".pki", ".mozilla", ".npmrc",
+];
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum DotfileError {
+    #[error("caminho vazio")]
+    Empty,
+    #[error("o caminho precisa ser relativo ao HOME, não absoluto")]
+    Absolute,
+    #[error("componente inválido (vazio, `.`, `..` ou byte nulo)")]
+    BadComponent,
+    #[error("caminho de segredo ou credencial, que o nodus não lista")]
+    Denied,
+}
+
+/// Aceita só caminho relativo ao `$HOME`, sem `.`, `..` nem componente vazio, e fora da denylist.
+pub fn validate_path(path: &str) -> Result<(), DotfileError> {
+    if path.is_empty() {
+        return Err(DotfileError::Empty);
+    }
+    if path.starts_with('/') {
+        return Err(DotfileError::Absolute);
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\0'))
+    {
+        return Err(DotfileError::BadComponent);
+    }
+    if is_denied(&parts) {
+        return Err(DotfileError::Denied);
+    }
+    Ok(())
+}
+
+/// Compara por componente, não por prefixo de texto: `.sshrc` não é `.ssh`.
+fn is_denied(parts: &[&str]) -> bool {
+    let first = parts[0];
+    let last = parts[parts.len() - 1];
+    DENIED_FIRST.contains(&first)
+        || first.starts_with(".claude")
+        || (first == ".config" && parts.get(1) == Some(&"gh"))
+        || last.ends_with("_history")
+}
+
+/// A lista padrão mais os extras (sem repetir, no fim), menos os pulados. Não valida: quem lê o
+/// config valida cada item com `validate_path`.
+pub fn effective_list(extra: &[String], skip: &[String]) -> Vec<String> {
+    let mut list: Vec<String> = DEFAULT_PATHS.iter().map(|p| (*p).to_string()).collect();
+    for path in extra {
+        if !list.contains(path) {
+            list.push(path.clone());
+        }
+    }
+    list.retain(|path| !skip.contains(path));
+    list
+}
+
+/// O que o I/O viu num caminho, sem seguir symlink e sem abrir o arquivo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Observed {
+    Missing,
+    File { size: u64 },
+    Dir,
+    Symlink { target: String },
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Kind {
+    Missing,
+    File { size: u64 },
+    Dir,
+    Symlink { target: String, outside_home: bool },
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Entry {
+    pub path: String,
+    #[serde(flatten)]
+    pub kind: Kind,
+}
+
+/// Transforma a observação em entrada. Para symlink, marca se o alvo sai do `$HOME`, só por texto
+/// (nada é seguido nem lido).
+pub fn classify(home: &Path, path: &str, observed: Observed) -> Entry {
+    let kind = match observed {
+        Observed::Missing => Kind::Missing,
+        Observed::File { size } => Kind::File { size },
+        Observed::Dir => Kind::Dir,
+        Observed::Other => Kind::Other,
+        Observed::Symlink { target } => {
+            let outside_home = leaves_home(home, path, &target);
+            Kind::Symlink {
+                target,
+                outside_home,
+            }
+        }
+    };
+    Entry {
+        path: path.to_string(),
+        kind,
+    }
+}
+
+/// O alvo, resolvido a partir da pasta do link, cai fora do `$HOME`? Normalização léxica: `..`
+/// sobe um nível, `.` some. Compara componente a componente (`/home/u2` não está em `/home/u`).
+fn leaves_home(home: &Path, link: &str, target: &str) -> bool {
+    let link_dir = home.join(link).parent().map(Path::to_path_buf);
+    let resolved = link_dir.unwrap_or_else(|| home.to_path_buf()).join(target);
+    !normalize(&resolved).starts_with(&normalize(home))
+}
+
+fn normalize(path: &Path) -> Vec<OsString> {
+    let mut stack: Vec<OsString> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(name) => stack.push(name.to_os_string()),
+            Component::ParentDir => {
+                stack.pop();
+            }
+            Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+        }
+    }
+    stack
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
