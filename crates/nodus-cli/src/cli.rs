@@ -44,20 +44,36 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Mostra qual é a pasta de workspace (só lê). Sem argumento: a variável NODUS_WORKSPACE, ou a
-    /// detecção entre pastas conhecidas sob o HOME (a com mais repositórios Git).
+    /// Mostra qual é a pasta de workspace (só lê). Sem argumento: a variável NODUS_WORKSPACE, a
+    /// pasta gravada com `workspace set`, ou a detecção entre pastas conhecidas sob o HOME (a com
+    /// mais repositórios Git).
+    #[command(args_conflicts_with_subcommands = true)]
     Workspace {
-        /// Pasta de workspace informada à mão (vence a variável e a detecção).
+        /// Pasta de workspace informada à mão (vence a variável, a gravada e a detecção).
         dir: Option<PathBuf>,
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        action: Option<WorkspaceAction>,
     },
     /// Preset declarativo de pacotes (somente leitura nesta versão: nada é instalado).
     Preset {
         #[command(subcommand)]
         action: PresetAction,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WorkspaceAction {
+    /// Grava a pasta como workspace no config do usuário (`~/.config/nodus/config.toml`). Vale
+    /// quando não há argumento nem NODUS_WORKSPACE.
+    Set {
+        /// Pasta de workspace (precisa existir; grava o caminho real).
+        dir: PathBuf,
+    },
+    /// Esquece a pasta gravada (volta à detecção).
+    Unset,
 }
 
 #[derive(Subcommand, Debug)]

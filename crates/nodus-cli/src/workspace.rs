@@ -30,6 +30,8 @@ pub enum Source {
     Informed,
     /// Variável `NODUS_WORKSPACE`.
     Environment,
+    /// Pasta gravada no config com `workspace set` (ADR 0018).
+    Stored,
     /// Candidato conhecido sob o `$HOME`.
     Detected,
 }
@@ -40,6 +42,7 @@ impl Source {
         match self {
             Source::Informed => "informado",
             Source::Environment => "ambiente",
+            Source::Stored => "gravado",
             Source::Detected => "detectado",
         }
     }
@@ -48,6 +51,7 @@ impl Source {
         match self {
             Source::Informed => "informed",
             Source::Environment => "environment",
+            Source::Stored => "stored",
             Source::Detected => "detected",
         }
     }
@@ -74,10 +78,23 @@ pub struct Report {
     pub candidates: Vec<Candidate>,
 }
 
+/// Valida uma pasta informada à mão (existe, é pasta) e devolve o caminho real, com a contagem de
+/// repositórios. É o que o `workspace set` confere antes de gravar.
+pub fn validate(dir: &Path) -> Result<Chosen> {
+    manual(dir, Source::Informed)
+}
+
 /// Resolve o workspace. `env` e `home` são os valores das variáveis `NODUS_WORKSPACE` e `HOME`
-/// (entram como argumento para a função ser testável). Argumento e variável inválidos são erro: cair
-/// em silêncio na detecção esconderia o engano de quem os informou.
-pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Result<Report> {
+/// (entram como argumento para a função ser testável). `stored` devolve a pasta gravada no config; só
+/// é chamada se não houver argumento nem variável (não lê o config à toa). Precedência: argumento,
+/// variável, gravada, detecção. Argumento, variável e pasta gravada inválidos são erro: cair em
+/// silêncio na detecção esconderia o engano de quem os informou.
+pub fn resolve(
+    arg: Option<&Path>,
+    env: Option<&str>,
+    stored: impl FnOnce() -> Result<Option<PathBuf>>,
+    home: Option<&str>,
+) -> Result<Report> {
     if let Some(dir) = arg {
         return Ok(manual_report(manual(dir, Source::Informed)?));
     }
@@ -88,6 +105,15 @@ pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Res
         }
         let chosen = manual(path, Source::Environment)
             .map_err(|erro| anyhow!("NODUS_WORKSPACE={value:?}: {erro:#}"))?;
+        return Ok(manual_report(chosen));
+    }
+    if let Some(path) = stored()? {
+        let chosen = manual(&path, Source::Stored).map_err(|erro| {
+            anyhow!(
+                "workspace gravado {} ({erro:#}): informe outra pasta ou use `nodusctl workspace set <pasta>` ou `unset`",
+                path.display()
+            )
+        })?;
         return Ok(manual_report(chosen));
     }
     let Some(home) = home.filter(|home| !home.is_empty() && Path::new(home).is_absolute()) else {
@@ -109,20 +135,22 @@ pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Res
 
 /// A pasta que o `repos` examina. Com argumento, vale o argumento como está (o contrato antigo do
 /// `repos`, sem origem). Sem argumento, vale o workspace resolvido por `resolve`, com a origem para o
-/// chamador avisar o usuário. Sem workspace achável, erro com a saída: informar a pasta ou a variável.
+/// chamador avisar o usuário. Sem workspace achável, erro com a saída: informar a pasta, a variável
+/// ou gravar uma escolha.
 pub fn pick_dir(
     arg: Option<&Path>,
     env: Option<&str>,
+    stored: impl FnOnce() -> Result<Option<PathBuf>>,
     home: Option<&str>,
 ) -> Result<(PathBuf, Option<Source>)> {
     if let Some(dir) = arg {
         return Ok((dir.to_path_buf(), None));
     }
-    let report = resolve(None, env, home)?;
+    let report = resolve(None, env, stored, home)?;
     match report.chosen {
         Some(chosen) => Ok((chosen.path, Some(chosen.source))),
         None => bail!(
-            "não achei a pasta de workspace: informe a pasta (`nodusctl repos <pasta>`) ou defina NODUS_WORKSPACE"
+            "não achei a pasta de workspace: informe a pasta (`nodusctl repos <pasta>`), defina NODUS_WORKSPACE ou grave uma com `nodusctl workspace set <pasta>`"
         ),
     }
 }
