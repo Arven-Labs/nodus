@@ -110,9 +110,13 @@ pub enum UndoError {
     #[error("a entrada {0} não é uma instalação; só se desfaz instalação")]
     NotAnInstall(u32),
     #[error(
-        "a entrada {0} é a adoção de um dotfile; a reversão de dotfile ainda não existe (o arquivo continua na pasta-fonte e nada foi alterado)"
+        "a entrada {0} é a adoção de um dotfile; ela se desfaz pelo caminho de dotfile, não pelo do pacman (nada foi alterado)"
     )]
     Dotfile(u32),
+    #[error("a entrada {0} não é a adoção de um dotfile")]
+    NotAnAdoption(u32),
+    #[error("a adoção da entrada {0} já foi desfeita")]
+    AlreadyUndone(u32),
     #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
     NotPacman(u32),
     #[error("a simulação do pacman não listou nada")]
@@ -184,6 +188,31 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
     }
     if entry.manager != Manager::Pacman {
         return Err(UndoError::NotPacman(n));
+    }
+    Ok(entry)
+}
+
+/// A adoção de dotfile escolhida pelo número (ADR 0023). Recusa o que não é adoção e a adoção que
+/// já tem uma reversão no histórico (`undoes` apontando para ela).
+pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
+    let entry = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .ok_or(UndoError::OutOfRange {
+            n,
+            len: entries.len(),
+        })?;
+    if entry.action != Action::Adopt {
+        return Err(UndoError::NotAnAdoption(n));
+    }
+    let undone = entries.iter().any(|other| {
+        other.action == Action::Remove
+            && other.manager == Manager::Dotfiles
+            && other.undoes == Some(n)
+    });
+    if undone {
+        return Err(UndoError::AlreadyUndone(n));
     }
     Ok(entry)
 }

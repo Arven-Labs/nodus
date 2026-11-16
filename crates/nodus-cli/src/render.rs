@@ -179,6 +179,14 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
         let requested = entry.requested.len();
         let (installed, missing) = (entry.installed.len(), entry.still_missing.len());
         match (entry.action, entry.undoes) {
+            (Action::Remove, Some(undoes)) if entry.manager == Manager::Dotfiles => {
+                let dir = entry.dir.as_deref().unwrap_or("?");
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  desfez [{undoes}]  dotfile restaurado: {}  (pasta-fonte {dir})",
+                    entry.requested.join(", ")
+                );
+            }
             (Action::Remove, Some(undoes)) => {
                 let _ = writeln!(
                     out,

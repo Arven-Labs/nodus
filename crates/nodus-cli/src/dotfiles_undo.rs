@@ -1,3 +1,192 @@
+//! `nodusctl history undo <n>` de uma adoção de dotfile (ADR 0023): troca o symlink do HOME por uma
+//! cópia do conteúdo atual da pasta-fonte, que não é alterada. Tudo o que pode ser recusado é
+//! recusado **antes** da pergunta. O histórico não é assinado (T5): `path` e `dir` vêm dele e são
+//! revalidados pelo core. A troca é atômica: cópia para um temporário ao lado do symlink, conferida
+//! byte a byte, e `rename` por cima.
+
+use crate::dotfiles::observe;
+use crate::dotfiles_adopt::{check_parents, snapshot};
+use anyhow::{Context, Result, bail};
+use nodus_core::dotfiles::{UndoAdoptPlan, plan_undo_adopt, validate_dir, validate_path};
+use nodus_core::history::{HistoryEntry, entry_for_dotfile_undo};
+use nodus_core::undo::select_adoption;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufRead, Read, Write};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::path::Path;
+
+/// Tudo o que o undo precisa saber, já resolvido pelo `main`.
+pub struct Request<'a> {
+    pub home: &'a Path,
+    pub entries: &'a [HistoryEntry],
+    /// Número da entrada, como `nodusctl history` mostra (a partir de 1).
+    pub n: u32,
+    /// A entrada é um terminal: sem ele não há confirmação possível.
+    pub interactive: bool,
+    pub history_path: &'a Path,
+    pub now_unix: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Declined,
+    Undone,
+}
+
+fn render_plan(plan: &UndoAdoptPlan) -> String {
+    format!(
+        "Desfazer a adoção do dotfile: {} ({} bytes, permissão {:o})\n  copiar de: {}\n  trocar o symlink {} por um arquivo comum com esse conteúdo\nA pasta-fonte não é alterada: a cópia continua lá.\n",
+        plan.path,
+        plan.size,
+        plan.mode,
+        plan.source.display(),
+        plan.link.display()
+    )
+}
+
+/// Valida, mostra o plano, pergunta `Executar? [s/N]`, troca o symlink pela cópia e grava o
+/// histórico. Sem terminal, recusa.
+pub fn undo_dotfile(
+    request: &Request,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<Outcome> {
+    let entry = select_adoption(request.entries, request.n)?;
+    let path = entry
+        .requested
+        .first()
+        .context("a entrada não tem caminho")?;
+    let dir_text = entry
+        .dir
+        .as_deref()
+        .context("a entrada não tem pasta-fonte")?;
+    let dir = Path::new(dir_text);
+    let context = || format!("dotfile {path:?}");
+
+    // Só leitura até aqui: valida antes de tocar no disco, porque o histórico não é confiável.
+    validate_path(path).with_context(context)?;
+    validate_dir(request.home, dir).with_context(context)?;
+    check_parents(request.home, path).with_context(context)?;
+    check_parents(dir, path).with_context(context)?;
+    let link = observe(request.home, path)?;
+    let source = observe(dir, path)?;
+    let mode = fs::symlink_metadata(dir.join(path))
+        .map(|meta| meta.mode())
+        .unwrap_or(0);
+    let plan =
+        plan_undo_adopt(request.home, dir, path, &link, &source, mode).with_context(context)?;
+
+    write!(output, "{}", render_plan(&plan)).context("escrevendo o plano")?;
+    if !request.interactive {
+        bail!("sem terminal interativo não há como confirmar; nada foi alterado");
+    }
+    if !crate::apply::confirm(input, output).context("lendo a resposta")? {
+        writeln!(output, "Nada foi alterado.").context("escrevendo a saída")?;
+        return Ok(Outcome::Declined);
+    }
+
+    restore_file(&plan)?;
+
+    // A troca já aconteceu; se o histórico falhar, o erro diz isso, para o dono não repetir.
+    let command = [
+        "nodusctl".to_string(),
+        "history".to_string(),
+        "undo".to_string(),
+        request.n.to_string(),
+    ];
+    let record = entry_for_dotfile_undo(request.n, path, dir_text, &command, request.now_unix);
+    crate::history::append(request.history_path, &record).context(
+        "a reversão foi feita (o symlink agora é um arquivo comum), mas não consegui gravar o histórico",
+    )?;
+    writeln!(
+        output,
+        "Desfeito: {} agora é um arquivo comum (cópia de {}; a pasta-fonte não foi alterada)",
+        plan.link.display(),
+        plan.source.display()
+    )
+    .context("escrevendo a saída")?;
+    Ok(Outcome::Undone)
+}
+
+/// Copia a fonte para um temporário ao lado do symlink, confere, reconfere o symlink e troca por
+/// `rename`. Falha antes do `rename` remove só o temporário (`create_new`) e deixa o symlink.
+fn restore_file(plan: &UndoAdoptPlan) -> Result<()> {
+    let before = snapshot(&plan.source)?;
+    if before.size != plan.size {
+        bail!(
+            "a fonte mudou desde o plano: tem {} bytes, eram {}",
+            before.size,
+            plan.size
+        );
+    }
+    let mut source =
+        File::open(&plan.source).with_context(|| format!("abrindo {}", plan.source.display()))?;
+    let opened = source.metadata().context("lendo a fonte aberta")?;
+    if opened.dev() != before.dev || opened.ino() != before.ino {
+        bail!("a fonte mudou: foi trocada enquanto era aberta");
+    }
+    // No máximo um byte além do plano: uma fonte que cresceu é detectada sem ler tudo.
+    let mut data = Vec::new();
+    (&mut source)
+        .take(plan.size + 1)
+        .read_to_end(&mut data)
+        .with_context(|| format!("lendo {}", plan.source.display()))?;
+    if data.len() as u64 != plan.size {
+        bail!(
+            "a fonte mudou: tem mais de {} bytes, eram {}",
+            data.len(),
+            plan.size
+        );
+    }
+
+    let name = plan
+        .link
+        .file_name()
+        .context("caminho sem nome de arquivo")?
+        .to_string_lossy();
+    let tmp = plan
+        .link
+        .with_file_name(format!(".{name}.nodus-{}", std::process::id()));
+    let out = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .with_context(|| format!("criando {}", tmp.display()))?;
+    // O temporário é nosso (`create_new`): se algo falhar até o `rename`, só ele é removido.
+    let outcome = write_verify_swap(plan, out, &data, &tmp);
+    if outcome.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    outcome
+}
+
+fn write_verify_swap(plan: &UndoAdoptPlan, mut out: File, data: &[u8], tmp: &Path) -> Result<()> {
+    out.write_all(data)
+        .with_context(|| format!("gravando {}", tmp.display()))?;
+    // Permissão exata (fchmod ignora o umask), só os 9 bits que o plano trouxe.
+    out.set_permissions(fs::Permissions::from_mode(plan.mode))
+        .context("ajustando a permissão da cópia")?;
+    out.sync_all().context("gravando a cópia no disco")?;
+    drop(out);
+
+    let copied = fs::read(tmp).with_context(|| format!("relendo {}", tmp.display()))?;
+    if copied != data {
+        bail!("a cópia não confere com a fonte; nada foi trocado");
+    }
+
+    // O symlink não pode ter mudado desde o plano: só se troca o que o nodus criou.
+    let target = fs::read_link(&plan.link)
+        .with_context(|| format!("o symlink {} mudou durante a reversão", plan.link.display()))?;
+    if target != plan.source {
+        bail!(
+            "o symlink {} mudou durante a reversão; nada foi trocado",
+            plan.link.display()
+        );
+    }
+    fs::rename(tmp, &plan.link).with_context(|| format!("trocando {}", plan.link.display()))
+}
+
 #[cfg(test)]
 mod tests {
     //! `history undo` de uma adoção de dotfile (ADR 0023), com entrada e saída injetadas. Cada teste

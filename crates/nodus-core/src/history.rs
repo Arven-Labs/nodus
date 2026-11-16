@@ -193,6 +193,40 @@ pub fn entry_from_adopt(path: &str, dir: &str, command: &[String], at_unix: u64)
     }
 }
 
+/// Entrada da reversão de uma adoção (v4, ADR 0023), gravada só depois de o symlink ser trocado
+/// pela cópia. `undoes` é o número da adoção desfeita; o caminho fica em `still_missing`, como o
+/// pacote removido no undo do pacman.
+pub fn entry_for_dotfile_undo(
+    undoes: u32,
+    path: &str,
+    dir: &str,
+    command: &[String],
+    at_unix: u64,
+) -> HistoryEntry {
+    HistoryEntry {
+        version: DOTFILES_ENTRY_VERSION,
+        at_unix,
+        command: command.to_vec(),
+        requested: vec![path.to_string()],
+        installed: vec![],
+        still_missing: vec![path.to_string()],
+        result: ExecResult::Ok,
+        action: Action::Remove,
+        undoes: Some(undoes),
+        manager: Manager::Dotfiles,
+        dir: Some(dir.to_string()),
+    }
+}
+
+fn check_dir(dir: &str) -> Result<(), HistoryError> {
+    if !dir.starts_with('/') || dir.chars().any(char::is_control) {
+        return Err(HistoryError::Invalid(
+            "`dir` precisa ser um caminho absoluto, sem caractere de controle".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Uma linha de JSON, sem quebra de linha (o JSON escapa `\n` dentro de textos).
 pub fn to_line(entry: &HistoryEntry) -> String {
     // Invariante: a struct só tem textos, números e listas, e serializar isso não falha.
@@ -239,16 +273,16 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
             ));
         }
         (4, Some(Action::Adopt), None, Some(Manager::Dotfiles), Some(dir)) => {
-            if !dir.starts_with('/') || dir.chars().any(char::is_control) {
-                return Err(invalid(
-                    "`dir` precisa ser um caminho absoluto, sem caractere de controle",
-                ));
-            }
+            check_dir(&dir)?;
             (Action::Adopt, None, Manager::Dotfiles, Some(dir))
+        }
+        (4, Some(Action::Remove), Some(n), Some(Manager::Dotfiles), Some(dir)) if n >= 1 => {
+            check_dir(&dir)?;
+            (Action::Remove, Some(n), Manager::Dotfiles, Some(dir))
         }
         (4, ..) => {
             return Err(invalid(
-                "a versão 4 só tem `adopt` com `manager` dotfiles e `dir`, sem `undoes`",
+                "a versão 4 só tem `adopt` (sem `undoes`) ou `remove` (com `undoes` a partir de 1), sempre com `manager` dotfiles e `dir`",
             ));
         }
         (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
@@ -274,6 +308,17 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
     {
         return Err(invalid(
             "`adopt` registra um caminho, adotado (`installed` igual a `requested`), sem `still_missing` e com resultado ok",
+        ));
+    }
+    if entry.action == Action::Remove
+        && entry.manager == Manager::Dotfiles
+        && (entry.requested.len() != 1
+            || !entry.installed.is_empty()
+            || entry.still_missing != entry.requested
+            || entry.result != ExecResult::Ok)
+    {
+        return Err(invalid(
+            "a reversão de dotfile registra um caminho, em `still_missing`, sem `installed` e com resultado ok",
         ));
     }
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.

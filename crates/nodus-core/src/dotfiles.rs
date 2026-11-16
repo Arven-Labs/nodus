@@ -243,6 +243,83 @@ pub fn plan_adopt(
     })
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum UndoAdoptError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o caminho no HOME não é mais um symlink; o nodus não toca em arquivo comum")]
+    NotALink,
+    #[error("o symlink aponta para {found}, não para {expected}; o nodus só desfaz o que criou")]
+    WrongTarget { expected: String, found: String },
+    #[error("o arquivo na pasta-fonte não existe mais")]
+    SourceMissing,
+    #[error("na pasta-fonte, o caminho não é um arquivo comum")]
+    SourceNotAFile,
+    #[error("o arquivo na pasta-fonte tem {0} bytes; o limite é 1 MiB")]
+    SourceTooBig(u64),
+}
+
+/// O que o `undo` de uma adoção vai fazer (ADR 0023): trocar o symlink `link` por uma cópia de
+/// `source`, que fica onde está. Dado, sem efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoAdoptPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: o symlink que será trocado por um arquivo comum.
+    pub link: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: de onde a cópia sai; não é alterada.
+    pub source: PathBuf,
+    pub size: u64,
+    /// Só os 9 bits de permissão da fonte.
+    pub mode: u32,
+}
+
+/// `path` e `dir` vêm do histórico, que não é assinado: são revalidados aqui. O symlink precisa
+/// apontar exatamente para `<dir>/<path>`, e a fonte ser arquivo comum de até 1 MiB.
+pub fn plan_undo_adopt(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    link: &Observed,
+    source: &Observed,
+    source_mode: u32,
+) -> Result<UndoAdoptPlan, UndoAdoptError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let source_path = dir.join(path);
+    // Comparação de texto, não de `Path` (que ignora a barra final): o alvo tem de ser idêntico ao
+    // que o `adopt` gravou.
+    let expected = source_path.to_string_lossy().into_owned();
+    match link {
+        Observed::Symlink { target } if *target == expected => {}
+        Observed::Symlink { target } => {
+            return Err(UndoAdoptError::WrongTarget {
+                expected,
+                found: target.clone(),
+            });
+        }
+        _ => return Err(UndoAdoptError::NotALink),
+    }
+    let size = match source {
+        Observed::File { size } if *size > MAX_ADOPT_BYTES => {
+            return Err(UndoAdoptError::SourceTooBig(*size));
+        }
+        Observed::File { size } => *size,
+        Observed::Missing => return Err(UndoAdoptError::SourceMissing),
+        Observed::Symlink { .. } | Observed::Dir | Observed::Other => {
+            return Err(UndoAdoptError::SourceNotAFile);
+        }
+    };
+    Ok(UndoAdoptPlan {
+        path: path.to_string(),
+        link: home.join(path),
+        source: source_path,
+        size,
+        mode: source_mode & 0o777,
+    })
+}
+
 /// O alvo, resolvido a partir da pasta do link, cai fora do `$HOME`? Normalização léxica: `..`
 /// sobe um nível, `.` some. Compara componente a componente (`/home/u2` não está em `/home/u`).
 fn leaves_home(home: &Path, link: &str, target: &str) -> bool {
