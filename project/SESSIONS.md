@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, ignorar para sempre (critério 5, fatia 3)
+
+- **Pedido**: o PR B do critério 5, em plan mode. Decisões do dono: lista no `config.toml`; `suggest` **esconde e conta** (`--all` mostra); desfazer por `preset ignored` e `preset unignore`.
+- **Feito (PR #61)**: testes primeiro, CI **vermelho** (`hide_ignored`, `Config`, `add_ignored`, `remove_ignored`, `suggestions_json`, `render_ignored` e os campos novos inexistentes). Implementação: `hide_ignored` no núcleo (pura) e os validadores de nome públicos; `config.rs` com `Config`, leitura estrita das listas e **escrita sempre por leitura-modificação-escrita** (o `write_workspace` antigo apagaria os ignorados); `adopt` com `i`/`ignorar` (`[s/N/i/q]`); `suggest` com `--all`, rodapé de contagem e `ignored` no `--json`; `preset ignored` e `preset unignore`. ADR 0020; emendas aos ADRs 0016, 0018 e 0019. CI **verde** de primeira (258 testes no núcleo, 225 na CLI).
+- **Mutação**: a primeira (`write_workspace` sem as listas) **não compilou no clippy** (`field_reassign_with_default`), então não provou nada; reescrita em estilo aceito, junto de `hide_ignored` sem esconder: **2 testes** do `config` e **3** do núcleo vermelhos; revertidas com `git revert`.
+- **Não verificado**: o fluxo no Arch real (esperado, numa cópia e com `XDG_CONFIG_HOME` temporário: `adopt` respondendo `i`; `suggest` esconde e conta; `suggest --all` mostra; `preset ignored` lista; `preset unignore` devolve; `workspace set` depois de ignorar não apaga a lista); nenhum teste de CLI de ponta a ponta; falha do `rename`; `unignore` de nome presente nas duas listas; `suggest` passou a exigir `HOME` ou `XDG_CONFIG_HOME` absoluto.
+- **Fica**: o dono conferir no Arch; `apply` confirmado com `s`; P-02, P-14, P-17; dotfiles (a última frente do MVP).
+
 ### 2026-11-15 — Sessão 19, `preset adopt` (critério 5, fatia 2)
 
 - **Pedido**: seguir com o critério 5, em plan mode. Decisões do dono: **dois PRs** (adotar agora, ignorar depois); escrita por **inserção de texto com `toml::Spanned`** (sem `toml_edit`, sem crate novo: `serde_spanned` já está no lockfile); os ignorados do PR B ficam no `config.toml` do ADR 0018.

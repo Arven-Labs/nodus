@@ -13,7 +13,7 @@ Medido no código, só leitura: `toml` 1.2.1 já está no `Cargo.lock` e depende
 3. **Escrita por inserção de texto** (`nodus_core::preset::add_to_preset`, função pura). Lê o preset com `toml::Spanned`, acha o `[`…`]` de cada lista e insere só o texto novo: multilinha, uma linha por nome antes da linha do `]`, com a vírgula do último elemento se faltar (olhando só espaço e comentário `#` até o próximo caractere); lista na mesma linha, `, "nome"` depois do último; lista vazia, dentro dos colchetes; lista ausente, criada no fim do arquivo. O fim de linha segue o do arquivo (LF ou CRLF). Nome já presente é ignorado e repetido entre os novos entra uma vez. **Escolha do dono**, entre esta, `toml_edit` e reescrever com `to_toml`.
 4. **Defesa em profundidade:** os nomes novos passam pela mesma validação do `apply` (sem aspas, sem barra invertida, sem começar por `-`); o resultado é reparseado e precisa ter os nomes antigos seguidos dos novos, senão `PresetError::Edit` e nada é gravado.
 5. **Gravação** (`preset_file::write_preset`): resolve symlink com `canonicalize` e grava no **alvo real** (um `rename` por cima do link o trocaria por um arquivo comum e quebraria um preset que vive em dotfiles); exige arquivo comum; preserva as permissões do original; só escreve se o arquivo ainda tem **exatamente** o texto que foi lido (comparação de conteúdo, não de `mtime`: determinística); troca atômica por temporário no mesmo diretório e `rename`, reusando `config::commit`. Falha apaga o temporário.
-6. **Direção do PR B (sem código agora):** a lista de ignorados fica no `config.toml` do ADR 0018, em chaves opcionais (`ignore_pacman`, `ignore_flatpak`), com a versão ainda 1. **Escolha do dono.**
+6. **Direção do PR B (sem código na fatia A; feito no PR #61, ADR 0020):** a lista de ignorados fica no `config.toml` do ADR 0018, em chaves opcionais (`ignore_pacman`, `ignore_flatpak`), com a versão ainda 1. **Escolha do dono.**
 
 ## Alternativas
 - **`toml_edit`:** descartada pelo dono; edita TOML preservando comentários com menos código nosso, mas é crate novo com a própria árvore e passaria pelo `padrao/dependencias-novas.md`.
@@ -23,7 +23,7 @@ Medido no código, só leitura: `toml` 1.2.1 já está no `Cargo.lock` e depende
 - **Ignorados dentro do preset ou em arquivo de estado próprio:** descartadas pelo dono (mistura "quero instalar" com "não pergunte"; ou um segundo arquivo com as mesmas regras de segurança).
 
 ## Consequências
-- Fecha, no PR A, a pergunta e a escrita do critério 5; falta o "ignorar" (PR B), sem o qual o `adopt` pergunta de novo a cada rodada o que foi pulado.
+- Fecha, no PR A, a pergunta e a escrita do critério 5; faltava o "ignorar" (PR B), sem o qual o `adopt` pergunta de novo a cada rodada o que foi pulado. **Emenda (PR #61):** feito, com `i` no prompt (`[s/N/i/q]`); ver ADR 0020.
 - Risco médio, aceito: primeira edição de arquivo do dono. Mitigado por inserção só (resto byte a byte, testado), reparse do resultado, gravação atômica, checagem de mudança concorrente e confirmação item a item. Não instala nada: instalar continua sendo o `apply`.
 - A inserção usa 4 espaços de indentação fixos, mesmo que o arquivo use tabs.
 - Um arquivo que o dono edite durante a conversa interativa faz o `adopt` falhar no fim, sem escrever (o dono responde de novo).

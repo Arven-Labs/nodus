@@ -34,7 +34,7 @@ Medido em 2026-11-15, nesta máquina, só leitura (`pacman -S --print`, `pacman 
 - Uma chamada extra ao `pacman` por `plan`/`apply` quando falta algo; N chamadas só se o lote falhar. O custo em máquina nova com muitos itens faltando não foi medido.
 - **Imprecisão aceita:** na chamada por item, qualquer exit 1 vira "indisponível", sem distinguir "não encontrado" de outro erro (por exemplo dependência insolúvel), porque o stderr não chega ao nodus. O item aparece no plano, nunca em silêncio.
 - O `plan` deixa de prometer "instalar" algo que o `apply` não cumpriria.
-- O `suggest` fica com ruído enquanto não houver "ignorar": com um preset pequeno ele lista dezenas de itens.
+- O `suggest` fica com ruído enquanto não houver "ignorar": com um preset pequeno ele lista dezenas de itens. **Emenda (PR #61):** resolvido; o `suggest` esconde os ignorados e conta (ADR 0020).
 - Reabrir se: o `CommandRunner` passar a devolver o stderr (a classificação ficaria exata); o MVP passar a suportar AUR (exige ADR de segurança próprio); o dono quiser o formato v2.
 
 ## Não verificado
