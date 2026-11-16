@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Command, HistoryAction, PresetAction, WorkspaceAction};
+use cli::{Cli, Command, DotfilesAction, HistoryAction, PresetAction, WorkspaceAction};
 use nodus_core::history::Manager;
 use nodus_core::runner::CommandRunner;
 
@@ -44,7 +44,10 @@ fn main() -> Result<()> {
             None => show_history(json),
             Some(HistoryAction::Undo { n }) => history_undo(n),
         },
-        Command::Dotfiles { json } => dotfiles_command(json),
+        Command::Dotfiles { json, action } => match action {
+            None => dotfiles_command(json),
+            Some(DotfilesAction::Adopt { path }) => dotfiles_adopt(&path),
+        },
         Command::Repos { dir, fetch, json } => repos(dir.as_deref(), fetch, json),
         Command::Workspace { dir, json, action } => match action {
             None => workspace_command(dir.as_deref(), json),
@@ -382,6 +385,37 @@ fn dotfiles_command(json: bool) -> Result<()> {
     } else {
         emit(&render::render_dotfiles(&entries))?;
     }
+    Ok(())
+}
+
+fn dotfiles_adopt(path: &str) -> Result<()> {
+    use std::io::IsTerminal;
+    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
+    let config_path = config_file()?;
+    let source_dir = config::read(&config_path)?.dotfiles_dir.with_context(|| {
+        format!(
+            "falta a pasta-fonte: acrescente `dotfiles_dir = \"/caminho/absoluto\"` em {}",
+            config_path.display()
+        )
+    })?;
+    // O symlink aponta para o caminho real da pasta-fonte (que precisa existir).
+    let dir = std::fs::canonicalize(&source_dir)
+        .with_context(|| format!("a pasta-fonte {} não existe", source_dir.display()))?;
+    let history_path = history_file()?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
+    let stdin = std::io::stdin();
+    let request = dotfiles_adopt::Request {
+        home: &home,
+        dir: &dir,
+        path,
+        interactive: stdin.is_terminal(),
+        history_path: &history_path,
+        now_unix,
+    };
+    dotfiles_adopt::adopt(&request, &mut stdin.lock(), &mut std::io::stdout())?;
     Ok(())
 }
 

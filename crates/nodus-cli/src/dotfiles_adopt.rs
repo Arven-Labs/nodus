@@ -3,12 +3,94 @@
 //! não mudou, e só então troca (um `rename` atômico por cima). Antes da troca, qualquer falha deixa
 //! o original intacto e remove só a cópia que este código criou (`create_new`).
 
+use crate::dotfiles::observe;
 use anyhow::{Context, Result, bail};
-use nodus_core::dotfiles::AdoptPlan;
+use nodus_core::dotfiles::{AdoptPlan, plan_adopt};
+use nodus_core::history::entry_from_adopt;
 use std::fs::{self, DirBuilder, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{BufRead, ErrorKind, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
+
+/// Tudo o que o `adopt` precisa saber, já resolvido pelo `main` (ambiente e config lidos antes de
+/// qualquer pergunta, como no `preset apply`).
+pub struct Request<'a> {
+    pub home: &'a Path,
+    /// A pasta-fonte já resolvida por `canonicalize`: o symlink aponta para dentro dela.
+    pub dir: &'a Path,
+    /// Caminho relativo ao HOME, como o usuário digitou.
+    pub path: &'a str,
+    /// A entrada é um terminal: sem ele não há confirmação possível.
+    pub interactive: bool,
+    pub history_path: &'a Path,
+    pub now_unix: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Declined,
+    Adopted,
+}
+
+/// O plano que o usuário vê antes de confirmar.
+fn render_plan(plan: &AdoptPlan) -> String {
+    format!(
+        "Adotar dotfile: {} ({} bytes, permissão {:o})\n  copiar para: {}\n  trocar por symlink: {} -> {}\nA cópia, conferida byte a byte, é o backup; nada existente é sobrescrito.\nAtenção: o conteúdo do arquivo será copiado para a pasta-fonte. Não publique essa pasta se houver segredo (por exemplo, token na URL do .gitconfig); o nodus não olha o conteúdo.\n",
+        plan.path,
+        plan.size,
+        plan.mode,
+        plan.dest.display(),
+        plan.source.display(),
+        plan.dest.display()
+    )
+}
+
+/// `nodusctl dotfiles adopt`: valida, mostra o plano, pergunta `Executar? [s/N]`, adota e grava o
+/// histórico. Tudo o que pode ser recusado é recusado **antes** da pergunta. Sem terminal, recusa.
+pub fn adopt(
+    request: &Request,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<Outcome> {
+    nodus_core::dotfiles::validate_path(request.path)
+        .with_context(|| format!("dotfile {:?}", request.path))?;
+    let observed = observe(request.home, request.path)?;
+    let mode = fs::symlink_metadata(request.home.join(request.path))
+        .map(|meta| meta.mode())
+        .unwrap_or(0);
+    let plan = plan_adopt(request.home, request.dir, request.path, &observed, mode)
+        .with_context(|| format!("dotfile {:?}", request.path))?;
+    let dir_text = request
+        .dir
+        .to_str()
+        .context("a pasta-fonte não é UTF-8; o histórico não consegue registrá-la")?;
+
+    write!(output, "{}", render_plan(&plan)).context("escrevendo o plano")?;
+    if !request.interactive {
+        bail!("sem terminal interativo não há como confirmar; nada foi alterado");
+    }
+    if !crate::apply::confirm(input, output).context("lendo a resposta")? {
+        writeln!(output, "Nada foi alterado.").context("escrevendo a saída")?;
+        return Ok(Outcome::Declined);
+    }
+
+    adopt_file(request.home, &plan, |_| {}, || {})?;
+
+    // A troca já aconteceu; se o histórico falhar, o erro diz isso, para o dono não repetir.
+    let command = ["nodusctl", "dotfiles", "adopt", "--", request.path].map(String::from);
+    let entry = entry_from_adopt(request.path, dir_text, &command, request.now_unix);
+    crate::history::append(request.history_path, &entry).context(
+        "a adoção foi feita (o original agora é um symlink), mas não consegui gravar o histórico",
+    )?;
+    writeln!(
+        output,
+        "Adotado: {} -> {}",
+        plan.source.display(),
+        plan.dest.display()
+    )
+    .context("escrevendo a saída")?;
+    Ok(Outcome::Adopted)
+}
 
 /// O que identifica o original: se qualquer um mudar entre a leitura e a troca, a troca não ocorre.
 /// Não é à prova de corrida (uma regravação do mesmo tamanho no mesmo tick do relógio passa), só
@@ -206,6 +288,187 @@ fn copy_verify_swap(
         return Err(erro).with_context(|| format!("trocando {}", plan.source.display()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod fluxo_tests {
+    //! O fluxo inteiro (plano, pergunta, troca, histórico) com entrada e saída injetadas.
+    use super::*;
+    use crate::testutil::TmpDir;
+    use nodus_core::history::{Action, Manager};
+    use std::os::unix::fs::PermissionsExt;
+
+    struct Cenario {
+        _tmp: TmpDir,
+        home: PathBuf,
+        dir: PathBuf,
+        history: PathBuf,
+    }
+
+    fn cenario() -> Cenario {
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("dot");
+        let state = tmp.path().join("state");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(home.join(".bashrc"), b"alias x=y\n").unwrap();
+        Cenario {
+            history: state.join("nodus/history.jsonl"),
+            _tmp: tmp,
+            home,
+            dir,
+        }
+    }
+
+    fn pedido<'a>(c: &'a Cenario, path: &'a str, interactive: bool) -> Request<'a> {
+        Request {
+            home: &c.home,
+            dir: &c.dir,
+            path,
+            interactive,
+            history_path: &c.history,
+            now_unix: 1_700_000_300,
+        }
+    }
+
+    fn roda(
+        c: &Cenario,
+        path: &str,
+        interactive: bool,
+        resposta: &str,
+    ) -> (Result<Outcome>, String) {
+        let mut saida = Vec::new();
+        let resultado = adopt(
+            &pedido(c, path, interactive),
+            &mut resposta.as_bytes(),
+            &mut saida,
+        );
+        (resultado, String::from_utf8(saida).unwrap())
+    }
+
+    fn original_intacto(c: &Cenario) {
+        let meta = fs::symlink_metadata(c.home.join(".bashrc")).unwrap();
+        assert!(meta.file_type().is_file());
+        assert_eq!(fs::read(c.home.join(".bashrc")).unwrap(), b"alias x=y\n");
+        assert!(!c.dir.join(".bashrc").exists());
+        assert!(!c.history.exists());
+    }
+
+    #[test]
+    fn confirmando_com_s_adota_e_grava_uma_linha_v4_no_historico() {
+        let c = cenario();
+        let (resultado, saida) = roda(&c, ".bashrc", true, "s\n");
+
+        assert_eq!(resultado.unwrap(), Outcome::Adopted);
+        let dest = c.dir.join(".bashrc");
+        assert_eq!(fs::read_link(c.home.join(".bashrc")).unwrap(), dest);
+        assert_eq!(fs::read(&dest).unwrap(), b"alias x=y\n");
+        assert!(saida.contains("Executar? [s/N]"), "{saida}");
+        assert!(saida.contains("Adotado:"), "{saida}");
+
+        let historico = crate::history::read(&c.history).unwrap();
+        assert_eq!(historico.len(), 1);
+        let e = &historico[0];
+        assert_eq!(e.version, 4);
+        assert_eq!(e.action, Action::Adopt);
+        assert_eq!(e.manager, Manager::Dotfiles);
+        assert_eq!(e.requested, [".bashrc"]);
+        assert_eq!(e.dir.as_deref(), c.dir.to_str());
+        assert_eq!(e.at_unix, 1_700_000_300);
+    }
+
+    #[test]
+    fn o_plano_mostra_origem_destino_tamanho_e_o_aviso_de_segredo() {
+        let c = cenario();
+        let (_, saida) = roda(&c, ".bashrc", true, "n\n");
+        assert!(
+            saida.contains("Adotar dotfile: .bashrc (10 bytes"),
+            "{saida}"
+        );
+        assert!(
+            saida.contains(&format!("copiar para: {}", c.dir.join(".bashrc").display())),
+            "{saida}"
+        );
+        assert!(saida.contains("trocar por symlink:"), "{saida}");
+        assert!(saida.contains("Não publique essa pasta"), "{saida}");
+    }
+
+    #[test]
+    fn qualquer_resposta_que_nao_seja_s_ou_sim_nao_altera_nada() {
+        for resposta in ["n\n", "\n", "", "talvez\n", "y\n", "ss\n"] {
+            let c = cenario();
+            let (resultado, saida) = roda(&c, ".bashrc", true, resposta);
+            assert_eq!(resultado.unwrap(), Outcome::Declined, "{resposta:?}");
+            assert!(saida.contains("Nada foi alterado."), "{saida}");
+            original_intacto(&c);
+        }
+    }
+
+    #[test]
+    fn sem_terminal_recusa_depois_de_mostrar_o_plano_e_sem_alterar_nada() {
+        let c = cenario();
+        let (resultado, saida) = roda(&c, ".bashrc", false, "s\n");
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("terminal"), "{erro}");
+        assert!(!saida.contains("Executar?"), "{saida}");
+        original_intacto(&c);
+    }
+
+    #[test]
+    fn recusas_acontecem_antes_da_pergunta() {
+        for path in [".ssh/config", "../x", "/etc/passwd", "", ".naoexiste"] {
+            let c = cenario();
+            fs::create_dir_all(c.home.join(".ssh")).unwrap();
+            fs::write(c.home.join(".ssh/config"), b"segredo").unwrap();
+            let (resultado, saida) = roda(&c, path, true, "s\n");
+            assert!(resultado.is_err(), "{path:?}");
+            assert!(!saida.contains("Executar?"), "{path:?}: {saida}");
+            assert!(!c.history.exists());
+            assert_eq!(fs::read(c.home.join(".ssh/config")).unwrap(), b"segredo");
+        }
+    }
+
+    #[test]
+    fn pasta_fonte_dentro_de_um_caminho_de_segredo_e_recusada_antes_da_pergunta() {
+        let c = cenario();
+        let dentro = c.home.join(".ssh/dot");
+        fs::create_dir_all(&dentro).unwrap();
+        let pedido = Request {
+            dir: &dentro,
+            ..pedido(&c, ".bashrc", true)
+        };
+        let mut saida = Vec::new();
+        let erro = adopt(&pedido, &mut "s\n".as_bytes(), &mut saida).unwrap_err();
+        assert!(format!("{erro:#}").contains("pasta-fonte"), "{erro:#}");
+        assert!(!String::from_utf8(saida).unwrap().contains("Executar?"));
+        original_intacto(&c);
+    }
+
+    #[test]
+    fn falha_ao_gravar_o_historico_diz_que_a_adocao_ja_foi_feita() {
+        let c = cenario();
+        let pasta_historico = c.history.parent().unwrap().to_path_buf();
+        fs::create_dir_all(&pasta_historico).unwrap();
+        fs::set_permissions(&pasta_historico, fs::Permissions::from_mode(0o500)).unwrap();
+        // Como root a escrita passaria; nesse caso não há o que testar.
+        if fs::write(pasta_historico.join("probe"), b"").is_ok() {
+            fs::remove_file(pasta_historico.join("probe")).unwrap();
+            fs::set_permissions(&pasta_historico, fs::Permissions::from_mode(0o700)).unwrap();
+            return;
+        }
+
+        let (resultado, _) = roda(&c, ".bashrc", true, "s\n");
+        fs::set_permissions(&pasta_historico, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("a adoção foi feita"), "{erro}");
+        assert!(
+            fs::symlink_metadata(c.home.join(".bashrc"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
 }
 
 #[cfg(test)]
