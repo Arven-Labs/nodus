@@ -6,6 +6,7 @@ use nodus_core::runner::CommandRunner;
 
 mod apply;
 mod cli;
+mod config;
 mod discovery;
 mod hardware;
 mod history;

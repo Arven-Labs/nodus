@@ -224,6 +224,30 @@ mod tests {
         tmp.path().to_str().unwrap().to_string()
     }
 
+    // `resolve` e `pick_dir` ganharam o parâmetro `stored` (a pasta do config gravado). Estes atalhos
+    // sombreiam as funções do módulo e mantêm os testes antigos, que não têm config, como estavam.
+    fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Result<Report> {
+        super::resolve(arg, env, || Ok(None), home)
+    }
+
+    fn pick_dir(
+        arg: Option<&Path>,
+        env: Option<&str>,
+        home: Option<&str>,
+    ) -> Result<(PathBuf, Option<Source>)> {
+        super::pick_dir(arg, env, || Ok(None), home)
+    }
+
+    /// `resolve` com uma pasta gravada no config.
+    fn com_gravada(
+        arg: Option<&Path>,
+        env: Option<&str>,
+        gravada: &Path,
+        home: Option<&str>,
+    ) -> Result<Report> {
+        super::resolve(arg, env, || Ok(Some(gravada.to_path_buf())), home)
+    }
+
     fn detectar(tmp: &TmpDir) -> Report {
         resolve(None, None, Some(&home(tmp))).unwrap()
     }
@@ -538,6 +562,110 @@ mod tests {
         assert!(format!("{erro:#}").contains("NODUS_WORKSPACE"));
     }
 
+    // --- pasta gravada no config: depois do argumento e da variável, antes da detecção ---
+
+    #[test]
+    fn gravada_vence_a_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 5);
+        let gravada = com_repos(tmp.path(), "meu-ws", 2);
+        let r = com_gravada(None, None, &gravada, Some(&home(&tmp))).unwrap();
+        assert_eq!(
+            r.chosen,
+            Some(Chosen {
+                path: real(&gravada),
+                source: Source::Stored,
+                repo_count: 2
+            })
+        );
+        assert!(r.candidates.is_empty());
+    }
+
+    #[test]
+    fn variavel_vence_a_gravada() {
+        let tmp = TmpDir::novo();
+        let gravada = com_repos(tmp.path(), "gravada", 1);
+        let ambiente = com_repos(tmp.path(), "ambiente", 1);
+        let r = com_gravada(None, Some(ambiente.to_str().unwrap()), &gravada, None).unwrap();
+        let chosen = r.chosen.unwrap();
+        assert_eq!(chosen.path, real(&ambiente));
+        assert_eq!(chosen.source, Source::Environment);
+    }
+
+    #[test]
+    fn variavel_vazia_nao_vence_a_gravada() {
+        let tmp = TmpDir::novo();
+        let gravada = com_repos(tmp.path(), "gravada", 1);
+        let r = com_gravada(None, Some(""), &gravada, None).unwrap();
+        assert_eq!(r.chosen.unwrap().source, Source::Stored);
+    }
+
+    #[test]
+    fn argumento_vence_a_gravada() {
+        let tmp = TmpDir::novo();
+        let gravada = com_repos(tmp.path(), "gravada", 1);
+        let informada = com_repos(tmp.path(), "informada", 1);
+        let r = com_gravada(Some(&informada), None, &gravada, None).unwrap();
+        let chosen = r.chosen.unwrap();
+        assert_eq!(chosen.path, real(&informada));
+        assert_eq!(chosen.source, Source::Informed);
+    }
+
+    #[test]
+    fn gravada_que_sumiu_e_erro_e_nao_cai_na_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 3);
+        let sumida = tmp.path().join("nao-existe");
+        let erro = com_gravada(None, None, &sumida, Some(&home(&tmp))).unwrap_err();
+        assert!(format!("{erro:#}").contains("gravado"), "{erro:#}");
+    }
+
+    #[test]
+    fn gravada_que_virou_arquivo_e_erro() {
+        let tmp = TmpDir::novo();
+        let arquivo = tmp.path().join("arquivo");
+        fs::write(&arquivo, "").unwrap();
+        let erro = com_gravada(None, None, &arquivo, None).unwrap_err();
+        assert!(format!("{erro:#}").contains("gravado"), "{erro:#}");
+    }
+
+    #[test]
+    fn erro_ao_ler_o_config_sobe_e_nao_cai_na_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 3);
+        let erro = super::resolve(
+            None,
+            None,
+            || Err(anyhow!("config ilegível")),
+            Some(&home(&tmp)),
+        )
+        .unwrap_err();
+        assert!(format!("{erro:#}").contains("config ilegível"), "{erro:#}");
+    }
+
+    #[test]
+    fn config_so_e_lido_quando_nao_ha_argumento_nem_variavel() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "ws", 1);
+        let quebrado = || Err(anyhow!("não devia ler o config"));
+        assert!(super::resolve(Some(&ws), None, quebrado, None).is_ok());
+        assert!(super::resolve(None, Some(ws.to_str().unwrap()), quebrado, None).is_ok());
+    }
+
+    #[test]
+    fn pick_dir_sem_argumento_usa_a_gravada() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "ws", 1);
+        let (pasta, origem) = super::pick_dir(None, None, || Ok(Some(ws.clone())), None).unwrap();
+        assert_eq!(pasta, real(&ws));
+        assert_eq!(origem, Some(Source::Stored));
+    }
+
+    #[test]
+    fn rotulo_da_origem_gravada() {
+        assert_eq!(Source::Stored.label(), "gravado");
+    }
+
     #[test]
     fn json_sem_escolha_tem_chosen_nulo_e_os_nomes_das_origens() {
         let vazio = Report {
@@ -551,6 +679,7 @@ mod tests {
         for (source, nome) in [
             (Source::Informed, "informed"),
             (Source::Environment, "environment"),
+            (Source::Stored, "stored"),
             (Source::Detected, "detected"),
         ] {
             let r = Report {

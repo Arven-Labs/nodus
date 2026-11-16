@@ -159,9 +159,10 @@ mod tests {
     fn workspace_sem_argumento_e_em_texto() {
         let cli = Cli::try_parse_from(["nodus", "workspace"]).unwrap();
         match cli.command {
-            Command::Workspace { dir, json } => {
+            Command::Workspace { dir, json, action } => {
                 assert_eq!(dir, None);
                 assert!(!json);
+                assert!(action.is_none());
             }
             outro => panic!("comando errado: {outro:?}"),
         }
@@ -171,12 +172,56 @@ mod tests {
     fn workspace_com_pasta_e_json() {
         let cli = Cli::try_parse_from(["nodus", "workspace", "/ws", "--json"]).unwrap();
         match cli.command {
-            Command::Workspace { dir, json } => {
+            Command::Workspace { dir, json, action } => {
                 assert_eq!(dir, Some(std::path::PathBuf::from("/ws")));
                 assert!(json);
+                assert!(action.is_none());
             }
             outro => panic!("comando errado: {outro:?}"),
         }
+    }
+
+    #[test]
+    fn workspace_set_leva_a_pasta() {
+        let cli = Cli::try_parse_from(["nodus", "workspace", "set", "/ws"]).unwrap();
+        match cli.command {
+            Command::Workspace { dir, action, .. } => {
+                assert_eq!(dir, None);
+                match action {
+                    Some(WorkspaceAction::Set { dir }) => {
+                        assert_eq!(dir, std::path::PathBuf::from("/ws"));
+                    }
+                    outra => panic!("ação errada: {outra:?}"),
+                }
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn workspace_set_exige_a_pasta() {
+        let erro = Cli::try_parse_from(["nodus", "workspace", "set"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn workspace_unset_nao_leva_argumento() {
+        let cli = Cli::try_parse_from(["nodus", "workspace", "unset"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Workspace {
+                action: Some(WorkspaceAction::Unset),
+                ..
+            }
+        ));
+        let erro = Cli::try_parse_from(["nodus", "workspace", "unset", "/ws"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn workspace_set_nao_aceita_json() {
+        let erro = Cli::try_parse_from(["nodus", "workspace", "--json", "set", "/ws"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::ArgumentConflict);
     }
 
     #[test]
