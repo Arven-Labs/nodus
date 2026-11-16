@@ -32,5 +32,6 @@ O `adopt` (ADR 0022) leva um arquivo real do HOME para a pasta-fonte e deixa um 
 
 ## Lacunas
 - Resíduo de corrida: destino criado entre o plano e o `symlink` é pego pelo `EEXIST`; fonte trocada entre a reconferência e o `symlink` não.
-- Ainda não implementado nem verificado no Arch real; `git config --global`, editores e KDE com o symlink não verificados.
+- **Implementado no PR #70** (testes primeiro, CI vermelho por item inexistente; mutação de propósito: aceitar destino arquivo comum e comparar o alvo por `Path` derrubaram 3 testes). A terceira quebra (tirar o braço "pai é symlink" de `missing_home_dirs`) **não derrubou teste e não é lacuna**: o braço seguinte (`is_dir` sobre `symlink_metadata`, que não segue symlink) recusa do mesmo jeito; o braço existe pela mensagem. A reconferência da fonte antes do `symlink` não tem teste (cobre corrida; exigiria gancho no código de produção).
+- Verificado no Arch real em 2026-11-16, em HOMEs temporários (`/tmp/ha` adotando, `/tmp/hb` limpo ligando, pasta-fonte `/tmp/dot`): `link .bashrc` e `link .config/git/config` (plano com "criar pastas: .config, .config/git", pastas 0700, symlinks certos, conteúdo lido pelo link), segundo `link .bashrc` recusado ("já está ligado"), `link .profile` com destino existente recusado (arquivo intacto), `history` com duas linhas "dotfile ligado", `history undo 1` recusado. **Não verificado:** num dotfile real do HOME do dono; permissão negada na criação das pastas; `git config --global`, editores e KDE com o symlink.
 - Este ADR foi escrito por IA e revisado só pelo dono.
