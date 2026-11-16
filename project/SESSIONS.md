@@ -2,6 +2,12 @@
 
 Mais recente no topo.
 
+### 2026-11-15 — Sessão 19, fechamento formal da Fase 0
+
+- **Pedido**: o dono aprovou o fechamento da Fase 0 (resposta a uma pergunta direta, depois de eu listar o critério de saída do ADR 0003 e conferir que as entregas existem: `MVP.md`, `ROADMAP.md`, ADRs 0004 a 0007, `SECURITY.md`, `LIBS.md`, monorepo no ADR 0006, e os marcos da Fase 1 já entregues).
+- **Feito (só docs)**: `ROADMAP.md` (Fase 0 fechada; a linha da Fase 1 estava velha, "fatia 2 em revisão", e foi reescrita com o estado real) e `OVERVIEW.md`. Não conferi o conteúdo de cada ADR e de cada doc de novo nesta sessão, só a existência e o que as sessões anteriores registraram.
+- **Fica**: P-19 (`Broken pipe`, em plan mode); P-02, P-14, P-17; lembrar a escolha do workspace; critério 5 interativo; `apply` confirmado com `s`.
+
 ### 2026-11-15 — Sessão 19, `repos` usa o workspace (critério 6, fatia 2) e `apply` verificado até o prompt
 
 - **Pedido**: seguir a recomendação: verificar o `preset apply` com item indisponível e depois o critério 6. Em plan mode.
