@@ -44,6 +44,11 @@ O ADR 0021 entregou só o relatório de dotfiles. O dono decidiu em 2026-11-16 q
 
 ## Lacunas
 - **Resíduo de corrida (declarado):** um processo do mesmo usuário ainda pode trocar o original entre a conferência e o `rename`; as checagens de `mtime`/`ino` estreitam a janela, não a fecham. O usuário é a fronteira de confiança.
-- Nada implementado ainda: o código vem em PR seguinte, com testes primeiro e mutação de propósito.
+- **Implementado no PR #66** (testes primeiro, CI vermelho nas rodadas de core, config e `adopt_file`; mutação de propósito: 7 quebras derrubaram 9 testes). Ainda **não verificado no Arch real**.
+- **A checagem de "o original mudou" não pega tudo:** compara tamanho, `mtime`, `dev` e `ino`. Uma regravação do **mesmo tamanho dentro do mesmo tick do relógio do kernel** (alguns milissegundos) não muda o `mtime` e passa. Os testes mudam o tamanho de propósito.
+- **Pastas vazias podem sobrar:** se a falha vem depois de criar `.config/git/` na pasta-fonte, só o arquivo copiado é removido; as pastas ficam (não perdem dado).
+- **`dotfiles_dir` na leitura do config só confere a forma** (absoluta, sem `..`, `.`, `//` nem caractere de controle); HOME e denylist são conferidos no `adopt`, que conhece o HOME. O erro aparece ao adotar, não ao ler o config.
+- **Ganchos de teste no código de produção:** `adopt_file` recebe dois closures (`after_copy`, `before_swap`), vazios no uso real, para testar as recusas no meio da operação de forma determinística.
+- Dois testes (`sem_permissao_na_pasta_fonte...` e `falha_ao_gravar_o_historico...`) saem sem checar nada se rodarem como root, porque a escrita passaria; no CI (usuário comum) rodam. Não verificado se o runner é root.
 - Não verificado: o comportamento de `git config --global`, editores e KDE com o symlink; só se sabe no Arch real.
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.

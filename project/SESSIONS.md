@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-16 — Sessão 20, `dotfiles adopt` (critério 11, fatia 2)
+
+- **Pedido**: o dono decidiu que vincular dotfile entra no MVP; em plan mode. Decisões do dono: pasta-fonte espelhando o HOME (`dotfiles_dir`), `adopt` primeiro e `undo` depois, repo privado fora do workspace; ADR 0022 criado a pedido (PR #65, mesclado).
+- **Feito (PR #66)**: testes primeiro, CI **vermelho** por item inexistente em quatro rodadas (core: `plan_adopt`, `validate_dir`, histórico v4; config: `dotfiles_dir`; I/O: `adopt_file`). Implementação: core (`plan_adopt`, `validate_dir`, `check_dir_shape`, histórico v4 com `Action::Adopt`, `Manager::Dotfiles` e `dir`, `undo` recusa dotfile com mensagem clara), `config.rs` (`dotfiles_dir`), `dotfiles_adopt.rs` (`adopt_file`: pais sem symlink, pastas da fonte criadas uma a uma, cópia `create_new`, conferência byte a byte, conferência de que o original não mudou, `rename` atômico do symlink; fluxo com plano e `Executar? [s/N]`), subcomando `dotfiles adopt <caminho>`, render do histórico. `validate_path` passou a recusar caractere de controle.
+- **Mutação**: 7 quebras (`create_new` virou `create`+`truncate`; sem conferência byte a byte; sem conferir o original; sem checar pai symlink; sem checar symlink na pasta-fonte; limite `>=`; máscara com setuid) derrubaram **9 testes** (2 no core, 7 no CLI); revertidas com `git revert`.
+- **Diferenças do plano**: o teste do `undo` com dotfile e o do render do histórico foram escritos junto da implementação, sem rodada vermelha própria; o `dotfiles_dir` no config só confere a forma (a denylist da pasta-fonte vale no `adopt`); duas asserções minhas estavam erradas na primeira rodada (nota de rodapé do histórico; `TmpDir` apagado na hora) e foram corrigidas.
+- **Não verificado**: tudo no Arch real (ensaio em HOME temporário e depois uma adoção real de baixo risco); se o runner do CI é root (dois testes saem cedo como root); regravação do mesmo tamanho no mesmo tick do relógio (não detectada); `git config --global`, editores e KDE com o symlink; nenhum teste de CLI de ponta a ponta do binário (o fluxo é testado com entrada e saída injetadas).
+- **Fica**: o dono ensaiar no Arch; `history undo` de dotfile e `dotfiles link` (fatia 3, ADR próprio); `apply` confirmado com `s`; P-02, P-14, P-17.
+
 ### 2026-11-16 — Sessão 20, dotfiles (critério 11, fatia 1: relatório)
 
 - **Pedido**: seguir com a última frente do MVP, em plan mode. Corrigi minha própria recomendação: o `MVP.md` não tinha critério de dotfiles (só ROADMAP, SPEC §16 e SECURITY). Decisões do dono: criar o critério 11; primeira fatia = relatório de lista curada; lista fixa no código mais `config.toml`; o ADR 0021 criado a pedido.
