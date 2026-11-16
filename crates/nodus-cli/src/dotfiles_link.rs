@@ -67,7 +67,7 @@ fn missing_home_dirs(home: &Path, path: &str) -> Result<Vec<String>> {
             continue;
         }
         match fs::symlink_metadata(&current) {
-            Ok(meta) if meta.file_type().is_symlink() && current.as_os_str().is_empty() => bail!(
+            Ok(meta) if meta.file_type().is_symlink() => bail!(
                 "{} é um symlink; o nodus só liga em pastas comuns do HOME",
                 current.display()
             ),
