@@ -297,8 +297,8 @@ pub fn plan_link(
         }
     };
     match dest {
-        Observed::Missing => {}
-        Observed::Symlink { target: found } if *found == target.to_string_lossy() => {
+        Observed::Missing | Observed::File { .. } => {}
+        Observed::Symlink { target: found } if Path::new(found) == target => {
             return Err(LinkError::AlreadyLinked);
         }
         _ => return Err(LinkError::DestExists),
