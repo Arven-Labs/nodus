@@ -244,6 +244,74 @@ pub fn plan_adopt(
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
+pub enum LinkError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o arquivo na pasta-fonte não existe")]
+    SourceMissing,
+    #[error("na pasta-fonte, o caminho não é um arquivo comum (pasta, symlink, dispositivo etc.)")]
+    SourceNotAFile,
+    #[error("o arquivo na pasta-fonte tem {0} bytes; o limite é 1 MiB")]
+    SourceTooBig(u64),
+    #[error("já está ligado: o destino é um symlink para a pasta-fonte")]
+    AlreadyLinked,
+    #[error("o destino já existe no HOME; o nodus nunca sobrescreve (apague ou renomeie à mão)")]
+    DestExists,
+}
+
+/// O que o `link` vai fazer (ADR 0024): criar o symlink `link` apontando para `target`. Dado, sem
+/// efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: onde o symlink será criado (não pode existir).
+    pub link: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: o arquivo para o qual o symlink aponta.
+    pub target: PathBuf,
+    pub size: u64,
+}
+
+/// Valida tudo o que dá para validar sem tocar o disco. A fonte precisa ser arquivo comum de até
+/// 1 MiB; o destino não pode existir (nem como symlink para outro lugar). Um symlink exatamente
+/// para o alvo, comparado por texto como o `adopt` o grava, vira `AlreadyLinked`.
+pub fn plan_link(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    source: &Observed,
+    dest: &Observed,
+) -> Result<LinkPlan, LinkError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let target = dir.join(path);
+    let size = match source {
+        Observed::File { size } if *size > MAX_ADOPT_BYTES => {
+            return Err(LinkError::SourceTooBig(*size));
+        }
+        Observed::File { size } => *size,
+        Observed::Missing => return Err(LinkError::SourceMissing),
+        Observed::Symlink { .. } | Observed::Dir | Observed::Other => {
+            return Err(LinkError::SourceNotAFile);
+        }
+    };
+    match dest {
+        Observed::Missing => {}
+        Observed::Symlink { target: found } if *found == target.to_string_lossy() => {
+            return Err(LinkError::AlreadyLinked);
+        }
+        _ => return Err(LinkError::DestExists),
+    }
+    Ok(LinkPlan {
+        path: path.to_string(),
+        link: home.join(path),
+        target,
+        size,
+    })
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum UndoAdoptError {
     #[error("caminho inválido: {0}")]
     Path(#[from] DotfileError),

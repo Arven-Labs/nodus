@@ -49,6 +49,7 @@ fn main() -> Result<()> {
         Command::Dotfiles { json, action } => match action {
             None => dotfiles_command(json),
             Some(DotfilesAction::Adopt { path }) => dotfiles_adopt(&path),
+            Some(DotfilesAction::Link { path }) => dotfiles_link(&path),
         },
         Command::Repos { dir, fetch, json } => repos(dir.as_deref(), fetch, json),
         Command::Workspace { dir, json, action } => match action {
@@ -134,7 +135,7 @@ fn history_undo(n: u32) -> Result<()> {
         .ok()
         .and_then(|n| n.checked_sub(1))
         .and_then(|index| entries.get(index))
-        .is_some_and(|entry| entry.action == nodus_core::history::Action::Adopt);
+        .is_some_and(|entry| entry.manager == Manager::Dotfiles);
     if is_adoption {
         return dotfiles_history_undo(n, &entries, &history_path);
     }
@@ -423,9 +424,9 @@ fn dotfiles_command(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn dotfiles_adopt(path: &str) -> Result<()> {
-    use std::io::IsTerminal;
-    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
+/// A pasta-fonte (`dotfiles_dir` do config), já por `canonicalize`: o symlink aponta para dentro
+/// dela, então ela precisa existir.
+fn dotfiles_source_dir() -> Result<std::path::PathBuf> {
     let config_path = config_file()?;
     let source_dir = config::read(&config_path)?.dotfiles_dir.with_context(|| {
         format!(
@@ -433,9 +434,36 @@ fn dotfiles_adopt(path: &str) -> Result<()> {
             config_path.display()
         )
     })?;
-    // O symlink aponta para o caminho real da pasta-fonte (que precisa existir).
-    let dir = std::fs::canonicalize(&source_dir)
-        .with_context(|| format!("a pasta-fonte {} não existe", source_dir.display()))?;
+    std::fs::canonicalize(&source_dir)
+        .with_context(|| format!("a pasta-fonte {} não existe", source_dir.display()))
+}
+
+fn dotfiles_link(path: &str) -> Result<()> {
+    use std::io::IsTerminal;
+    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
+    let dir = dotfiles_source_dir()?;
+    let history_path = history_file()?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
+    let stdin = std::io::stdin();
+    let request = dotfiles_link::Request {
+        home: &home,
+        dir: &dir,
+        path,
+        interactive: stdin.is_terminal(),
+        history_path: &history_path,
+        now_unix,
+    };
+    dotfiles_link::link(&request, &mut stdin.lock(), &mut std::io::stdout())?;
+    Ok(())
+}
+
+fn dotfiles_adopt(path: &str) -> Result<()> {
+    use std::io::IsTerminal;
+    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
+    let dir = dotfiles_source_dir()?;
     let history_path = history_file()?;
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

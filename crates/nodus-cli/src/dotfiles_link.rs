@@ -1,3 +1,147 @@
+//! `nodusctl dotfiles link <caminho>` (ADR 0024): cria no HOME o symlink para um arquivo que já está
+//! na pasta-fonte (máquina nova com o repo clonado). Nunca sobrescreve: o destino não pode existir
+//! e o `symlink(2)` direto falha com `EEXIST` se algo aparecer no meio (um `rename` sobrescreveria).
+//! Tudo o que pode ser recusado é recusado **antes** da pergunta; as pastas-pai só são criadas depois
+//! da confirmação.
+
+use crate::dotfiles::observe;
+use crate::dotfiles_adopt::{check_parents, ensure_dirs};
+use anyhow::{Context, Result, bail};
+use nodus_core::dotfiles::{LinkPlan, plan_link, validate_path};
+use nodus_core::history::entry_from_link;
+use std::fs;
+use std::io::{BufRead, ErrorKind, Write};
+use std::os::unix::fs::symlink;
+use std::path::Path;
+
+/// Tudo o que o `link` precisa saber, já resolvido pelo `main` (como no `adopt`).
+pub struct Request<'a> {
+    pub home: &'a Path,
+    /// A pasta-fonte já resolvida por `canonicalize`: o symlink aponta para dentro dela.
+    pub dir: &'a Path,
+    /// Caminho relativo ao HOME, como o usuário digitou.
+    pub path: &'a str,
+    /// A entrada é um terminal: sem ele não há confirmação possível.
+    pub interactive: bool,
+    pub history_path: &'a Path,
+    pub now_unix: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Declined,
+    Linked,
+}
+
+fn render_plan(plan: &LinkPlan, missing_dirs: &[String]) -> String {
+    let dirs = if missing_dirs.is_empty() {
+        String::new()
+    } else {
+        format!("  criar pastas: {}\n", missing_dirs.join(", "))
+    };
+    format!(
+        "Ligar dotfile: {} ({} bytes)\n{dirs}  criar symlink: {} -> {}\nO destino não existe e o nodus nunca sobrescreve; a pasta-fonte não é alterada.\nAtenção: ligar um arquivo de shell (.bashrc, .profile) faz o shell executar o conteúdo dele no próximo login. Só ligue de uma pasta-fonte em que você confia; o nodus não olha o conteúdo.\n",
+        plan.path,
+        plan.size,
+        plan.link.display(),
+        plan.target.display()
+    )
+}
+
+/// Confere as pastas do caminho dentro do HOME sem seguir symlink e devolve as que faltam (a
+/// partir da primeira ausente, tudo abaixo dela também falta). Pasta que é symlink ou não é pasta
+/// recusa (T2): o link sairia do HOME.
+fn missing_home_dirs(home: &Path, path: &str) -> Result<Vec<String>> {
+    let parts: Vec<&str> = path.split('/').collect();
+    let mut current = home.to_path_buf();
+    let mut relative = String::new();
+    let mut missing = Vec::new();
+    for part in &parts[..parts.len() - 1] {
+        current.push(part);
+        if !relative.is_empty() {
+            relative.push('/');
+        }
+        relative.push_str(part);
+        if !missing.is_empty() {
+            missing.push(relative.clone());
+            continue;
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => bail!(
+                "{} é um symlink; o nodus só liga em pastas comuns do HOME",
+                current.display()
+            ),
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => bail!("{} existe e não é uma pasta", current.display()),
+            Err(erro) if erro.kind() == ErrorKind::NotFound => missing.push(relative.clone()),
+            Err(erro) => {
+                return Err(erro).with_context(|| format!("lendo {}", current.display()));
+            }
+        }
+    }
+    Ok(missing)
+}
+
+/// Valida, mostra o plano, pergunta `Executar? [s/N]`, cria as pastas e o symlink e grava o
+/// histórico. Sem terminal, recusa.
+pub fn link(
+    request: &Request,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<Outcome> {
+    let context = || format!("dotfile {:?}", request.path);
+    validate_path(request.path).with_context(context)?;
+    check_parents(request.dir, request.path).with_context(context)?;
+    let missing_dirs = missing_home_dirs(request.home, request.path).with_context(context)?;
+    let source = observe(request.dir, request.path)?;
+    let dest = observe(request.home, request.path)?;
+    let plan =
+        plan_link(request.home, request.dir, request.path, &source, &dest).with_context(context)?;
+    let dir_text = request
+        .dir
+        .to_str()
+        .context("a pasta-fonte não é UTF-8; o histórico não consegue registrá-la")?;
+
+    write!(output, "{}", render_plan(&plan, &missing_dirs)).context("escrevendo o plano")?;
+    if !request.interactive {
+        bail!("sem terminal interativo não há como confirmar; nada foi alterado");
+    }
+    if !crate::apply::confirm(input, output).context("lendo a resposta")? {
+        writeln!(output, "Nada foi alterado.").context("escrevendo a saída")?;
+        return Ok(Outcome::Declined);
+    }
+
+    ensure_dirs(request.home, request.path)?;
+    if observe(request.dir, request.path)? != source {
+        bail!("a fonte mudou desde o plano; nada foi ligado");
+    }
+    match symlink(&plan.target, &plan.link) {
+        Ok(()) => {}
+        Err(erro) if erro.kind() == ErrorKind::AlreadyExists => bail!(
+            "o destino {} apareceu durante a ligação; o nodus nunca sobrescreve",
+            plan.link.display()
+        ),
+        Err(erro) => {
+            return Err(erro).with_context(|| format!("criando o link {}", plan.link.display()));
+        }
+    }
+
+    // O link já existe; se o histórico falhar, o erro diz isso, para o dono não repetir.
+    let command = ["nodusctl", "dotfiles", "link", "--", request.path].map(String::from);
+    let entry = entry_from_link(request.path, dir_text, &command, request.now_unix);
+    crate::history::append(request.history_path, &entry).context(
+        "a ligação foi feita (o symlink foi criado), mas não consegui gravar o histórico",
+    )?;
+    writeln!(
+        output,
+        "Ligado: {} -> {}",
+        plan.link.display(),
+        plan.target.display()
+    )
+    .context("escrevendo a saída")?;
+    Ok(Outcome::Linked)
+}
+
 #[cfg(test)]
 mod tests {
     //! `dotfiles link` (ADR 0024): o fluxo inteiro (plano, pergunta, pastas, symlink, histórico) com

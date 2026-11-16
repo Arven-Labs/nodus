@@ -83,6 +83,12 @@ pub enum DotfilesAction {
         /// Caminho do arquivo relativo ao HOME (ex.: `.bashrc`, `.config/git/config`).
         path: String,
     },
+    /// Cria no HOME o symlink para um arquivo que já está na pasta-fonte (máquina nova). Mostra o
+    /// plano e pede confirmação; cria as pastas que faltam; nunca sobrescreve um destino existente.
+    Link {
+        /// Caminho do arquivo relativo ao HOME (ex.: `.bashrc`, `.config/git/config`).
+        path: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
