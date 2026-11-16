@@ -244,6 +244,74 @@ pub fn plan_adopt(
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
+pub enum LinkError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o arquivo na pasta-fonte não existe")]
+    SourceMissing,
+    #[error("na pasta-fonte, o caminho não é um arquivo comum (pasta, symlink, dispositivo etc.)")]
+    SourceNotAFile,
+    #[error("o arquivo na pasta-fonte tem {0} bytes; o limite é 1 MiB")]
+    SourceTooBig(u64),
+    #[error("já está ligado: o destino é um symlink para a pasta-fonte")]
+    AlreadyLinked,
+    #[error("o destino já existe no HOME; o nodus nunca sobrescreve (apague ou renomeie à mão)")]
+    DestExists,
+}
+
+/// O que o `link` vai fazer (ADR 0024): criar o symlink `link` apontando para `target`. Dado, sem
+/// efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: onde o symlink será criado (não pode existir).
+    pub link: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: o arquivo para o qual o symlink aponta.
+    pub target: PathBuf,
+    pub size: u64,
+}
+
+/// Valida tudo o que dá para validar sem tocar o disco. A fonte precisa ser arquivo comum de até
+/// 1 MiB; o destino não pode existir (nem como symlink para outro lugar). Um symlink exatamente
+/// para o alvo, comparado por texto como o `adopt` o grava, vira `AlreadyLinked`.
+pub fn plan_link(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    source: &Observed,
+    dest: &Observed,
+) -> Result<LinkPlan, LinkError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let target = dir.join(path);
+    let size = match source {
+        Observed::File { size } if *size > MAX_ADOPT_BYTES => {
+            return Err(LinkError::SourceTooBig(*size));
+        }
+        Observed::File { size } => *size,
+        Observed::Missing => return Err(LinkError::SourceMissing),
+        Observed::Symlink { .. } | Observed::Dir | Observed::Other => {
+            return Err(LinkError::SourceNotAFile);
+        }
+    };
+    match dest {
+        Observed::Missing => {}
+        Observed::Symlink { target: found } if *found == target.to_string_lossy() => {
+            return Err(LinkError::AlreadyLinked);
+        }
+        _ => return Err(LinkError::DestExists),
+    }
+    Ok(LinkPlan {
+        path: path.to_string(),
+        link: home.join(path),
+        target,
+        size,
+    })
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum UndoAdoptError {
     #[error("caminho inválido: {0}")]
     Path(#[from] DotfileError),
@@ -723,6 +791,140 @@ mod tests {
             ),
             Err(AdoptError::Dir(DirError::IsHome))
         );
+    }
+
+    // ---- plan_link: ligar um arquivo da pasta-fonte ao HOME (ADR 0024) ----
+
+    fn link_for(path: &str, source: Observed, dest: Observed) -> Result<LinkPlan, LinkError> {
+        plan_link(Path::new(HOME), Path::new(DIR), path, &source, &dest)
+    }
+
+    #[test]
+    fn link_com_fonte_comum_e_destino_ausente_guarda_link_alvo_e_tamanho() {
+        let plan = link_for(".bashrc", Observed::File { size: 1670 }, Observed::Missing).unwrap();
+        assert_eq!(plan.path, ".bashrc");
+        assert_eq!(plan.link, Path::new("/home/u/.bashrc"));
+        assert_eq!(plan.target, Path::new("/home/u/dotfiles/.bashrc"));
+        assert_eq!(plan.size, 1670);
+    }
+
+    #[test]
+    fn link_aninhado_espelha_o_caminho_na_pasta_fonte() {
+        let plan = link_for(
+            ".config/git/config",
+            Observed::File { size: 10 },
+            Observed::Missing,
+        )
+        .unwrap();
+        assert_eq!(plan.link, Path::new("/home/u/.config/git/config"));
+        assert_eq!(
+            plan.target,
+            Path::new("/home/u/dotfiles/.config/git/config")
+        );
+    }
+
+    #[test]
+    fn link_recusa_destino_que_existe_seja_qual_for_o_tipo() {
+        for dest in [
+            Observed::File { size: 5 },
+            Observed::Dir,
+            Observed::Other,
+            Observed::Symlink {
+                target: "/etc/profile".into(),
+            },
+            Observed::Symlink {
+                target: "/home/u/dotfiles/.zshrc".into(),
+            },
+        ] {
+            let erro = link_for(".bashrc", Observed::File { size: 5 }, dest.clone()).unwrap_err();
+            assert_eq!(erro, LinkError::DestExists, "{dest:?}");
+        }
+    }
+
+    #[test]
+    fn link_diz_que_ja_esta_ligado_so_quando_o_alvo_e_exatamente_o_da_fonte() {
+        let ligado = Observed::Symlink {
+            target: "/home/u/dotfiles/.bashrc".into(),
+        };
+        assert_eq!(
+            link_for(".bashrc", Observed::File { size: 5 }, ligado).unwrap_err(),
+            LinkError::AlreadyLinked
+        );
+        // barra final ou caminho relativo não são o que o nodus grava: contam como outro destino
+        for alvo in ["/home/u/dotfiles/.bashrc/", "dotfiles/.bashrc", ".bashrc"] {
+            let erro = link_for(
+                ".bashrc",
+                Observed::File { size: 5 },
+                Observed::Symlink {
+                    target: alvo.to_string(),
+                },
+            )
+            .unwrap_err();
+            assert_eq!(erro, LinkError::DestExists, "{alvo}");
+        }
+    }
+
+    #[test]
+    fn link_recusa_fonte_ausente_ou_que_nao_e_arquivo_comum() {
+        let casos = [
+            (Observed::Missing, LinkError::SourceMissing),
+            (Observed::Dir, LinkError::SourceNotAFile),
+            (Observed::Other, LinkError::SourceNotAFile),
+            (
+                Observed::Symlink {
+                    target: "/etc/passwd".into(),
+                },
+                LinkError::SourceNotAFile,
+            ),
+        ];
+        for (source, esperado) in casos {
+            let erro = link_for(".bashrc", source, Observed::Missing).unwrap_err();
+            assert_eq!(erro, esperado);
+        }
+    }
+
+    #[test]
+    fn link_aceita_fonte_de_exatamente_1_mib_e_recusa_um_byte_a_mais() {
+        assert!(
+            link_for(
+                ".bashrc",
+                Observed::File {
+                    size: MAX_ADOPT_BYTES
+                },
+                Observed::Missing
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            link_for(
+                ".bashrc",
+                Observed::File {
+                    size: MAX_ADOPT_BYTES + 1
+                },
+                Observed::Missing
+            )
+            .unwrap_err(),
+            LinkError::SourceTooBig(MAX_ADOPT_BYTES + 1)
+        );
+    }
+
+    #[test]
+    fn link_revalida_o_caminho_e_a_pasta() {
+        for path in [".ssh/config", "../x", "/etc/passwd", ""] {
+            let erro = link_for(path, Observed::File { size: 5 }, Observed::Missing).unwrap_err();
+            assert!(matches!(erro, LinkError::Path(_)), "{path}: {erro:?}");
+        }
+        for dir in ["/home/u", "/home/u/.ssh/dots", "relativa"] {
+            let erro = plan_link(
+                Path::new(HOME),
+                Path::new(dir),
+                ".bashrc",
+                &Observed::File { size: 5 },
+                &Observed::Missing,
+            )
+            .unwrap_err();
+            assert!(matches!(erro, LinkError::Dir(_)), "{dir}: {erro:?}");
+        }
     }
 
     // ---- plan_undo_adopt: desfazer a adoção (ADR 0023) ----

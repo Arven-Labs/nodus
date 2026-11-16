@@ -145,7 +145,7 @@ pub(crate) fn check_parents(home: &Path, path: &str) -> Result<()> {
 
 /// Cria, uma a uma, as pastas do destino dentro da pasta-fonte. Não usa `create_dir_all`, que
 /// seguiria um symlink e criaria pasta fora da pasta-fonte.
-fn ensure_dirs(dir: &Path, path: &str) -> Result<()> {
+pub(crate) fn ensure_dirs(dir: &Path, path: &str) -> Result<()> {
     let meta =
         fs::metadata(dir).with_context(|| format!("lendo a pasta-fonte {}", dir.display()))?;
     if !meta.is_dir() {

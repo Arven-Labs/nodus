@@ -83,6 +83,12 @@ pub enum DotfilesAction {
         /// Caminho do arquivo relativo ao HOME (ex.: `.bashrc`, `.config/git/config`).
         path: String,
     },
+    /// Cria no HOME o symlink para um arquivo que já está na pasta-fonte (máquina nova). Mostra o
+    /// plano e pede confirmação; cria as pastas que faltam; nunca sobrescreve um destino existente.
+    Link {
+        /// Caminho do arquivo relativo ao HOME (ex.: `.bashrc`, `.config/git/config`).
+        path: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -239,6 +245,20 @@ mod tests {
         }
         // sem caminho, é erro de uso
         assert!(Cli::try_parse_from(["nodus", "dotfiles", "adopt"]).is_err());
+    }
+
+    #[test]
+    fn dotfiles_link_recebe_o_caminho_relativo() {
+        let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", ".config/git/config"]).unwrap();
+        match cli.command {
+            Command::Dotfiles {
+                action: Some(DotfilesAction::Link { path }),
+                ..
+            } => assert_eq!(path, ".config/git/config"),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        // sem caminho, é erro de uso
+        assert!(Cli::try_parse_from(["nodus", "dotfiles", "link"]).is_err());
     }
 
     #[test]

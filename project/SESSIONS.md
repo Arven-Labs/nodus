@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-16 — Sessão 20, `dotfiles link` (critério 11, fatia 4)
+
+- **Pedido**: seguir com a fatia 4, em plan mode. Decisões do dono: um caminho por vez; destino existente sempre recusa; criar pastas-pai; ADR 0024 criado a pedido (PR #69, mesclado).
+- **Feito (PR #70)**: testes primeiro, CI **vermelho** por item inexistente (`plan_link`, `LinkError`, `LinkPlan`, `entry_from_link`, `Action::Link`, `DotfilesAction::Link`, `link`). Implementação: core (`plan_link` com alvo comparado por texto, `Action::Link`, `parse_line` v4 aceita `link`), CLI (`dotfiles_link.rs`: `missing_home_dirs` tolerante a pasta ausente, plano com aviso de execução de código, `ensure_dirs` reaproveitado, **`symlink(2)` direto** em vez de temporário + `rename`, histórico), `dotfiles_source_dir()` extraída do `adopt` (sem mudar comportamento), render, e o `history undo` passa a desviar toda entrada de dotfile antes de consultar o pacman. Uma rodada vermelha extra foi só de clippy (`type_complexity` num teste), corrigida com alias.
+- **Mutação**: aceitar destino arquivo e comparar o alvo por `Path` derrubaram **3 testes** (2 no core, 1 no CLI); revertida com `git revert`. A quebra do braço "pai é symlink" não derrubou nada e não é lacuna (o braço seguinte recusa do mesmo jeito; ver ADR 0024).
+- **Verificado no Arch real, em HOMEs temporários (dono, terminal real, `cargo build --release` na branch do PR #70)**: ver ADR 0024. O primeiro bloco colado (com `exec bash -l`) não rodou; foi refeito com um script.
+- **Não verificado**: num dotfile real; permissão negada na criação das pastas; `git config --global`, editores e KDE com o symlink; o runner do CI ser root.
+- **Fica**: `undo` da ligação (remover o symlink; fatia 5); `link` em lote; decidir se testa a reconferência da fonte e a do symlink do `undo` com um gancho; o `~/dotfiles` do dono (commit, remoto privado) e adotar os outros; `dotfiles dir set`; `apply` confirmado com `s`; P-02, P-14, P-17.
+
 ### 2026-11-16 — Sessão 20, `history undo` de dotfile (critério 11, fatia 3a)
 
 - **Pedido**: seguir com a fatia 3, em plan mode. Decisões do dono: só o undo (o `link` vira a fatia 4); copiar de volta e **manter** a fonte; se o symlink divergiu, **recusar e explicar**; ADR 0023 criado a pedido (PR #67, mesclado).

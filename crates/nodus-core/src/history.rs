@@ -26,6 +26,8 @@ pub enum Action {
     Remove,
     /// `dotfiles adopt`: o arquivo foi para a pasta-fonte e o original virou symlink (v4).
     Adopt,
+    /// `dotfiles link`: o arquivo da pasta-fonte ganhou um symlink no HOME (v4, ADR 0024).
+    Link,
 }
 
 /// Qual gerenciador a entrada registra. Define a regra de validação dos nomes (pacote do pacman ou
@@ -193,6 +195,15 @@ pub fn entry_from_adopt(path: &str, dir: &str, command: &[String], at_unix: u64)
     }
 }
 
+/// Entrada de uma ligação concluída (v4, ADR 0024). Só se grava depois de o symlink ser criado;
+/// falha antes dele não deixa nada no HOME (além de pastas-pai) e não há o que registrar.
+pub fn entry_from_link(path: &str, dir: &str, command: &[String], at_unix: u64) -> HistoryEntry {
+    HistoryEntry {
+        action: Action::Link,
+        ..entry_from_adopt(path, dir, command, at_unix)
+    }
+}
+
 /// Entrada da reversão de uma adoção (v4, ADR 0023), gravada só depois de o symlink ser trocado
 /// pela cópia. `undoes` é o número da adoção desfeita; o caminho fica em `still_missing`, como o
 /// pacote removido no undo do pacman.
@@ -276,13 +287,17 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
             check_dir(&dir)?;
             (Action::Adopt, None, Manager::Dotfiles, Some(dir))
         }
+        (4, Some(Action::Link), None, Some(Manager::Dotfiles), Some(dir)) => {
+            check_dir(&dir)?;
+            (Action::Link, None, Manager::Dotfiles, Some(dir))
+        }
         (4, Some(Action::Remove), Some(n), Some(Manager::Dotfiles), Some(dir)) if n >= 1 => {
             check_dir(&dir)?;
             (Action::Remove, Some(n), Manager::Dotfiles, Some(dir))
         }
         (4, ..) => {
             return Err(invalid(
-                "a versão 4 só tem `adopt` (sem `undoes`) ou `remove` (com `undoes` a partir de 1), sempre com `manager` dotfiles e `dir`",
+                "a versão 4 só tem `adopt` ou `link` (sem `undoes`) ou `remove` (com `undoes` a partir de 1), sempre com `manager` dotfiles e `dir`",
             ));
         }
         (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
@@ -300,14 +315,14 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         manager,
         dir,
     };
-    if entry.action == Action::Adopt
+    if matches!(entry.action, Action::Adopt | Action::Link)
         && (entry.requested.len() != 1
             || entry.installed != entry.requested
             || !entry.still_missing.is_empty()
             || entry.result != ExecResult::Ok)
     {
         return Err(invalid(
-            "`adopt` registra um caminho, adotado (`installed` igual a `requested`), sem `still_missing` e com resultado ok",
+            "`adopt` e `link` registram um caminho (`installed` igual a `requested`), sem `still_missing` e com resultado ok",
         ));
     }
     if entry.action == Action::Remove
@@ -1052,6 +1067,87 @@ mod tests {
     #[test]
     fn format_utc_na_epoca() {
         assert_eq!(format_utc(0), "1970-01-01T00:00:00Z");
+    }
+
+    // ---- link de dotfile: v4 `link` + `dotfiles` + `dir` (ADR 0024) ----
+
+    fn ligacao(path: &str) -> HistoryEntry {
+        entry_from_link(
+            path,
+            DIR,
+            &v(&["nodusctl", "dotfiles", "link", "--", path]),
+            1_700_000_500,
+        )
+    }
+
+    #[test]
+    fn entry_from_link_registra_o_caminho_ligado_e_a_pasta() {
+        let e = ligacao(".bashrc");
+        assert_eq!(e.version, 4);
+        assert_eq!(e.action, Action::Link);
+        assert_eq!(e.manager, Manager::Dotfiles);
+        assert_eq!(e.requested, v(&[".bashrc"]));
+        assert_eq!(e.installed, v(&[".bashrc"]));
+        assert!(e.still_missing.is_empty());
+        assert_eq!(e.result, ExecResult::Ok);
+        assert_eq!(e.undoes, None);
+        assert_eq!(e.dir.as_deref(), Some(DIR));
+        assert_eq!(e.at_unix, 1_700_000_500);
+    }
+
+    #[test]
+    fn ligacao_serializa_action_link_e_faz_ida_e_volta() {
+        let e = ligacao(".config/git/config");
+        let linha = to_line(&e);
+        assert!(linha.contains(r#""action":"link""#), "{linha}");
+        assert_eq!(parse_line(&linha).unwrap(), e);
+    }
+
+    #[test]
+    fn v4_link_recusa_forma_incoerente() {
+        let base = || serde_json::to_value(ligacao(".bashrc")).unwrap();
+        let mut dois = base();
+        dois["requested"] = serde_json::json!([".bashrc", ".profile"]);
+        dois["installed"] = serde_json::json!([".bashrc", ".profile"]);
+        let mut sem_instalado = base();
+        sem_instalado["installed"] = serde_json::json!([]);
+        let mut faltando = base();
+        faltando["still_missing"] = serde_json::json!([".bashrc"]);
+        let mut falha = base();
+        falha["result"] = serde_json::json!({"status": "failed", "code": 1});
+        let mut com_undoes = base();
+        com_undoes["undoes"] = serde_json::json!(1);
+        let mut sem_dir = base();
+        sem_dir.as_object_mut().unwrap().remove("dir");
+        let mut pacman = base();
+        pacman["manager"] = serde_json::json!("pacman");
+        let mut dir_relativo = base();
+        dir_relativo["dir"] = serde_json::json!("dotfiles");
+        let mut segredo = base();
+        segredo["requested"] = serde_json::json!([".ssh/config"]);
+        segredo["installed"] = serde_json::json!([".ssh/config"]);
+        for linha in [
+            dois,
+            sem_instalado,
+            faltando,
+            falha,
+            com_undoes,
+            sem_dir,
+            pacman,
+            dir_relativo,
+            segredo,
+        ] {
+            assert!(parse_line(&linha.to_string()).is_err(), "{linha}");
+        }
+    }
+
+    #[test]
+    fn link_nas_versoes_antigas_e_recusado() {
+        for versao in [1, 2, 3] {
+            let mut linha = serde_json::to_value(ligacao(".bashrc")).unwrap();
+            linha["version"] = serde_json::json!(versao);
+            assert!(parse_line(&linha.to_string()).is_err(), "v{versao}");
+        }
     }
 
     // ---- undo de dotfile: v4 `remove` + `undoes` + `dotfiles` (ADR 0023) ----

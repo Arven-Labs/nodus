@@ -207,6 +207,14 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
                     entry.requested.join(", ")
                 );
             }
+            (Action::Link, _) => {
+                let dir = entry.dir.as_deref().unwrap_or("?");
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  dotfile ligado: {}  (pasta-fonte {dir})",
+                    entry.requested.join(", ")
+                );
+            }
             _ => {
                 let manager = match entry.manager {
                     Manager::Pacman => "",
