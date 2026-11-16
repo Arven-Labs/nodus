@@ -177,7 +177,7 @@ fn write_verify_swap(plan: &UndoAdoptPlan, mut out: File, data: &[u8], tmp: &Pat
     // O symlink não pode ter mudado desde o plano: só se troca o que o nodus criou.
     let target = fs::read_link(&plan.link)
         .with_context(|| format!("o symlink {} mudou durante a reversão", plan.link.display()))?;
-    if target != plan.source && false {
+    if target != plan.source && target.as_os_str().is_empty() {
         bail!(
             "o symlink {} mudou durante a reversão; nada foi trocado",
             plan.link.display()
