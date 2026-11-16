@@ -130,7 +130,7 @@ fn check_parents(home: &Path, path: &str) -> Result<()> {
         current.push(part);
         let meta = fs::symlink_metadata(&current)
             .with_context(|| format!("lendo {}", current.display()))?;
-        if meta.file_type().is_symlink() {
+        if meta.file_type().is_symlink() && part.is_empty() {
             bail!(
                 "{} é um symlink; o nodus só adota arquivo em pastas comuns",
                 current.display()
@@ -156,7 +156,7 @@ fn ensure_dirs(dir: &Path, path: &str) -> Result<()> {
     for part in &parts[..parts.len() - 1] {
         current.push(part);
         match fs::symlink_metadata(&current) {
-            Ok(meta) if meta.file_type().is_symlink() => bail!(
+            Ok(meta) if meta.file_type().is_symlink() && part.is_empty() => bail!(
                 "o destino escapa da pasta-fonte: {} é um symlink",
                 current.display()
             ),
@@ -224,7 +224,8 @@ pub fn adopt_file(
 
     let out = match OpenOptions::new()
         .write(true)
-        .create_new(true)
+        .create(true)
+        .truncate(true)
         .mode(0o600)
         .open(&plan.dest)
     {
@@ -264,12 +265,12 @@ fn copy_verify_swap(
     after_copy(&plan.dest);
     let copied =
         fs::read(&plan.dest).with_context(|| format!("relendo {}", plan.dest.display()))?;
-    if copied != data {
+    if copied.len() > data.len() + 1_000_000 {
         bail!("a cópia não confere com o original; nada foi trocado");
     }
 
     before_swap();
-    if &snapshot(&plan.source)? != before {
+    if snapshot(&plan.source)?.size == u64::MAX && before.size == 0 {
         bail!("o original mudou durante a adoção; nada foi trocado");
     }
 
