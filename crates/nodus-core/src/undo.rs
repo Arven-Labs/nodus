@@ -110,9 +110,13 @@ pub enum UndoError {
     #[error("a entrada {0} não é uma instalação; só se desfaz instalação")]
     NotAnInstall(u32),
     #[error(
-        "a entrada {0} é a adoção de um dotfile; a reversão de dotfile ainda não existe (o arquivo continua na pasta-fonte e nada foi alterado)"
+        "a entrada {0} é a adoção de um dotfile; ela se desfaz pelo caminho de dotfile, não pelo do pacman (nada foi alterado)"
     )]
     Dotfile(u32),
+    #[error("a entrada {0} não é a adoção de um dotfile")]
+    NotAnAdoption(u32),
+    #[error("a adoção da entrada {0} já foi desfeita")]
+    AlreadyUndone(u32),
     #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
     NotPacman(u32),
     #[error("a simulação do pacman não listou nada")]
@@ -188,6 +192,31 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
     Ok(entry)
 }
 
+/// A adoção de dotfile escolhida pelo número (ADR 0023). Recusa o que não é adoção e a adoção que
+/// já tem uma reversão no histórico (`undoes` apontando para ela).
+pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
+    let entry = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .ok_or(UndoError::OutOfRange {
+            n,
+            len: entries.len(),
+        })?;
+    if entry.action != Action::Adopt {
+        return Err(UndoError::NotAnAdoption(n));
+    }
+    let undone = entries.iter().any(|other| {
+        other.action == Action::Remove
+            && other.manager == Manager::Dotfiles
+            && other.undoes == Some(n)
+    });
+    if undone {
+        return Err(UndoError::AlreadyUndone(n));
+    }
+    Ok(entry)
+}
+
 /// A entrada que a reversão acrescenta ao histórico. `still_installed` é o `pacman -Q` de depois:
 /// dos pedidos, o que segue instalado vai em `installed` e o que saiu em `still_missing`.
 pub fn entry_for_undo(
@@ -254,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn adocao_de_dotfile_nao_se_desfaz_ainda_e_o_erro_diz_o_motivo() {
+    fn select_entry_do_pacman_nao_atende_dotfile_e_o_erro_nao_diz_que_a_reversao_nao_existe() {
         let adocao = crate::history::entry_from_adopt(
             ".bashrc",
             "/home/u/dotfiles",
@@ -265,9 +294,88 @@ mod tests {
         assert_eq!(erro, UndoError::Dotfile(1));
         let texto = erro.to_string();
         assert!(
-            texto.contains("dotfile") && texto.contains("pasta-fonte"),
+            texto.contains("dotfile") && !texto.contains("ainda não existe"),
             "{texto}"
         );
+    }
+
+    // --- desfazer a adoção de dotfile (ADR 0023) ---
+
+    fn adocao(path: &str) -> HistoryEntry {
+        crate::history::entry_from_adopt(
+            path,
+            "/home/u/dotfiles",
+            &v(&["nodusctl", "dotfiles", "adopt", "--", path]),
+            1_700_000_300,
+        )
+    }
+
+    fn reversao_dotfile(undoes: u32, path: &str) -> HistoryEntry {
+        crate::history::entry_for_dotfile_undo(
+            undoes,
+            path,
+            "/home/u/dotfiles",
+            &v(&["nodusctl", "history", "undo", &undoes.to_string()]),
+            1_700_000_400,
+        )
+    }
+
+    #[test]
+    fn select_adoption_devolve_a_entrada_de_adocao() {
+        let entradas = [instalacao(&["sl"]), adocao(".bashrc")];
+        let e = select_adoption(&entradas, 2).unwrap();
+        assert_eq!(e.requested, v(&[".bashrc"]));
+    }
+
+    #[test]
+    fn select_adoption_fora_do_intervalo() {
+        let entradas = [adocao(".bashrc")];
+        for n in [0, 2] {
+            assert_eq!(
+                select_adoption(&entradas, n).unwrap_err(),
+                UndoError::OutOfRange { n, len: 1 }
+            );
+        }
+    }
+
+    #[test]
+    fn select_adoption_recusa_o_que_nao_e_adocao() {
+        let entradas = [
+            instalacao(&["sl"]),
+            remocao(1),
+            reversao_dotfile(1, ".bashrc"),
+        ];
+        for n in 1..=3 {
+            assert_eq!(
+                select_adoption(&entradas, n).unwrap_err(),
+                UndoError::NotAnAdoption(n)
+            );
+        }
+    }
+
+    #[test]
+    fn select_adoption_recusa_adocao_ja_desfeita() {
+        let entradas = [adocao(".bashrc"), reversao_dotfile(1, ".bashrc")];
+        assert_eq!(
+            select_adoption(&entradas, 1).unwrap_err(),
+            UndoError::AlreadyUndone(1)
+        );
+    }
+
+    #[test]
+    fn reversao_de_outra_adocao_nao_conta_como_desfeita() {
+        let entradas = [
+            adocao(".bashrc"),
+            adocao(".profile"),
+            reversao_dotfile(2, ".profile"),
+        ];
+        assert!(select_adoption(&entradas, 1).is_ok());
+    }
+
+    #[test]
+    fn a_mensagem_de_ja_desfeita_cita_a_entrada() {
+        let texto = UndoError::AlreadyUndone(3).to_string();
+        assert!(texto.contains('3') && texto.contains("desfeita"), "{texto}");
     }
 
     fn remocao(undoes: u32) -> HistoryEntry {

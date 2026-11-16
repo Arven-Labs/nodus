@@ -243,6 +243,83 @@ pub fn plan_adopt(
     })
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum UndoAdoptError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o caminho no HOME não é mais um symlink; o nodus não toca em arquivo comum")]
+    NotALink,
+    #[error("o symlink aponta para {found}, não para {expected}; o nodus só desfaz o que criou")]
+    WrongTarget { expected: String, found: String },
+    #[error("o arquivo na pasta-fonte não existe mais")]
+    SourceMissing,
+    #[error("na pasta-fonte, o caminho não é um arquivo comum")]
+    SourceNotAFile,
+    #[error("o arquivo na pasta-fonte tem {0} bytes; o limite é 1 MiB")]
+    SourceTooBig(u64),
+}
+
+/// O que o `undo` de uma adoção vai fazer (ADR 0023): trocar o symlink `link` por uma cópia de
+/// `source`, que fica onde está. Dado, sem efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoAdoptPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: o symlink que será trocado por um arquivo comum.
+    pub link: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: de onde a cópia sai; não é alterada.
+    pub source: PathBuf,
+    pub size: u64,
+    /// Só os 9 bits de permissão da fonte.
+    pub mode: u32,
+}
+
+/// `path` e `dir` vêm do histórico, que não é assinado: são revalidados aqui. O symlink precisa
+/// apontar exatamente para `<dir>/<path>`, e a fonte ser arquivo comum de até 1 MiB.
+pub fn plan_undo_adopt(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    link: &Observed,
+    source: &Observed,
+    source_mode: u32,
+) -> Result<UndoAdoptPlan, UndoAdoptError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let source_path = dir.join(path);
+    // Comparação de texto, não de `Path` (que ignora a barra final): o alvo tem de ser idêntico ao
+    // que o `adopt` gravou.
+    let expected = source_path.to_string_lossy().into_owned();
+    match link {
+        Observed::Symlink { target } if *target == expected => {}
+        Observed::Symlink { target } => {
+            return Err(UndoAdoptError::WrongTarget {
+                expected,
+                found: target.clone(),
+            });
+        }
+        _ => return Err(UndoAdoptError::NotALink),
+    }
+    let size = match source {
+        Observed::File { size } if *size > MAX_ADOPT_BYTES => {
+            return Err(UndoAdoptError::SourceTooBig(*size));
+        }
+        Observed::File { size } => *size,
+        Observed::Missing => return Err(UndoAdoptError::SourceMissing),
+        Observed::Symlink { .. } | Observed::Dir | Observed::Other => {
+            return Err(UndoAdoptError::SourceNotAFile);
+        }
+    };
+    Ok(UndoAdoptPlan {
+        path: path.to_string(),
+        link: home.join(path),
+        source: source_path,
+        size,
+        mode: source_mode & 0o777,
+    })
+}
+
 /// O alvo, resolvido a partir da pasta do link, cai fora do `$HOME`? Normalização léxica: `..`
 /// sobe um nível, `.` some. Compara componente a componente (`/home/u2` não está em `/home/u`).
 fn leaves_home(home: &Path, link: &str, target: &str) -> bool {
@@ -646,6 +723,177 @@ mod tests {
             ),
             Err(AdoptError::Dir(DirError::IsHome))
         );
+    }
+
+    // ---- plan_undo_adopt: desfazer a adoção (ADR 0023) ----
+
+    fn undo_for(
+        path: &str,
+        link: Observed,
+        source: Observed,
+        mode: u32,
+    ) -> Result<UndoAdoptPlan, UndoAdoptError> {
+        plan_undo_adopt(Path::new(HOME), Path::new(DIR), path, &link, &source, mode)
+    }
+
+    fn link_ok(path: &str) -> Observed {
+        Observed::Symlink {
+            target: format!("{DIR}/{path}"),
+        }
+    }
+
+    #[test]
+    fn undo_com_symlink_certo_e_fonte_comum_guarda_link_fonte_tamanho_e_permissao() {
+        let plan = undo_for(
+            ".bashrc",
+            link_ok(".bashrc"),
+            Observed::File { size: 1670 },
+            REGULAR | 0o644,
+        )
+        .unwrap();
+        assert_eq!(plan.path, ".bashrc");
+        assert_eq!(plan.link, Path::new("/home/u/.bashrc"));
+        assert_eq!(plan.source, Path::new("/home/u/dotfiles/.bashrc"));
+        assert_eq!(plan.size, 1670);
+        assert_eq!(plan.mode, 0o644);
+    }
+
+    #[test]
+    fn undo_tira_setuid_setgid_e_sticky_da_permissao() {
+        let plan = undo_for(
+            ".bashrc",
+            link_ok(".bashrc"),
+            Observed::File { size: 1 },
+            REGULAR | 0o7755,
+        )
+        .unwrap();
+        assert_eq!(plan.mode, 0o755);
+    }
+
+    #[test]
+    fn undo_recusa_quando_o_home_nao_e_symlink() {
+        for link in [
+            Observed::Missing,
+            Observed::File { size: 5 },
+            Observed::Dir,
+            Observed::Other,
+        ] {
+            let erro = undo_for(
+                ".bashrc",
+                link.clone(),
+                Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert_eq!(erro, UndoAdoptError::NotALink, "{link:?}");
+        }
+    }
+
+    #[test]
+    fn undo_recusa_symlink_que_aponta_para_outro_lugar() {
+        for alvo in [
+            "/etc/profile",
+            "/home/u/dotfiles/.zshrc",
+            "/home/u/dotfiles/.bashrc/",
+            "/home/u/outra/.bashrc",
+            ".bashrc",
+        ] {
+            let erro = undo_for(
+                ".bashrc",
+                Observed::Symlink {
+                    target: alvo.to_string(),
+                },
+                Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert_eq!(
+                erro,
+                UndoAdoptError::WrongTarget {
+                    expected: "/home/u/dotfiles/.bashrc".to_string(),
+                    found: alvo.to_string(),
+                },
+                "{alvo}"
+            );
+        }
+    }
+
+    #[test]
+    fn undo_recusa_fonte_ausente_ou_que_nao_e_arquivo_comum() {
+        let casos = [
+            (Observed::Missing, UndoAdoptError::SourceMissing),
+            (Observed::Dir, UndoAdoptError::SourceNotAFile),
+            (Observed::Other, UndoAdoptError::SourceNotAFile),
+            (
+                Observed::Symlink {
+                    target: "/etc/passwd".into(),
+                },
+                UndoAdoptError::SourceNotAFile,
+            ),
+        ];
+        for (source, esperado) in casos {
+            let erro =
+                undo_for(".bashrc", link_ok(".bashrc"), source, REGULAR | 0o644).unwrap_err();
+            assert_eq!(erro, esperado);
+        }
+    }
+
+    #[test]
+    fn undo_aceita_fonte_de_exatamente_1_mib_e_recusa_um_byte_a_mais() {
+        assert!(
+            undo_for(
+                ".bashrc",
+                link_ok(".bashrc"),
+                Observed::File {
+                    size: MAX_ADOPT_BYTES
+                },
+                REGULAR | 0o644
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            undo_for(
+                ".bashrc",
+                link_ok(".bashrc"),
+                Observed::File {
+                    size: MAX_ADOPT_BYTES + 1
+                },
+                REGULAR | 0o644
+            )
+            .unwrap_err(),
+            UndoAdoptError::SourceTooBig(MAX_ADOPT_BYTES + 1)
+        );
+    }
+
+    #[test]
+    fn undo_revalida_o_caminho_e_a_pasta_vindos_do_historico() {
+        // Histórico não é assinado (T5): uma linha plantada não pode virar escrita fora da regra.
+        for path in [".ssh/authorized_keys", "../x", "/etc/passwd", ""] {
+            let erro = undo_for(
+                path,
+                Observed::Symlink {
+                    target: format!("{DIR}/{path}"),
+                },
+                Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoAdoptError::Path(_)), "{path}: {erro:?}");
+        }
+        for dir in ["/home/u", "/home/u/.ssh/dots", "relativa"] {
+            let erro = plan_undo_adopt(
+                Path::new(HOME),
+                Path::new(dir),
+                ".bashrc",
+                &Observed::Symlink {
+                    target: format!("{dir}/.bashrc"),
+                },
+                &Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoAdoptError::Dir(_)), "{dir}: {erro:?}");
+        }
     }
 
     #[test]

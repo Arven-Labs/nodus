@@ -193,6 +193,40 @@ pub fn entry_from_adopt(path: &str, dir: &str, command: &[String], at_unix: u64)
     }
 }
 
+/// Entrada da reversão de uma adoção (v4, ADR 0023), gravada só depois de o symlink ser trocado
+/// pela cópia. `undoes` é o número da adoção desfeita; o caminho fica em `still_missing`, como o
+/// pacote removido no undo do pacman.
+pub fn entry_for_dotfile_undo(
+    undoes: u32,
+    path: &str,
+    dir: &str,
+    command: &[String],
+    at_unix: u64,
+) -> HistoryEntry {
+    HistoryEntry {
+        version: DOTFILES_ENTRY_VERSION,
+        at_unix,
+        command: command.to_vec(),
+        requested: vec![path.to_string()],
+        installed: vec![],
+        still_missing: vec![path.to_string()],
+        result: ExecResult::Ok,
+        action: Action::Remove,
+        undoes: Some(undoes),
+        manager: Manager::Dotfiles,
+        dir: Some(dir.to_string()),
+    }
+}
+
+fn check_dir(dir: &str) -> Result<(), HistoryError> {
+    if !dir.starts_with('/') || dir.chars().any(char::is_control) {
+        return Err(HistoryError::Invalid(
+            "`dir` precisa ser um caminho absoluto, sem caractere de controle".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Uma linha de JSON, sem quebra de linha (o JSON escapa `\n` dentro de textos).
 pub fn to_line(entry: &HistoryEntry) -> String {
     // Invariante: a struct só tem textos, números e listas, e serializar isso não falha.
@@ -239,16 +273,16 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
             ));
         }
         (4, Some(Action::Adopt), None, Some(Manager::Dotfiles), Some(dir)) => {
-            if !dir.starts_with('/') || dir.chars().any(char::is_control) {
-                return Err(invalid(
-                    "`dir` precisa ser um caminho absoluto, sem caractere de controle",
-                ));
-            }
+            check_dir(&dir)?;
             (Action::Adopt, None, Manager::Dotfiles, Some(dir))
+        }
+        (4, Some(Action::Remove), Some(n), Some(Manager::Dotfiles), Some(dir)) if n >= 1 => {
+            check_dir(&dir)?;
+            (Action::Remove, Some(n), Manager::Dotfiles, Some(dir))
         }
         (4, ..) => {
             return Err(invalid(
-                "a versão 4 só tem `adopt` com `manager` dotfiles e `dir`, sem `undoes`",
+                "a versão 4 só tem `adopt` (sem `undoes`) ou `remove` (com `undoes` a partir de 1), sempre com `manager` dotfiles e `dir`",
             ));
         }
         (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
@@ -274,6 +308,17 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
     {
         return Err(invalid(
             "`adopt` registra um caminho, adotado (`installed` igual a `requested`), sem `still_missing` e com resultado ok",
+        ));
+    }
+    if entry.action == Action::Remove
+        && entry.manager == Manager::Dotfiles
+        && (entry.requested.len() != 1
+            || !entry.installed.is_empty()
+            || entry.still_missing != entry.requested
+            || entry.result != ExecResult::Ok)
+    {
+        return Err(invalid(
+            "a reversão de dotfile registra um caminho, em `still_missing`, sem `installed` e com resultado ok",
         ));
     }
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.
@@ -1007,6 +1052,91 @@ mod tests {
     #[test]
     fn format_utc_na_epoca() {
         assert_eq!(format_utc(0), "1970-01-01T00:00:00Z");
+    }
+
+    // ---- undo de dotfile: v4 `remove` + `undoes` + `dotfiles` (ADR 0023) ----
+
+    fn reversao(undoes: u32, path: &str) -> HistoryEntry {
+        entry_for_dotfile_undo(
+            undoes,
+            path,
+            DIR,
+            &v(&["nodusctl", "history", "undo", &undoes.to_string()]),
+            1_700_000_400,
+        )
+    }
+
+    #[test]
+    fn entry_for_dotfile_undo_registra_a_reversao_ligada_a_adocao() {
+        let e = reversao(2, ".bashrc");
+        assert_eq!(e.version, 4);
+        assert_eq!(e.action, Action::Remove);
+        assert_eq!(e.manager, Manager::Dotfiles);
+        assert_eq!(e.undoes, Some(2));
+        assert_eq!(e.requested, v(&[".bashrc"]));
+        assert!(e.installed.is_empty());
+        assert_eq!(e.still_missing, v(&[".bashrc"]));
+        assert_eq!(e.result, ExecResult::Ok);
+        assert_eq!(e.dir.as_deref(), Some(DIR));
+        assert_eq!(e.at_unix, 1_700_000_400);
+    }
+
+    #[test]
+    fn reversao_de_dotfile_faz_ida_e_volta_pela_linha() {
+        let e = reversao(1, ".config/git/config");
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+    }
+
+    #[test]
+    fn v4_remove_exige_undoes_a_partir_de_1_manager_dotfiles_e_dir() {
+        let mut sem_undoes = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        sem_undoes.as_object_mut().unwrap().remove("undoes");
+        let mut zero = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        zero["undoes"] = serde_json::json!(0);
+        let mut sem_dir = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        sem_dir.as_object_mut().unwrap().remove("dir");
+        let mut pacman = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        pacman["manager"] = serde_json::json!("pacman");
+        for linha in [sem_undoes, zero, sem_dir, pacman] {
+            assert!(parse_line(&linha.to_string()).is_err(), "{linha}");
+        }
+    }
+
+    #[test]
+    fn v4_remove_recusa_forma_incoerente() {
+        // Reversão de dotfile: um caminho, nada instalado, o caminho em still_missing, resultado ok.
+        let mut dois = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        dois["requested"] = serde_json::json!([".bashrc", ".profile"]);
+        dois["still_missing"] = serde_json::json!([".bashrc", ".profile"]);
+        let mut instalado = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        instalado["installed"] = serde_json::json!([".bashrc"]);
+        let mut falha = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        falha["result"] = serde_json::json!({"status": "failed", "code": 1});
+        let mut outro = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        outro["still_missing"] = serde_json::json!([".profile"]);
+        for linha in [dois, instalado, falha, outro] {
+            assert!(parse_line(&linha.to_string()).is_err(), "{linha}");
+        }
+    }
+
+    #[test]
+    fn v4_remove_valida_o_caminho_e_o_dir() {
+        let mut ssh = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        ssh["requested"] = serde_json::json!([".ssh/config"]);
+        ssh["still_missing"] = serde_json::json!([".ssh/config"]);
+        let mut dir_relativo = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        dir_relativo["dir"] = serde_json::json!("dotfiles");
+        for linha in [ssh, dir_relativo] {
+            assert!(parse_line(&linha.to_string()).is_err(), "{linha}");
+        }
+    }
+
+    #[test]
+    fn v3_remove_com_dotfiles_continua_recusado() {
+        let mut linha = serde_json::to_value(reversao(1, ".bashrc")).unwrap();
+        linha["version"] = serde_json::json!(3);
+        linha.as_object_mut().unwrap().remove("dir");
+        assert!(parse_line(&linha.to_string()).is_err());
     }
 
     #[test]

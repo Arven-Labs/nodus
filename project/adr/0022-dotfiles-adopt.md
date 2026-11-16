@@ -21,7 +21,7 @@ O ADR 0021 entregou só o relatório de dotfiles. O dono decidiu em 2026-11-16 q
 5. **Symlink absoluto**, apontando para o caminho real (`canonicalize`) da pasta-fonte, mostrado assim no plano.
 6. **Recusas** (nada é alterado): origem que é symlink, pasta ou outro tipo; origem acima de 1 MiB; algum componente do **pai** da origem (dentro do HOME) é symlink (T2); `dotfiles_dir` ausente, não configurada, relativa, inexistente ou dentro de um componente da denylist; pasta-fonte que contém o próprio arquivo; destino existente.
 7. **Histórico v4, só para dotfile** (a leitura continua aceitando v1 a v3): `manager = "dotfiles"`, `action = "adopt"`, `dir` (caminho absoluto da pasta-fonte, para o `undo` futuro não depender do config de hoje), nomes validados por `validate_path`. Pacman e Flatpak continuam gravando v3. A leitura estrita vale: um nodus antigo recusa a linha (`UnsupportedVersion`), como no ADR 0014.
-8. **`history undo` de entrada v4 recusa** com mensagem clara (a reversão é a fatia seguinte). O arquivo continua na pasta-fonte e o dono pode desfazer à mão.
+8. **`history undo` de entrada v4 recusa** com mensagem clara (a reversão é a fatia seguinte). O arquivo continua na pasta-fonte e o dono pode desfazer à mão. *(Emenda, ADR 0023: a reversão existe; o `undo` de adoção copia o conteúdo atual da fonte de volta e grava uma linha v4 `remove` com `undoes`. O `parse_line` v4 passou a aceitar essa combinação.)*
 9. **Sem dependência nova.** `O_NOFOLLOW` exigiria o crate `libc`; em vez disso: `symlink_metadata`, abrir, e comparar `dev`/`ino` do arquivo aberto com o observado.
 
 ## Alternativas

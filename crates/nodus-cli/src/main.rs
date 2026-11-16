@@ -11,6 +11,7 @@ mod config;
 mod discovery;
 mod dotfiles;
 mod dotfiles_adopt;
+mod dotfiles_undo;
 mod hardware;
 mod history;
 mod preset_file;
@@ -99,10 +100,43 @@ fn pacman_names(query: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+fn dotfiles_history_undo(
+    n: u32,
+    entries: &[nodus_core::history::HistoryEntry],
+    history_path: &std::path::Path,
+) -> Result<()> {
+    use std::io::IsTerminal;
+    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
+    let stdin = std::io::stdin();
+    let request = dotfiles_undo::Request {
+        home: &home,
+        entries,
+        n,
+        interactive: stdin.is_terminal(),
+        history_path,
+        now_unix,
+    };
+    dotfiles_undo::undo_dotfile(&request, &mut stdin.lock(), &mut std::io::stdout())?;
+    Ok(())
+}
+
 fn history_undo(n: u32) -> Result<()> {
     use std::io::IsTerminal;
     let history_path = history_file()?;
     let entries = history::read(&history_path)?;
+    // Dotfile não passa pelo pacman: desvia antes de consultá-lo (ADR 0023).
+    let is_adoption = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .is_some_and(|entry| entry.action == nodus_core::history::Action::Adopt);
+    if is_adoption {
+        return dotfiles_history_undo(n, &entries, &history_path);
+    }
     let installed = pacman_names("-Q")?;
     let explicit = pacman_names("-Qe")?;
     let now_unix = std::time::SystemTime::now()

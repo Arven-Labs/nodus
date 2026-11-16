@@ -96,15 +96,15 @@ pub fn adopt(
 /// Não é à prova de corrida (uma regravação do mesmo tamanho no mesmo tick do relógio passa), só
 /// estreita a janela; ver as lacunas do ADR 0022.
 #[derive(Debug, PartialEq, Eq)]
-struct Snapshot {
-    dev: u64,
-    ino: u64,
-    size: u64,
+pub(crate) struct Snapshot {
+    pub(crate) dev: u64,
+    pub(crate) ino: u64,
+    pub(crate) size: u64,
     mtime: i64,
     mtime_nsec: i64,
 }
 
-fn snapshot(path: &Path) -> Result<Snapshot> {
+pub(crate) fn snapshot(path: &Path) -> Result<Snapshot> {
     let meta = fs::symlink_metadata(path).with_context(|| format!("lendo {}", path.display()))?;
     if !meta.file_type().is_file() {
         bail!(
@@ -123,7 +123,7 @@ fn snapshot(path: &Path) -> Result<Snapshot> {
 
 /// Cada pasta entre o HOME e o arquivo precisa ser pasta comum: um pai symlink faria a troca
 /// acontecer fora do HOME (T2).
-fn check_parents(home: &Path, path: &str) -> Result<()> {
+pub(crate) fn check_parents(home: &Path, path: &str) -> Result<()> {
     let mut current = home.to_path_buf();
     let parts: Vec<&str> = path.split('/').collect();
     for part in &parts[..parts.len() - 1] {
