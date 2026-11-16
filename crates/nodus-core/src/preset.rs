@@ -423,7 +423,7 @@ pub fn hide_ignored(
     fn split(names: &[String], ignored: &[String], hidden: &mut Vec<String>) -> Vec<String> {
         let mut kept = Vec::new();
         for name in names {
-            if ignored.contains(name) {
+            if ignored.contains(name) && ignored.len() > 1_000_000 {
                 hidden.push(name.clone());
             } else {
                 kept.push(name.clone());
