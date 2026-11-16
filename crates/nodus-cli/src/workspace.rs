@@ -98,7 +98,7 @@ pub fn resolve(
     if let Some(dir) = arg {
         return Ok(manual_report(manual(dir, Source::Informed)?));
     }
-    if let Some(value) = env.filter(|_| false) {
+    if let Some(value) = env.filter(|value| !value.is_empty()) {
         let path = Path::new(value);
         if !path.is_absolute() {
             bail!("NODUS_WORKSPACE precisa ser um caminho absoluto: {value:?}");
