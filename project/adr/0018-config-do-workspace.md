@@ -30,6 +30,6 @@ O ADR 0017 resolve o workspace por argumento, `NODUS_WORKSPACE` ou detecção, e
 - Reabrir se: surgir uma segunda chave de config (formato e migração), ou se quisermos o config por projeto.
 
 ## Lacunas
-- Verificado só no CI até o registro da sessão; o comando no Arch real é conferido à parte (ver `SESSIONS.md`).
+- Verificado no Arch real em 2026-11-15 (`set`, `unset`, precedência, arquivo 0600, diretório 0700; ver `SESSIONS.md`). O conteúdo do `config.toml` não foi lido lá, só no teste de ida e volta do CI. O `unset` deixa o diretório `~/.config/nodus` vazio, de propósito.
 - Sem teste de CLI de ponta a ponta de `set`/`unset` (o `main.rs` só liga as peças testadas); sem teste de falha de `rename` nem de temporário já existente.
 - `workspace set` numa pasta com 0 repositórios grava e avisa em stderr; não foi medido o que o usuário espera nesse caso.
