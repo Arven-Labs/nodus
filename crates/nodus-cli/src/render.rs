@@ -187,7 +187,7 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
                     .ok()
                     .and_then(|undoes| undoes.checked_sub(1))
                     .and_then(|index| entries.get(index))
-                    .is_some_and(|original| original.action == Action::Link);
+                    .is_some_and(|original| original.action == Action::Adopt);
                 let what = if undid_link {
                     "ligação desfeita"
                 } else {

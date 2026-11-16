@@ -157,7 +157,7 @@ fn remove_link(plan: &UndoLinkPlan) -> Result<()> {
             plan.link.display()
         );
     }
-    fs::remove_file(&plan.link).with_context(|| format!("removendo {}", plan.link.display()))
+    fs::remove_file(&plan.target).with_context(|| format!("removendo {}", plan.link.display()))
 }
 
 /// Copia a fonte para um temporário ao lado do symlink, confere, reconfere o symlink e troca por
