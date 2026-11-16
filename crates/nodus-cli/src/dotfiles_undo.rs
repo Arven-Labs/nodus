@@ -538,6 +538,311 @@ mod tests {
         assert_eq!(nomes, [".bashrc"], "{nomes:?}");
     }
 
+    // ---- desfazer uma ligação (ADR 0025) ----
+
+    /// Uma máquina nova: o HOME está vazio e a pasta-fonte tem os arquivos. A ligação é feita de
+    /// verdade por `dotfiles_link::link`, então a entrada 1 do histórico é um `link`.
+    fn ligado(path: &str) -> Cenario {
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("dot");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(dir.join(".config/git")).unwrap();
+        fs::write(dir.join(".bashrc"), b"alias x=y\n").unwrap();
+        fs::write(dir.join(".config/git/config"), b"[user]\n").unwrap();
+        let c = Cenario {
+            history: tmp.path().join("state/nodus/history.jsonl"),
+            _tmp: tmp,
+            home,
+            dir,
+        };
+        let pedido = crate::dotfiles_link::Request {
+            home: &c.home,
+            dir: &c.dir,
+            path,
+            interactive: true,
+            history_path: &c.history,
+            now_unix: 1_700_000_500,
+        };
+        let resultado = crate::dotfiles_link::link(&pedido, &mut "s\n".as_bytes(), &mut Vec::new());
+        assert_eq!(resultado.unwrap(), crate::dotfiles_link::Outcome::Linked);
+        c
+    }
+
+    fn continua_ligado(c: &Cenario, path: &str) {
+        assert_eq!(
+            fs::read_link(c.home.join(path)).unwrap(),
+            c.dir.join(path),
+            "o symlink devia continuar"
+        );
+        assert_eq!(historico(c).len(), 1, "nada novo no histórico");
+    }
+
+    fn fonte_continua(c: &Cenario, path: &str, conteudo: &[u8]) {
+        let meta = fs::symlink_metadata(c.dir.join(path)).unwrap();
+        assert!(meta.file_type().is_file());
+        assert_eq!(fs::read(c.dir.join(path)).unwrap(), conteudo);
+    }
+
+    #[test]
+    fn desfazer_a_ligacao_com_s_remove_so_o_symlink_e_mantem_a_fonte() {
+        let c = ligado(".bashrc");
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+
+        assert_eq!(resultado.unwrap(), Outcome::Undone);
+        assert!(fs::symlink_metadata(c.home.join(".bashrc")).is_err());
+        fonte_continua(&c, ".bashrc", b"alias x=y\n");
+        assert!(saida.contains("Executar? [s/N]"), "{saida}");
+        assert!(saida.contains("Desfeito:"), "{saida}");
+    }
+
+    #[test]
+    fn grava_a_mesma_linha_v4_remove_do_undo_da_adocao() {
+        let c = ligado(".bashrc");
+        roda(&c, 1, true, "s\n").0.unwrap();
+
+        let h = historico(&c);
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0].action, Action::Link, "a ligação não é editada");
+        let e = &h[1];
+        assert_eq!(e.version, 4);
+        assert_eq!(e.action, Action::Remove);
+        assert_eq!(e.manager, Manager::Dotfiles);
+        assert_eq!(e.undoes, Some(1));
+        assert_eq!(e.requested, [".bashrc"]);
+        assert!(e.installed.is_empty());
+        assert_eq!(e.still_missing, [".bashrc"]);
+        assert_eq!(e.dir.as_deref(), c.dir.to_str());
+        assert_eq!(e.at_unix, 1_700_000_400);
+    }
+
+    #[test]
+    fn o_plano_da_ligacao_mostra_o_symlink_o_alvo_e_que_a_fonte_nao_muda() {
+        let c = ligado(".bashrc");
+        let (_, saida) = roda(&c, 1, true, "n\n");
+        assert!(
+            saida.contains("Desfazer a ligação do dotfile: .bashrc"),
+            "{saida}"
+        );
+        assert!(
+            saida.contains(&format!(
+                "remover o symlink {} -> {}",
+                c.home.join(".bashrc").display(),
+                c.dir.join(".bashrc").display()
+            )),
+            "{saida}"
+        );
+        assert!(saida.contains("pasta-fonte não é alterada"), "{saida}");
+        // não é o plano de restaurar cópia
+        assert!(!saida.contains("copiar de:"), "{saida}");
+    }
+
+    #[test]
+    fn as_pastas_criadas_pelo_link_ficam() {
+        let c = ligado(".config/git/config");
+        roda(&c, 1, true, "s\n").0.unwrap();
+
+        assert!(fs::symlink_metadata(c.home.join(".config/git/config")).is_err());
+        assert!(c.home.join(".config/git").is_dir());
+        assert!(c.home.join(".config").is_dir());
+        fonte_continua(&c, ".config/git/config", b"[user]\n");
+    }
+
+    #[test]
+    fn desfazer_a_ligacao_nao_toca_em_outro_arquivo_do_home() {
+        let c = ligado(".bashrc");
+        fs::write(c.home.join(".profile"), b"meu\n").unwrap();
+        roda(&c, 1, true, "s\n").0.unwrap();
+        assert_eq!(fs::read(c.home.join(".profile")).unwrap(), b"meu\n");
+    }
+
+    #[test]
+    fn ligacao_qualquer_resposta_que_nao_seja_s_ou_sim_nao_altera_nada() {
+        for resposta in ["n\n", "\n", "", "talvez\n", "y\n", "ss\n"] {
+            let c = ligado(".bashrc");
+            let (resultado, saida) = roda(&c, 1, true, resposta);
+            assert_eq!(resultado.unwrap(), Outcome::Declined, "{resposta:?}");
+            assert!(saida.contains("Nada foi alterado."), "{saida}");
+            continua_ligado(&c, ".bashrc");
+        }
+    }
+
+    #[test]
+    fn ligacao_sem_terminal_recusa_depois_do_plano_e_sem_alterar_nada() {
+        let c = ligado(".bashrc");
+        let (resultado, saida) = roda(&c, 1, false, "s\n");
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("terminal"), "{erro}");
+        assert!(!saida.contains("Executar?"), "{saida}");
+        continua_ligado(&c, ".bashrc");
+    }
+
+    #[test]
+    fn ligacao_recusa_se_o_caminho_virou_arquivo_comum_e_nao_toca_nele() {
+        let c = ligado(".bashrc");
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        fs::write(c.home.join(".bashrc"), b"editado no HOME\n").unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("symlink"), "{erro}");
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(
+            fs::read(c.home.join(".bashrc")).unwrap(),
+            b"editado no HOME\n"
+        );
+        assert_eq!(historico(&c).len(), 1);
+    }
+
+    #[test]
+    fn ligacao_recusa_se_o_caminho_sumiu() {
+        let c = ligado(".bashrc");
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(historico(&c).len(), 1);
+    }
+
+    #[test]
+    fn ligacao_recusa_se_o_symlink_aponta_para_outro_lugar() {
+        let c = ligado(".bashrc");
+        let outro = c.dir.join("outro");
+        fs::write(&outro, b"outro\n").unwrap();
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        symlink(&outro, c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(fs::read_link(c.home.join(".bashrc")).unwrap(), outro);
+        assert_eq!(fs::read(&outro).unwrap(), b"outro\n");
+        assert_eq!(historico(&c).len(), 1);
+    }
+
+    #[test]
+    fn ligacao_recusa_alvo_com_barra_final_porque_o_texto_nao_e_o_que_o_nodus_gravou() {
+        let c = ligado(".bashrc");
+        let com_barra = format!("{}/", c.dir.join(".bashrc").display());
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        symlink(&com_barra, c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(c.home.join(".bashrc"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn ligacao_ja_desfeita_recusa_e_nao_grava_de_novo() {
+        let c = ligado(".bashrc");
+        roda(&c, 1, true, "s\n").0.unwrap();
+        // Recria um symlink "certo" para provar que o motivo da recusa é o histórico.
+        symlink(c.dir.join(".bashrc"), c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("desfeita"), "{erro}");
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(historico(&c).len(), 2);
+        assert!(
+            fs::symlink_metadata(c.home.join(".bashrc"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn linha_de_ligacao_plantada_com_caminho_de_segredo_nao_remove_nada() {
+        let c = ligado(".bashrc");
+        fs::create_dir_all(c.home.join(".ssh")).unwrap();
+        fs::create_dir_all(c.dir.join(".ssh")).unwrap();
+        fs::write(c.dir.join(".ssh/authorized_keys"), b"chave\n").unwrap();
+        symlink(
+            c.dir.join(".ssh/authorized_keys"),
+            c.home.join(".ssh/authorized_keys"),
+        )
+        .unwrap();
+        let plantada = nodus_core::history::entry_from_link(
+            ".ssh/authorized_keys",
+            c.dir.to_str().unwrap(),
+            &["nodusctl".to_string()],
+            1,
+        );
+        let (resultado, saida) = roda_com(&c, &[plantada], 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(c.home.join(".ssh/authorized_keys"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn linha_de_ligacao_plantada_com_pasta_fonte_dentro_de_segredo_nao_remove_nada() {
+        let c = ligado(".bashrc");
+        let dentro = c.home.join(".ssh/dot");
+        fs::create_dir_all(&dentro).unwrap();
+        fs::write(dentro.join(".profile"), b"x\n").unwrap();
+        symlink(dentro.join(".profile"), c.home.join(".profile")).unwrap();
+        let plantada = nodus_core::history::entry_from_link(
+            ".profile",
+            dentro.to_str().unwrap(),
+            &["nodusctl".to_string()],
+            1,
+        );
+        let (resultado, saida) = roda_com(&c, &[plantada], 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(c.home.join(".profile"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn ligacao_recusa_se_uma_pasta_do_caminho_e_symlink() {
+        let c = ligado(".bashrc");
+        let fora = c._tmp.path().join("fora");
+        fs::create_dir_all(fora.join("git")).unwrap();
+        symlink(&fora, c.home.join(".config")).unwrap();
+        symlink(c.dir.join(".config/git/config"), fora.join("git/config")).unwrap();
+        let plantada = nodus_core::history::entry_from_link(
+            ".config/git/config",
+            c.dir.to_str().unwrap(),
+            &["nodusctl".to_string()],
+            1,
+        );
+        let (resultado, saida) = roda_com(&c, &[plantada], 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(fora.join("git/config"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn falha_ao_gravar_o_historico_diz_que_a_reversao_da_ligacao_ja_foi_feita() {
+        let c = ligado(".bashrc");
+        let entradas = historico(&c);
+        fs::set_permissions(&c.history, fs::Permissions::from_mode(0o400)).unwrap();
+        // Como root a escrita passaria; nesse caso não há o que testar.
+        if fs::OpenOptions::new().append(true).open(&c.history).is_ok() {
+            fs::set_permissions(&c.history, fs::Permissions::from_mode(0o600)).unwrap();
+            return;
+        }
+        let (resultado, _) = roda_com(&c, &entradas, 1, true, "s\n");
+        fs::set_permissions(&c.history, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("a reversão foi feita"), "{erro}");
+        assert!(fs::symlink_metadata(c.home.join(".bashrc")).is_err());
+    }
+
     #[test]
     fn falha_ao_gravar_o_historico_diz_que_a_reversao_ja_foi_feita() {
         let c = adotado();

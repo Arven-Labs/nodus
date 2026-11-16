@@ -927,6 +927,97 @@ mod tests {
         }
     }
 
+    // ---- plan_undo_link: desfazer a ligação (ADR 0025) ----
+
+    fn undo_link_for(path: &str, link: Observed) -> Result<UndoLinkPlan, UndoLinkError> {
+        plan_undo_link(Path::new(HOME), Path::new(DIR), path, &link)
+    }
+
+    #[test]
+    fn undo_link_com_o_symlink_certo_guarda_link_e_alvo() {
+        let plan = undo_link_for(".bashrc", link_ok(".bashrc")).unwrap();
+        assert_eq!(plan.path, ".bashrc");
+        assert_eq!(plan.link, Path::new("/home/u/.bashrc"));
+        assert_eq!(plan.target, Path::new("/home/u/dotfiles/.bashrc"));
+    }
+
+    #[test]
+    fn undo_link_aninhado_espelha_o_caminho() {
+        let plan = undo_link_for(".config/git/config", link_ok(".config/git/config")).unwrap();
+        assert_eq!(plan.link, Path::new("/home/u/.config/git/config"));
+        assert_eq!(
+            plan.target,
+            Path::new("/home/u/dotfiles/.config/git/config")
+        );
+    }
+
+    #[test]
+    fn undo_link_recusa_quando_o_home_nao_e_symlink() {
+        for link in [
+            Observed::Missing,
+            Observed::File { size: 5 },
+            Observed::Dir,
+            Observed::Other,
+        ] {
+            let erro = undo_link_for(".bashrc", link.clone()).unwrap_err();
+            assert_eq!(erro, UndoLinkError::NotALink, "{link:?}");
+        }
+    }
+
+    #[test]
+    fn undo_link_recusa_alvo_que_nao_e_exatamente_o_da_fonte() {
+        for alvo in [
+            "/etc/profile",
+            "/home/u/dotfiles/.zshrc",
+            "/home/u/dotfiles/.bashrc/",
+            "/home/u/outra/.bashrc",
+            "dotfiles/.bashrc",
+            ".bashrc",
+        ] {
+            let erro = undo_link_for(
+                ".bashrc",
+                Observed::Symlink {
+                    target: alvo.to_string(),
+                },
+            )
+            .unwrap_err();
+            assert_eq!(
+                erro,
+                UndoLinkError::WrongTarget {
+                    expected: "/home/u/dotfiles/.bashrc".to_string(),
+                    found: alvo.to_string(),
+                },
+                "{alvo}"
+            );
+        }
+    }
+
+    #[test]
+    fn undo_link_revalida_o_caminho_e_a_pasta_vindos_do_historico() {
+        for path in [".ssh/authorized_keys", "../x", "/etc/passwd", ""] {
+            let erro = undo_link_for(
+                path,
+                Observed::Symlink {
+                    target: format!("{DIR}/{path}"),
+                },
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoLinkError::Path(_)), "{path}: {erro:?}");
+        }
+        for dir in ["/home/u", "/home/u/.ssh/dots", "relativa"] {
+            let erro = plan_undo_link(
+                Path::new(HOME),
+                Path::new(dir),
+                ".bashrc",
+                &Observed::Symlink {
+                    target: format!("{dir}/.bashrc"),
+                },
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoLinkError::Dir(_)), "{dir}: {erro:?}");
+        }
+    }
+
     // ---- plan_undo_adopt: desfazer a adoção (ADR 0023) ----
 
     fn undo_for(

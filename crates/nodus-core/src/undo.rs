@@ -320,26 +320,39 @@ mod tests {
         )
     }
 
-    #[test]
-    fn select_adoption_devolve_a_entrada_de_adocao() {
-        let entradas = [instalacao(&["sl"]), adocao(".bashrc")];
-        let e = select_adoption(&entradas, 2).unwrap();
-        assert_eq!(e.requested, v(&[".bashrc"]));
+    fn ligacao(path: &str) -> HistoryEntry {
+        crate::history::entry_from_link(
+            path,
+            "/home/u/dotfiles",
+            &v(&["nodusctl", "dotfiles", "link", "--", path]),
+            1_700_000_500,
+        )
     }
 
     #[test]
-    fn select_adoption_fora_do_intervalo() {
+    fn select_dotfile_entry_devolve_a_entrada_e_diz_se_e_adocao_ou_ligacao() {
+        let entradas = [instalacao(&["sl"]), adocao(".bashrc"), ligacao(".profile")];
+        let (e, tipo) = select_dotfile_entry(&entradas, 2).unwrap();
+        assert_eq!(e.requested, v(&[".bashrc"]));
+        assert_eq!(tipo, DotfileKind::Adopt);
+        let (e, tipo) = select_dotfile_entry(&entradas, 3).unwrap();
+        assert_eq!(e.requested, v(&[".profile"]));
+        assert_eq!(tipo, DotfileKind::Link);
+    }
+
+    #[test]
+    fn select_dotfile_entry_fora_do_intervalo() {
         let entradas = [adocao(".bashrc")];
         for n in [0, 2] {
             assert_eq!(
-                select_adoption(&entradas, n).unwrap_err(),
+                select_dotfile_entry(&entradas, n).unwrap_err(),
                 UndoError::OutOfRange { n, len: 1 }
             );
         }
     }
 
     #[test]
-    fn select_adoption_recusa_o_que_nao_e_adocao() {
+    fn select_dotfile_entry_recusa_o_que_nao_e_adocao_nem_ligacao() {
         let entradas = [
             instalacao(&["sl"]),
             remocao(1),
@@ -347,43 +360,44 @@ mod tests {
         ];
         for n in 1..=3 {
             assert_eq!(
-                select_adoption(&entradas, n).unwrap_err(),
-                UndoError::NotAnAdoption(n)
+                select_dotfile_entry(&entradas, n).unwrap_err(),
+                UndoError::NotADotfileEntry(n)
             );
         }
     }
 
     #[test]
-    fn select_adoption_recusa_ligacao_porque_desfazer_ligacao_ainda_nao_existe() {
-        let ligacao = crate::history::entry_from_link(
-            ".bashrc",
-            "/home/u/dotfiles",
-            &v(&["nodusctl", "dotfiles", "link", "--", ".bashrc"]),
-            1_700_000_500,
-        );
-        assert_eq!(
-            select_adoption(&[ligacao], 1).unwrap_err(),
-            UndoError::NotAnAdoption(1)
-        );
-    }
-
-    #[test]
-    fn select_adoption_recusa_adocao_ja_desfeita() {
+    fn select_dotfile_entry_recusa_adocao_ja_desfeita() {
         let entradas = [adocao(".bashrc"), reversao_dotfile(1, ".bashrc")];
         assert_eq!(
-            select_adoption(&entradas, 1).unwrap_err(),
+            select_dotfile_entry(&entradas, 1).unwrap_err(),
             UndoError::AlreadyUndone(1)
         );
     }
 
     #[test]
-    fn reversao_de_outra_adocao_nao_conta_como_desfeita() {
+    fn select_dotfile_entry_recusa_ligacao_ja_desfeita() {
+        let entradas = [ligacao(".bashrc"), reversao_dotfile(1, ".bashrc")];
+        assert_eq!(
+            select_dotfile_entry(&entradas, 1).unwrap_err(),
+            UndoError::AlreadyUndone(1)
+        );
+    }
+
+    #[test]
+    fn reversao_de_outra_entrada_nao_conta_como_desfeita() {
         let entradas = [
             adocao(".bashrc"),
-            adocao(".profile"),
+            ligacao(".profile"),
             reversao_dotfile(2, ".profile"),
         ];
-        assert!(select_adoption(&entradas, 1).is_ok());
+        assert!(select_dotfile_entry(&entradas, 1).is_ok());
+    }
+
+    #[test]
+    fn a_mensagem_de_entrada_que_nao_e_de_dotfile_cita_a_entrada() {
+        let texto = UndoError::NotADotfileEntry(4).to_string();
+        assert!(texto.contains('4') && texto.contains("dotfile"), "{texto}");
     }
 
     #[test]

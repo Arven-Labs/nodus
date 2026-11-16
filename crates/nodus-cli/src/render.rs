@@ -979,6 +979,45 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
     }
 
     #[test]
+    fn historico_distingue_a_reversao_de_uma_ligacao_da_de_uma_adocao() {
+        let comando = ["nodusctl".to_string()];
+        let adocao = nodus_core::history::entry_from_adopt(
+            ".bashrc",
+            "/home/u/dotfiles",
+            &comando,
+            1_700_000_000,
+        );
+        let ligacao = nodus_core::history::entry_from_link(
+            ".profile",
+            "/home/u/dotfiles",
+            &comando,
+            1_700_000_100,
+        );
+        let desfaz = |n| {
+            nodus_core::history::entry_for_dotfile_undo(
+                n,
+                if n == 1 { ".bashrc" } else { ".profile" },
+                "/home/u/dotfiles",
+                &comando,
+                1_700_000_400,
+            )
+        };
+        let saida = render_history(&[adocao, ligacao, desfaz(1), desfaz(2)]);
+        assert!(
+            saida.contains(
+                "desfez [1]  dotfile restaurado: .bashrc  (pasta-fonte /home/u/dotfiles)\n"
+            ),
+            "{saida}"
+        );
+        assert!(
+            saida.contains(
+                "desfez [2]  ligação desfeita: .profile  (pasta-fonte /home/u/dotfiles)\n"
+            ),
+            "{saida}"
+        );
+    }
+
+    #[test]
     fn historico_vazio_diz_que_nao_ha_execucoes() {
         assert_eq!(render_history(&[]), "Nenhuma execução registrada.\n");
     }
