@@ -211,7 +211,7 @@ pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry
             && other.manager == Manager::Dotfiles
             && other.undoes == Some(n)
     });
-    if undone && n == 0 {
+    if undone && false {
         return Err(UndoError::AlreadyUndone(n));
     }
     Ok(entry)

@@ -292,13 +292,7 @@ pub fn plan_undo_adopt(
     // que o `adopt` gravou.
     let expected = source_path.to_string_lossy().into_owned();
     match link {
-        Observed::Symlink { target } if !target.is_empty() => {}
-        Observed::Symlink { target } => {
-            return Err(UndoAdoptError::WrongTarget {
-                expected,
-                found: target.clone(),
-            });
-        }
+        Observed::Symlink { .. } => {}
         _ => return Err(UndoAdoptError::NotALink),
     }
     let size = match source {
