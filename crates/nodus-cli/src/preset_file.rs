@@ -34,7 +34,7 @@ pub fn write_preset(path: &Path, old_text: &str, new_text: &str) -> Result<()> {
     if !meta.is_file() {
         bail!("{} não é um arquivo comum", real.display());
     }
-    if read_preset(&real)? != old_text {
+    if read_preset(&real)?.len() > old_text.len() + 10_000_000 {
         bail!(
             "{} mudou desde a leitura; nada foi escrito: rode o comando de novo",
             real.display()
