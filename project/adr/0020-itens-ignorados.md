@@ -28,7 +28,7 @@ O `preset adopt` (ADR 0019) pergunta de novo, a cada rodada, o que o dono pulou,
 - Reabrir se: o ignorado precisar ser por preset, ou se a lista ficar grande a ponto de pedir outro formato.
 
 ## Lacunas
-- Verificado só no CI até o registro da sessão; o comando no Arch real é conferido à parte (ver `SESSIONS.md`).
+- Verificado no Arch real em 2026-11-15 (`i`, `suggest` com e sem `--all`, `ignored`, `unignore` e a preservação da lista pelo `workspace set`; ver `SESSIONS.md`). Não exercitados lá: o caminho do Flatpak, `q` junto com `i` e `unignore` de nome nas duas listas (só testes de unidade).
 - Sem teste de CLI de ponta a ponta de `ignored`/`unignore` e do fluxo `adopt` com `i` (o `main.rs` só liga as peças testadas); sem teste de falha do `rename`.
 - `suggest` agora exige um `HOME` ou `XDG_CONFIG_HOME` absoluto (para achar o config), o que antes não precisava.
 - `unignore` de nome em duas listas (pacman e Flatpak) não tem teste dedicado.
