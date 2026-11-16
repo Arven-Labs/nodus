@@ -6,6 +6,7 @@
 
 use crate::history::check_file;
 use anyhow::{Context, Result, bail};
+use nodus_core::dotfiles;
 use nodus_core::preset::{is_valid_flatpak_id, is_valid_pacman_name};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{Read, Write};
@@ -23,11 +24,19 @@ pub struct Config {
     pub ignore_pacman: Vec<String>,
     /// IDs de app Flatpak que o `adopt` e o `suggest` não mostram mais.
     pub ignore_flatpak: Vec<String>,
+    /// Caminhos relativos ao HOME que entram no relatório de dotfiles além dos padrão (ADR 0021).
+    pub dotfiles_extra: Vec<String>,
+    /// Caminhos que saem do relatório de dotfiles (padrão ou extra).
+    pub dotfiles_skip: Vec<String>,
 }
 
 impl Config {
     fn is_empty(&self) -> bool {
-        self.workspace.is_none() && self.ignore_pacman.is_empty() && self.ignore_flatpak.is_empty()
+        self.workspace.is_none()
+            && self.ignore_pacman.is_empty()
+            && self.ignore_flatpak.is_empty()
+            && self.dotfiles_extra.is_empty()
+            && self.dotfiles_skip.is_empty()
     }
 }
 
@@ -77,7 +86,12 @@ fn parse(text: &str) -> Result<Config> {
     if let Some(key) = table.keys().find(|key| {
         !matches!(
             key.as_str(),
-            "version" | "workspace" | "ignore_pacman" | "ignore_flatpak"
+            "version"
+                | "workspace"
+                | "ignore_pacman"
+                | "ignore_flatpak"
+                | "dotfiles_extra"
+                | "dotfiles_skip"
         )
     }) {
         bail!("chave desconhecida: {key:?}");
@@ -105,11 +119,35 @@ fn parse(text: &str) -> Result<Config> {
         workspace,
         ignore_pacman: name_list(&table, "ignore_pacman", is_valid_pacman_name)?,
         ignore_flatpak: name_list(&table, "ignore_flatpak", is_valid_flatpak_id)?,
+        dotfiles_extra: path_list(&table, "dotfiles_extra")?,
+        dotfiles_skip: path_list(&table, "dotfiles_skip")?,
+    })
+}
+
+/// Lista de caminhos de dotfile: cada item passa em `validate_path` (relativo ao HOME, fora da
+/// denylist de segredos) e não repete. O erro cita a chave e o caminho.
+fn path_list(table: &toml::Table, key: &str) -> Result<Vec<String>> {
+    name_list_with(table, key, |path| {
+        dotfiles::validate_path(path).map_err(|e| anyhow::anyhow!("{path:?}: {e}"))
     })
 }
 
 /// Uma lista de nomes do config: cada item é texto, passa na regra de nome do preset e não repete.
 fn name_list(table: &toml::Table, key: &str, is_valid: fn(&str) -> bool) -> Result<Vec<String>> {
+    name_list_with(table, key, |name| {
+        if is_valid(name) {
+            Ok(())
+        } else {
+            bail!("nome inválido: {name:?}")
+        }
+    })
+}
+
+fn name_list_with(
+    table: &toml::Table,
+    key: &str,
+    check: impl Fn(&str) -> Result<()>,
+) -> Result<Vec<String>> {
     let items = match table.get(key) {
         None => return Ok(Vec::new()),
         Some(toml::Value::Array(items)) => items,
@@ -121,9 +159,7 @@ fn name_list(table: &toml::Table, key: &str, is_valid: fn(&str) -> bool) -> Resu
         let toml::Value::String(name) = item else {
             bail!("`{key}`: o item {number} precisa ser texto");
         };
-        if !is_valid(name) {
-            bail!("`{key}`: nome inválido no item {number}: {name:?}");
-        }
+        check(name).with_context(|| format!("`{key}`: item {number}"))?;
         if names.contains(name) {
             bail!("`{key}`: nome repetido: {name:?}");
         }
@@ -226,6 +262,8 @@ fn store(path: &Path, config: &Config) -> Result<()> {
     for (key, names) in [
         ("ignore_pacman", &config.ignore_pacman),
         ("ignore_flatpak", &config.ignore_flatpak),
+        ("dotfiles_extra", &config.dotfiles_extra),
+        ("dotfiles_skip", &config.dotfiles_skip),
     ] {
         if !names.is_empty() {
             let items = names.iter().cloned().map(toml::Value::String).collect();
