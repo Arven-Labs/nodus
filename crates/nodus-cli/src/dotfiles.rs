@@ -1,3 +1,54 @@
+//! `nodusctl dotfiles`: o I/O fino do relatório (ADR 0021). Só `symlink_metadata` e `read_link`:
+//! nunca abre o arquivo nem segue symlink. A lógica (validação, denylist, classificação) é do core.
+
+use anyhow::{Context, Result, bail};
+use nodus_core::dotfiles::{Entry, Observed, classify, validate_path};
+use std::path::{Path, PathBuf};
+
+/// O `$HOME`, que precisa ser absoluto: é a raiz de todos os caminhos da lista.
+pub fn home_dir(home: Option<&str>) -> Result<PathBuf> {
+    match home {
+        Some(home) if !home.is_empty() && Path::new(home).is_absolute() => Ok(PathBuf::from(home)),
+        _ => bail!("não achei o HOME: defina a variável HOME com um caminho absoluto"),
+    }
+}
+
+/// O que há em `home/path`, sem abrir o arquivo e sem seguir o symlink. Ausente (inclusive pai
+/// ausente) não é erro; qualquer outra falha (permissão no pai, por exemplo) é.
+pub fn observe(home: &Path, path: &str) -> Result<Observed> {
+    let full = home.join(path);
+    let meta = match std::fs::symlink_metadata(&full) {
+        Ok(meta) => meta,
+        Err(erro) if erro.kind() == std::io::ErrorKind::NotFound => return Ok(Observed::Missing),
+        Err(erro) => return Err(erro).with_context(|| format!("lendo {}", full.display())),
+    };
+    let kind = meta.file_type();
+    if kind.is_symlink() {
+        let target = std::fs::read_link(&full)
+            .with_context(|| format!("lendo o link {}", full.display()))?;
+        Ok(Observed::Symlink {
+            target: target.to_string_lossy().into_owned(),
+        })
+    } else if kind.is_file() {
+        Ok(Observed::File { size: meta.len() })
+    } else if kind.is_dir() {
+        Ok(Observed::Dir)
+    } else {
+        Ok(Observed::Other)
+    }
+}
+
+/// Uma entrada por item da lista, na ordem dela. Valida cada caminho de novo, mesmo vindo do
+/// config (que já valida): o relatório não confia em quem o chamou para barrar segredo.
+pub fn report(home: &Path, list: &[String]) -> Result<Vec<Entry>> {
+    list.iter()
+        .map(|path| {
+            validate_path(path).with_context(|| format!("dotfile {path:?}"))?;
+            Ok(classify(home, path, observe(home, path)?))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

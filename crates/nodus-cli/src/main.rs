@@ -43,6 +43,7 @@ fn main() -> Result<()> {
             None => show_history(json),
             Some(HistoryAction::Undo { n }) => history_undo(n),
         },
+        Command::Dotfiles { json } => dotfiles_command(json),
         Command::Repos { dir, fetch, json } => repos(dir.as_deref(), fetch, json),
         Command::Workspace { dir, json, action } => match action {
             None => workspace_command(dir.as_deref(), json),
@@ -366,6 +367,19 @@ fn workspace_command(dir: Option<&std::path::Path>, json: bool) -> Result<()> {
         ))?;
     } else {
         emit(&render::render_workspace(&report))?;
+    }
+    Ok(())
+}
+
+fn dotfiles_command(json: bool) -> Result<()> {
+    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
+    let config = config::read(&config_file()?)?;
+    let list = nodus_core::dotfiles::effective_list(&config.dotfiles_extra, &config.dotfiles_skip);
+    let entries = dotfiles::report(&home, &list)?;
+    if json {
+        emit(&format!("{}\n", serde_json::to_string_pretty(&entries)?))?;
+    } else {
+        emit(&render::render_dotfiles(&entries))?;
     }
     Ok(())
 }

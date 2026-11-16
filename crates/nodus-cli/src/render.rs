@@ -1,6 +1,7 @@
 //! Formatação do inventário para o terminal.
 
 use crate::workspace::{Report, Source};
+use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Suggestions};
@@ -402,6 +403,35 @@ pub fn render_workspace(report: &Report) -> String {
             );
         }
     }
+    out
+}
+
+/// Uma linha por dotfile, com o caminho alinhado, e o resumo no fim.
+pub fn render_dotfiles(entries: &[Entry]) -> String {
+    use nodus_core::dotfiles::Kind;
+    if entries.is_empty() {
+        return "Nenhum dotfile na lista.\n".to_string();
+    }
+    let width = entries.iter().map(|e| e.path.len()).max().unwrap_or(0);
+    let mut out = String::new();
+    for entry in entries {
+        let what = match &entry.kind {
+            Kind::Missing => "ausente".to_string(),
+            Kind::File { size } => format!("arquivo ({size} bytes)"),
+            Kind::Dir => "pasta".to_string(),
+            Kind::Other => "outro tipo".to_string(),
+            Kind::Symlink {
+                target,
+                outside_home,
+            } => {
+                let note = if *outside_home { " (fora do HOME)" } else { "" };
+                format!("symlink -> {target}{note}")
+            }
+        };
+        let _ = writeln!(out, "{:<width$}  {what}", entry.path);
+    }
+    let present = entries.iter().filter(|e| e.kind != Kind::Missing).count();
+    let _ = writeln!(out, "Presentes: {present} de {}.", entries.len());
     out
 }
 

@@ -32,6 +32,13 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<HistoryAction>,
     },
+    /// Mostra o estado dos dotfiles da lista curada (somente leitura; não abre os arquivos). A lista
+    /// padrão é ajustada com `dotfiles_extra` e `dotfiles_skip` no config.toml.
+    Dotfiles {
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
     /// Sem pasta: a de workspace (NODUS_WORKSPACE, ou a detectada; ver `workspace`).
     Repos {
