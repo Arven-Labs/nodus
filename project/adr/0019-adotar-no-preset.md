@@ -30,6 +30,7 @@ Medido no código, só leitura: `toml` 1.2.1 já está no `Cargo.lock` e depende
 - `config::commit` passa a `pub(crate)` e é compartilhado com o config.
 
 ## Lacunas
-- Verificado só no CI até o registro da sessão; o comando no Arch real é conferido à parte (ver `SESSIONS.md`).
+- Verificado no Arch real em 2026-11-15 com um preset gerado por `init` (adotou `alsa-firmware`, pulou `alsa-utils`; ver `SESSIONS.md`). Não exercitados lá: `q`, o caminho do Flatpak, preset comentado à mão, symlink e `adopt` sem terminal (só testes de unidade).
+- A mensagem final imprime `flatpak 0 ()` quando nada de Flatpak foi adotado (cosmético).
 - Sem teste de CLI de ponta a ponta do `adopt` (o `main.rs` só liga as peças testadas); sem teste de falha do `rename`; sem teste com um preset de verdade com muitos comentários além dos de unidade.
 - Preset com a lista escrita de forma exótica (strings multilinha, tabelas inline) não foi exercitado além dos casos de unidade.
