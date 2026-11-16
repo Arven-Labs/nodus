@@ -33,11 +33,15 @@ pub enum Command {
         action: Option<HistoryAction>,
     },
     /// Mostra o estado dos dotfiles da lista curada (somente leitura; não abre os arquivos). A lista
-    /// padrão é ajustada com `dotfiles_extra` e `dotfiles_skip` no config.toml.
+    /// padrão é ajustada com `dotfiles_extra` e `dotfiles_skip` no config.toml. `adopt` leva um
+    /// arquivo para a pasta-fonte (`dotfiles_dir`) e deixa um symlink no lugar.
+    #[command(args_conflicts_with_subcommands = true)]
     Dotfiles {
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        action: Option<DotfilesAction>,
     },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
     /// Sem pasta: a de workspace (NODUS_WORKSPACE, ou a detectada; ver `workspace`).
@@ -68,6 +72,16 @@ pub enum Command {
     Preset {
         #[command(subcommand)]
         action: PresetAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DotfilesAction {
+    /// Copia um arquivo do HOME para a pasta-fonte (`dotfiles_dir` no config.toml), confere byte a
+    /// byte e troca o original por um symlink. Mostra o plano e pede confirmação; nunca sobrescreve.
+    Adopt {
+        /// Caminho do arquivo relativo ao HOME (ex.: `.bashrc`, `.config/git/config`).
+        path: String,
     },
 }
 
@@ -203,10 +217,28 @@ mod tests {
             (vec!["nodus", "dotfiles", "--json"], true),
         ] {
             match Cli::try_parse_from(&args).unwrap().command {
-                Command::Dotfiles { json } => assert_eq!(json, esperado, "{args:?}"),
+                Command::Dotfiles { json, action } => {
+                    assert_eq!(json, esperado, "{args:?}");
+                    assert!(action.is_none(), "{args:?}");
+                }
                 outro => panic!("comando errado: {outro:?}"),
             }
         }
+    }
+
+    #[test]
+    fn dotfiles_adopt_recebe_o_caminho_relativo() {
+        let cli =
+            Cli::try_parse_from(["nodus", "dotfiles", "adopt", ".config/git/config"]).unwrap();
+        match cli.command {
+            Command::Dotfiles {
+                action: Some(DotfilesAction::Adopt { path }),
+                ..
+            } => assert_eq!(path, ".config/git/config"),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        // sem caminho, é erro de uso
+        assert!(Cli::try_parse_from(["nodus", "dotfiles", "adopt"]).is_err());
     }
 
     #[test]

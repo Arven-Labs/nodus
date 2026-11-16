@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 use std::ffi::OsString;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
 /// Lista padrão. `.gtkrc-2.0` e os `rc` do KDE ficam fora de propósito: o desktop os reescreve.
@@ -31,7 +31,7 @@ pub enum DotfileError {
     Empty,
     #[error("o caminho precisa ser relativo ao HOME, não absoluto")]
     Absolute,
-    #[error("componente inválido (vazio, `.`, `..` ou byte nulo)")]
+    #[error("componente inválido (vazio, `.`, `..` ou caractere de controle)")]
     BadComponent,
     #[error("caminho de segredo ou credencial, que o nodus não lista")]
     Denied,
@@ -46,9 +46,10 @@ pub fn validate_path(path: &str) -> Result<(), DotfileError> {
         return Err(DotfileError::Absolute);
     }
     let parts: Vec<&str> = path.split('/').collect();
+    // O caminho vai para a tela (relatório, plano): nada de escape de terminal.
     if parts
         .iter()
-        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\0'))
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.chars().any(char::is_control))
     {
         return Err(DotfileError::BadComponent);
     }
@@ -130,6 +131,118 @@ pub fn classify(home: &Path, path: &str, observed: Observed) -> Entry {
     }
 }
 
+/// Tamanho máximo de um arquivo adotado: dotfile é pequeno; barra bancos, históricos e blobs.
+pub const MAX_ADOPT_BYTES: u64 = 1 << 20;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum DirError {
+    #[error("a pasta-fonte precisa ser um caminho absoluto")]
+    Relative,
+    #[error(
+        "a pasta-fonte tem componente inválido (vazio, `.`, `..`, fora de UTF-8 ou caractere de controle)"
+    )]
+    BadComponent,
+    #[error("a pasta-fonte não pode ser o próprio HOME")]
+    IsHome,
+    #[error("a pasta-fonte está dentro de um caminho de segredo ou credencial")]
+    Denied,
+}
+
+/// A parte da validação que não precisa do HOME: absoluta e sem componente estranho. É o que o
+/// config confere ao ler `dotfiles_dir`; o resto (HOME, denylist) é do `validate_dir`, no `adopt`.
+pub fn check_dir_shape(dir: &Path) -> Result<(), DirError> {
+    if !dir.is_absolute() {
+        return Err(DirError::Relative);
+    }
+    let text = dir.to_str().ok_or(DirError::BadComponent)?;
+    let trimmed = if text.len() > 1 {
+        text.strip_suffix('/').unwrap_or(text)
+    } else {
+        text
+    };
+    // `dir` é absoluto, então `trimmed` começa por `/`.
+    if trimmed[1..]
+        .split('/')
+        .any(|p| p.is_empty() || p == "." || p == ".." || p.chars().any(char::is_control))
+    {
+        return Err(DirError::BadComponent);
+    }
+    Ok(())
+}
+
+/// A pasta-fonte (ADR 0022): absoluta, sem componente estranho, diferente do HOME e, se estiver
+/// dentro dele, fora da denylist de segredos. Pura: não toca o disco (o CLI resolve o caminho real).
+pub fn validate_dir(home: &Path, dir: &Path) -> Result<(), DirError> {
+    check_dir_shape(dir)?;
+    if dir == home {
+        return Err(DirError::IsHome);
+    }
+    if let Ok(relative) = dir.strip_prefix(home) {
+        let parts: Vec<&str> = relative.iter().filter_map(|c| c.to_str()).collect();
+        if !parts.is_empty() && is_denied(&parts) {
+            return Err(DirError::Denied);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum AdoptError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o arquivo não existe")]
+    Missing,
+    #[error("o caminho já é um symlink; o nodus só adota arquivo comum")]
+    Symlink,
+    #[error("o caminho não é um arquivo comum (pasta, dispositivo etc.)")]
+    NotAFile,
+    #[error("o arquivo tem {0} bytes; o limite é 1 MiB")]
+    TooBig(u64),
+}
+
+/// O que o `adopt` vai fazer, calculado a partir do que o I/O observou. Dado, sem efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdoptPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: o arquivo real que será trocado por um symlink.
+    pub source: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: onde a cópia será criada (nunca sobrescreve).
+    pub dest: PathBuf,
+    pub size: u64,
+    /// Só os 9 bits de permissão; setuid, setgid e sticky ficam de fora.
+    pub mode: u32,
+}
+
+/// Valida tudo o que dá para validar sem tocar o disco. `mode` é o `st_mode` observado.
+pub fn plan_adopt(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    observed: &Observed,
+    mode: u32,
+) -> Result<AdoptPlan, AdoptError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let size = match observed {
+        Observed::File { size } if *size > MAX_ADOPT_BYTES => {
+            return Err(AdoptError::TooBig(*size));
+        }
+        Observed::File { size } => *size,
+        Observed::Missing => return Err(AdoptError::Missing),
+        Observed::Symlink { .. } => return Err(AdoptError::Symlink),
+        Observed::Dir | Observed::Other => return Err(AdoptError::NotAFile),
+    };
+    Ok(AdoptPlan {
+        path: path.to_string(),
+        source: home.join(path),
+        dest: dir.join(path),
+        size,
+        mode: mode & 0o777,
+    })
+}
+
 /// O alvo, resolvido a partir da pasta do link, cai fora do `$HOME`? Normalização léxica: `..`
 /// sobe um nível, `.` some. Compara componente a componente (`/home/u2` não está em `/home/u`).
 fn leaves_home(home: &Path, link: &str, target: &str) -> bool {
@@ -191,6 +304,22 @@ mod tests {
                 validate_path(path),
                 Err(DotfileError::BadComponent),
                 "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn recusa_caractere_de_controle_porque_o_caminho_vai_para_a_tela() {
+        for path in [
+            ".bashrc\n",
+            "\u{1b}[31m.bashrc",
+            ".config/a\tb",
+            ".bash\u{7f}rc",
+        ] {
+            assert_eq!(
+                validate_path(path),
+                Err(DotfileError::BadComponent),
+                "{path:?}"
             );
         }
     }
@@ -339,6 +468,184 @@ mod tests {
         );
         // Passa por dentro e volta para fora.
         assert_eq!(link(".profile", "a/../../x"), outside("a/../../x"));
+    }
+
+    // ---- validate_dir: a pasta-fonte (ADR 0022) ----
+
+    #[test]
+    fn pasta_fonte_aceita_dentro_ou_fora_do_home() {
+        for dir in ["/home/u/dotfiles", "/mnt/hd/dotfiles", "/home/u2/dotfiles"] {
+            assert_eq!(
+                validate_dir(Path::new(HOME), Path::new(dir)),
+                Ok(()),
+                "{dir}"
+            );
+        }
+    }
+
+    #[test]
+    fn pasta_fonte_recusa_relativa_dot_dotdot_e_controle() {
+        for dir in [
+            "dotfiles",
+            "",
+            "/home/u/../u/dotfiles",
+            "/home/u/./dotfiles",
+            "/home/u/dot\nfiles",
+            "/home/u/\u{1b}[31mx",
+        ] {
+            assert!(
+                matches!(
+                    validate_dir(Path::new(HOME), Path::new(dir)),
+                    Err(DirError::Relative | DirError::BadComponent)
+                ),
+                "{dir:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pasta_fonte_recusa_a_denylist_e_o_proprio_home() {
+        for dir in [
+            "/home/u/.ssh",
+            "/home/u/.ssh/dotfiles",
+            "/home/u/.gnupg/x",
+            "/home/u/.config/gh/x",
+            "/home/u/.aws",
+        ] {
+            assert_eq!(
+                validate_dir(Path::new(HOME), Path::new(dir)),
+                Err(DirError::Denied),
+                "{dir}"
+            );
+        }
+        for dir in ["/home/u", "/home/u/"] {
+            assert_eq!(
+                validate_dir(Path::new(HOME), Path::new(dir)),
+                Err(DirError::IsHome),
+                "{dir}"
+            );
+        }
+    }
+
+    // ---- plan_adopt: o plano puro, a partir do que o I/O observou ----
+
+    const DIR: &str = "/home/u/dotfiles";
+    const REGULAR: u32 = 0o100_000;
+
+    fn plan_for(path: &str, observed: Observed, mode: u32) -> Result<AdoptPlan, AdoptError> {
+        plan_adopt(Path::new(HOME), Path::new(DIR), path, &observed, mode)
+    }
+
+    #[test]
+    fn plano_de_arquivo_comum_guarda_origem_destino_tamanho_e_permissao() {
+        let plan = plan_for(".bashrc", Observed::File { size: 1670 }, REGULAR | 0o644).unwrap();
+        assert_eq!(plan.path, ".bashrc");
+        assert_eq!(plan.source, Path::new("/home/u/.bashrc"));
+        assert_eq!(plan.dest, Path::new("/home/u/dotfiles/.bashrc"));
+        assert_eq!(plan.size, 1670);
+        assert_eq!(plan.mode, 0o644);
+    }
+
+    #[test]
+    fn plano_aninhado_espelha_o_caminho_na_pasta_fonte() {
+        let plan = plan_for(
+            ".config/git/config",
+            Observed::File { size: 10 },
+            REGULAR | 0o600,
+        )
+        .unwrap();
+        assert_eq!(plan.dest, Path::new("/home/u/dotfiles/.config/git/config"));
+        assert_eq!(plan.mode, 0o600);
+    }
+
+    #[test]
+    fn plano_tira_setuid_setgid_e_sticky_da_permissao() {
+        for special in [0o4000, 0o2000, 0o1000, 0o7000] {
+            let plan = plan_for(
+                ".bashrc",
+                Observed::File { size: 1 },
+                REGULAR | special | 0o755,
+            )
+            .unwrap();
+            assert_eq!(plan.mode, 0o755, "{special:o}");
+        }
+    }
+
+    #[test]
+    fn plano_aceita_vazio_e_exatamente_o_limite_mas_recusa_um_byte_a_mais() {
+        assert!(plan_for(".bashrc", Observed::File { size: 0 }, REGULAR | 0o644).is_ok());
+        let limite = MAX_ADOPT_BYTES;
+        assert!(plan_for(".bashrc", Observed::File { size: limite }, REGULAR | 0o644).is_ok());
+        assert_eq!(
+            plan_for(
+                ".bashrc",
+                Observed::File { size: limite + 1 },
+                REGULAR | 0o644
+            ),
+            Err(AdoptError::TooBig(limite + 1))
+        );
+    }
+
+    #[test]
+    fn plano_recusa_o_que_nao_e_arquivo_comum() {
+        assert_eq!(
+            plan_for(".bashrc", Observed::Missing, 0),
+            Err(AdoptError::Missing)
+        );
+        assert_eq!(
+            plan_for(".bashrc", Observed::Symlink { target: "x".into() }, 0),
+            Err(AdoptError::Symlink)
+        );
+        assert_eq!(
+            plan_for(".config/git", Observed::Dir, 0),
+            Err(AdoptError::NotAFile)
+        );
+        assert_eq!(
+            plan_for(".bashrc", Observed::Other, 0),
+            Err(AdoptError::NotAFile)
+        );
+    }
+
+    #[test]
+    fn plano_recusa_caminho_invalido_antes_de_olhar_o_resto() {
+        for (path, erro) in [
+            (".ssh/config", DotfileError::Denied),
+            ("../.bashrc", DotfileError::BadComponent),
+            ("/etc/passwd", DotfileError::Absolute),
+            ("", DotfileError::Empty),
+        ] {
+            assert_eq!(
+                plan_for(path, Observed::File { size: 1 }, REGULAR | 0o644),
+                Err(AdoptError::Path(erro)),
+                "{path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn plano_recusa_pasta_fonte_invalida_e_pasta_igual_ao_home() {
+        let observed = Observed::File { size: 1 };
+        assert_eq!(
+            plan_adopt(
+                Path::new(HOME),
+                Path::new("/home/u/.ssh/dot"),
+                ".bashrc",
+                &observed,
+                REGULAR | 0o644
+            ),
+            Err(AdoptError::Dir(DirError::Denied))
+        );
+        // Com a pasta-fonte igual ao HOME, o destino seria o próprio arquivo.
+        assert_eq!(
+            plan_adopt(
+                Path::new(HOME),
+                Path::new(HOME),
+                ".bashrc",
+                &observed,
+                REGULAR | 0o644
+            ),
+            Err(AdoptError::Dir(DirError::IsHome))
+        );
     }
 
     #[test]

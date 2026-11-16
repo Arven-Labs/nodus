@@ -28,11 +28,15 @@ pub struct Config {
     pub dotfiles_extra: Vec<String>,
     /// Caminhos que saem do relatório de dotfiles (padrão ou extra).
     pub dotfiles_skip: Vec<String>,
+    /// Pasta-fonte do `dotfiles adopt`, que espelha o HOME (ADR 0022). Absoluta e sem componente
+    /// estranho; o resto (HOME, denylist) é conferido no `adopt`, que conhece o HOME.
+    pub dotfiles_dir: Option<PathBuf>,
 }
 
 impl Config {
     fn is_empty(&self) -> bool {
         self.workspace.is_none()
+            && self.dotfiles_dir.is_none()
             && self.ignore_pacman.is_empty()
             && self.ignore_flatpak.is_empty()
             && self.dotfiles_extra.is_empty()
@@ -92,6 +96,7 @@ fn parse(text: &str) -> Result<Config> {
                 | "ignore_flatpak"
                 | "dotfiles_extra"
                 | "dotfiles_skip"
+                | "dotfiles_dir"
         )
     }) {
         bail!("chave desconhecida: {key:?}");
@@ -121,7 +126,22 @@ fn parse(text: &str) -> Result<Config> {
         ignore_flatpak: name_list(&table, "ignore_flatpak", is_valid_flatpak_id)?,
         dotfiles_extra: path_list(&table, "dotfiles_extra")?,
         dotfiles_skip: path_list(&table, "dotfiles_skip")?,
+        dotfiles_dir: dotfiles_dir(&table)?,
     })
+}
+
+/// A pasta-fonte: texto, caminho absoluto e sem componente estranho (`check_dir_shape`).
+fn dotfiles_dir(table: &toml::Table) -> Result<Option<PathBuf>> {
+    match table.get("dotfiles_dir") {
+        None => Ok(None),
+        Some(toml::Value::String(value)) => {
+            let dir = Path::new(value);
+            dotfiles::check_dir_shape(dir)
+                .map_err(|e| anyhow::anyhow!("`dotfiles_dir`: {value:?}: {e}"))?;
+            Ok(Some(dir.to_path_buf()))
+        }
+        Some(_) => bail!("`dotfiles_dir` precisa ser texto"),
+    }
 }
 
 /// Lista de caminhos de dotfile: cada item passa em `validate_path` (relativo ao HOME, fora da
@@ -258,6 +278,12 @@ fn store(path: &Path, config: &Config) -> Result<()> {
             .to_str()
             .with_context(|| format!("caminho fora de UTF-8: {}", workspace.display()))?;
         table.insert("workspace".into(), toml::Value::String(value.into()));
+    }
+    if let Some(dir) = &config.dotfiles_dir {
+        let value = dir
+            .to_str()
+            .with_context(|| format!("caminho fora de UTF-8: {}", dir.display()))?;
+        table.insert("dotfiles_dir".into(), toml::Value::String(value.into()));
     }
     for (key, names) in [
         ("ignore_pacman", &config.ignore_pacman),
@@ -823,5 +849,61 @@ mod tests {
         let config = read(&path).unwrap();
         assert_eq!(config.workspace, None);
         assert_eq!(config.dotfiles_extra, nomes(&[".config/starship.toml"]));
+    }
+
+    // --- dotfiles_dir: a pasta-fonte do `dotfiles adopt` (ADR 0022) ---
+
+    #[test]
+    fn le_a_pasta_fonte_e_sem_a_chave_ela_e_nenhuma() {
+        let tmp = TmpDir::novo();
+        let path = config_com(&tmp, "version = 1\ndotfiles_dir = \"/home/u/dotfiles\"\n");
+        assert_eq!(
+            read(&path).unwrap().dotfiles_dir,
+            Some(PathBuf::from("/home/u/dotfiles"))
+        );
+        // O `TmpDir` precisa viver até o fim do teste: ele apaga a pasta ao ser descartado.
+        let tmp_sem = TmpDir::novo();
+        let sem = config_com(&tmp_sem, "version = 1\nworkspace = \"/ws\"\n");
+        assert!(sem.exists());
+        assert_eq!(read(&sem).unwrap().dotfiles_dir, None);
+    }
+
+    #[test]
+    fn read_recusa_pasta_fonte_invalida_e_diz_o_arquivo_e_a_chave() {
+        let casos = [
+            ("relativa", "dotfiles_dir = \"dotfiles\"\n"),
+            ("vazia", "dotfiles_dir = \"\"\n"),
+            ("com ..", "dotfiles_dir = \"/home/u/../x\"\n"),
+            ("com .", "dotfiles_dir = \"/home/u/./x\"\n"),
+            ("barra dupla", "dotfiles_dir = \"/home//u\"\n"),
+            ("com escape", "dotfiles_dir = \"/home/\\u001b[31mx\"\n"),
+            ("não é texto", "dotfiles_dir = 1\n"),
+            ("é lista", "dotfiles_dir = [\"/a\"]\n"),
+        ];
+        for (nome, linha) in casos {
+            let tmp = TmpDir::novo();
+            let path = config_com(&tmp, &format!("version = 1\n{linha}"));
+            let erro = format!("{:#}", read(&path).unwrap_err());
+            assert!(erro.contains("config.toml"), "{nome}: {erro}");
+            assert!(erro.contains("dotfiles_dir"), "{nome}: {erro}");
+        }
+    }
+
+    #[test]
+    fn toda_escrita_do_config_preserva_a_pasta_fonte() {
+        let tmp = TmpDir::novo();
+        let path = config_com(
+            &tmp,
+            "version = 1\nworkspace = \"/ws\"\ndotfiles_dir = \"/home/u/dotfiles\"\n",
+        );
+        write_workspace(&path, Path::new("/outro")).unwrap();
+        add_ignored(&path, &nomes(&["a"]), &[]).unwrap();
+        remove_ignored(&path, &nomes(&["a"])).unwrap();
+        assert!(clear_workspace(&path).unwrap());
+        // Só sobrou a pasta-fonte: o arquivo não pode ser apagado.
+        assert_eq!(
+            read(&path).unwrap().dotfiles_dir,
+            Some(PathBuf::from("/home/u/dotfiles"))
+        );
     }
 }

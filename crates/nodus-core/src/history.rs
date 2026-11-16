@@ -7,10 +7,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
-/// Versão do formato que o nodus grava. Mudar o formato exige subir este número. A leitura aceita
-/// também a versão 1 (só instalações, sem `action` nem `undoes`) e a 2 (sem `manager`, sempre
-/// pacman).
+/// Versão do formato que o nodus grava para pacman e Flatpak. Mudar o formato exige subir este
+/// número. A leitura aceita também a versão 1 (só instalações, sem `action` nem `undoes`), a 2 (sem
+/// `manager`, sempre pacman) e a 4 (`dotfiles adopt`, ADR 0022).
 pub const ENTRY_VERSION: u32 = 3;
+
+/// Versão das entradas de dotfile: só `adopt`, com `manager = "dotfiles"` e `dir`. Pacman e Flatpak
+/// continuam v3; um nodus antigo recusa a linha v4 (`UnsupportedVersion`), como no ADR 0014.
+pub const DOTFILES_ENTRY_VERSION: u32 = 4;
 
 /// O que a entrada registra.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +24,8 @@ pub enum Action {
     Install,
     /// `history undo`: reversão de uma instalação anterior.
     Remove,
+    /// `dotfiles adopt`: o arquivo foi para a pasta-fonte e o original virou symlink (v4).
+    Adopt,
 }
 
 /// Qual gerenciador a entrada registra. Define a regra de validação dos nomes (pacote do pacman ou
@@ -29,6 +35,8 @@ pub enum Action {
 pub enum Manager {
     Pacman,
     Flatpak,
+    /// Só na v4: os nomes são caminhos de dotfile (regra de `dotfiles::validate_path`).
+    Dotfiles,
 }
 
 /// Como a execução terminou, pelo status do processo. O que de fato mudou está em
@@ -64,8 +72,12 @@ pub struct HistoryEntry {
     /// Número (a partir de 1) da entrada que esta reversão desfaz; só existe em `Action::Remove`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub undoes: Option<u32>,
-    /// A partir da v3. A leitura de v1 e v2 preenche `Pacman`; a escrita só grava v3.
+    /// A partir da v3. A leitura de v1 e v2 preenche `Pacman`; pacman e Flatpak gravam v3.
     pub manager: Manager,
+    /// Só na v4 (`adopt`): a pasta-fonte, absoluta, onde a cópia ficou. O `undo` futuro não depende
+    /// do config de hoje.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
 }
 
 /// A linha como está no arquivo, antes de validar a combinação de campos por versão.
@@ -82,13 +94,16 @@ struct RawEntry {
     action: Option<Action>,
     undoes: Option<u32>,
     manager: Option<Manager>,
+    dir: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HistoryError {
     #[error("linha de histórico inválida: {0}")]
     Invalid(String),
-    #[error("versão {0} do histórico não é suportada (esta versão lê da 1 à {ENTRY_VERSION})")]
+    #[error(
+        "versão {0} do histórico não é suportada (esta versão lê da 1 à {DOTFILES_ENTRY_VERSION})"
+    )]
     UnsupportedVersion(u32),
     #[error("nome de pacote inválido no histórico: {0:?}")]
     InvalidPackageName(String),
@@ -156,6 +171,25 @@ fn install_entry(
         action: Action::Install,
         undoes: None,
         manager,
+        dir: None,
+    }
+}
+
+/// Entrada de uma adoção concluída (v4). Só se grava depois da troca por symlink; falha antes dela
+/// deixa o original intacto e não há o que registrar.
+pub fn entry_from_adopt(path: &str, dir: &str, command: &[String], at_unix: u64) -> HistoryEntry {
+    HistoryEntry {
+        version: DOTFILES_ENTRY_VERSION,
+        at_unix,
+        command: command.to_vec(),
+        requested: vec![path.to_string()],
+        installed: vec![path.to_string()],
+        still_missing: vec![],
+        result: ExecResult::Ok,
+        action: Action::Adopt,
+        undoes: None,
+        manager: Manager::Dotfiles,
+        dir: Some(dir.to_string()),
     }
 }
 
@@ -169,29 +203,52 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
     let raw: RawEntry =
         serde_json::from_str(line).map_err(|e| HistoryError::Invalid(e.to_string()))?;
     let invalid = |why: &str| HistoryError::Invalid(why.to_string());
-    let (action, undoes, manager) = match (raw.version, raw.action, raw.undoes, raw.manager) {
-        (1, None, None, None) => (Action::Install, None, Manager::Pacman),
+    let (action, undoes, manager, dir) = match (
+        raw.version,
+        raw.action,
+        raw.undoes,
+        raw.manager,
+        raw.dir,
+    ) {
+        (1, None, None, None, None) => (Action::Install, None, Manager::Pacman, None),
         (1, ..) => {
             return Err(invalid(
-                "a versão 1 não tem `action`, `undoes` nem `manager`",
+                "a versão 1 não tem `action`, `undoes`, `manager` nem `dir`",
             ));
         }
-        (2, Some(Action::Install), None, None) => (Action::Install, None, Manager::Pacman),
-        (2, Some(Action::Remove), Some(n), None) if n >= 1 => {
-            (Action::Remove, Some(n), Manager::Pacman)
+        (2, Some(Action::Install), None, None, None) => {
+            (Action::Install, None, Manager::Pacman, None)
+        }
+        (2, Some(Action::Remove), Some(n), None, None) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman, None)
         }
         (2, ..) => {
             return Err(invalid(
-                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager`",
+                "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager` nem `dir`",
             ));
         }
-        (3, Some(Action::Install), None, Some(manager)) => (Action::Install, None, manager),
-        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman)) if n >= 1 => {
-            (Action::Remove, Some(n), Manager::Pacman)
+        (3, Some(Action::Install), None, Some(manager), None) if manager != Manager::Dotfiles => {
+            (Action::Install, None, manager, None)
+        }
+        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman), None) if n >= 1 => {
+            (Action::Remove, Some(n), Manager::Pacman, None)
         }
         (3, ..) => {
             return Err(invalid(
-                "a versão 3 exige `manager`; `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman",
+                "a versão 3 exige `manager` (pacman ou flatpak); `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman; não tem `dir`",
+            ));
+        }
+        (4, Some(Action::Adopt), None, Some(Manager::Dotfiles), Some(dir)) => {
+            if !dir.starts_with('/') || dir.chars().any(char::is_control) {
+                return Err(invalid(
+                    "`dir` precisa ser um caminho absoluto, sem caractere de controle",
+                ));
+            }
+            (Action::Adopt, None, Manager::Dotfiles, Some(dir))
+        }
+        (4, ..) => {
+            return Err(invalid(
+                "a versão 4 só tem `adopt` com `manager` dotfiles e `dir`, sem `undoes`",
             ));
         }
         (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
@@ -207,11 +264,23 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         action,
         undoes,
         manager,
+        dir,
     };
+    if entry.action == Action::Adopt
+        && (entry.requested.len() != 1
+            || entry.installed != entry.requested
+            || !entry.still_missing.is_empty()
+            || entry.result != ExecResult::Ok)
+    {
+        return Err(invalid(
+            "`adopt` registra um caminho, adotado (`installed` igual a `requested`), sem `still_missing` e com resultado ok",
+        ));
+    }
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.
     let is_valid_name: fn(&str) -> bool = match entry.manager {
         Manager::Pacman => is_valid_pacman_name,
         Manager::Flatpak => is_valid_flatpak_id,
+        Manager::Dotfiles => |path| crate::dotfiles::validate_path(path).is_ok(),
     };
     let names = entry
         .requested
@@ -440,6 +509,7 @@ mod tests {
             action: Action::Remove,
             undoes: Some(undoes),
             manager: Manager::Pacman,
+            dir: None,
         }
     }
 
@@ -624,7 +694,7 @@ mod tests {
 
     #[test]
     fn recusa_versao_diferente() {
-        for ruim in [0, 4, 99] {
+        for ruim in [0, 5, 99] {
             let linha =
                 linha_valida().replacen(r#""version":3"#, &format!(r#""version":{ruim}"#), 1);
             assert_eq!(
@@ -681,6 +751,7 @@ mod tests {
             action: Action::Install,
             undoes: None,
             manager: Manager::Flatpak,
+            dir: None,
         }
     }
 
@@ -757,6 +828,178 @@ mod tests {
         e.action = Action::Remove;
         e.undoes = Some(1);
         assert!(parse_line(&to_line(&e)).is_err());
+    }
+
+    // --- v4: `dotfiles adopt` (ADR 0022) ---
+
+    const DIR: &str = "/home/u/dotfiles";
+
+    fn adocao(path: &str) -> HistoryEntry {
+        entry_from_adopt(
+            path,
+            DIR,
+            &v(&["nodusctl", "dotfiles", "adopt", "--", path]),
+            1_700_000_300,
+        )
+    }
+
+    /// Linha v4 como o nodus a grava.
+    fn linha_v4() -> String {
+        to_line(&adocao(".bashrc"))
+    }
+
+    #[test]
+    fn entry_from_adopt_registra_o_caminho_adotado_e_a_pasta() {
+        let e = adocao(".bashrc");
+        assert_eq!(e.version, 4);
+        assert_eq!(e.action, Action::Adopt);
+        assert_eq!(e.manager, Manager::Dotfiles);
+        assert_eq!(e.requested, v(&[".bashrc"]));
+        assert_eq!(e.installed, v(&[".bashrc"]));
+        assert!(e.still_missing.is_empty());
+        assert_eq!(e.result, ExecResult::Ok);
+        assert_eq!(e.undoes, None);
+        assert_eq!(e.dir.as_deref(), Some(DIR));
+        assert_eq!(e.at_unix, 1_700_000_300);
+        assert_eq!(
+            e.command,
+            v(&["nodusctl", "dotfiles", "adopt", "--", ".bashrc"])
+        );
+    }
+
+    #[test]
+    fn linha_v4_tem_a_ordem_do_contrato_e_ida_e_volta() {
+        let linha = linha_v4();
+        assert!(
+            linha.ends_with(r#""action":"adopt","manager":"dotfiles","dir":"/home/u/dotfiles"}"#),
+            "{linha}"
+        );
+        assert!(linha.starts_with(r#"{"version":4,"#), "{linha}");
+        assert_eq!(parse_line(&linha).unwrap(), adocao(".bashrc"));
+        // caminho aninhado também volta igual
+        let aninhado = adocao(".config/git/config");
+        assert_eq!(parse_line(&to_line(&aninhado)).unwrap(), aninhado);
+    }
+
+    #[test]
+    fn v1_a_v3_nao_levam_dir_e_pacman_ou_flatpak_nao_gravam_v4() {
+        // `dir` só existe na v4: acrescentado ao fim de uma linha v1, v2 ou v3 válida, é recusado.
+        let v3 = linha_valida();
+        for linha in [LINHA_V1, LINHA_V2, v3.as_str()] {
+            assert!(parse_line(linha).is_ok(), "a linha base precisa ser válida");
+            let com_dir = format!(
+                "{},\"dir\":\"/home/u/dotfiles\"}}",
+                linha.strip_suffix('}').unwrap()
+            );
+            assert!(parse_line(&com_dir).is_err(), "{com_dir}");
+        }
+        // v4 com pacman ou flatpak
+        for manager in ["pacman", "flatpak"] {
+            let linha = linha_v4().replace(
+                r#""manager":"dotfiles""#,
+                &format!(r#""manager":"{manager}""#),
+            );
+            assert!(parse_line(&linha).is_err(), "{manager}");
+        }
+    }
+
+    #[test]
+    fn v3_nao_aceita_manager_dotfiles_nem_action_adopt() {
+        let com_dotfiles =
+            linha_valida().replace(r#""manager":"pacman""#, r#""manager":"dotfiles""#);
+        assert!(parse_line(&com_dotfiles).is_err());
+        let com_adopt = linha_valida().replace(r#""action":"install""#, r#""action":"adopt""#);
+        assert!(parse_line(&com_adopt).is_err());
+    }
+
+    #[test]
+    fn v4_recusa_combinacao_de_campos_invalida() {
+        let casos = [
+            (
+                "sem dir",
+                linha_v4().replace(r#","dir":"/home/u/dotfiles""#, ""),
+            ),
+            (
+                "dir relativo",
+                linha_v4().replace(r#""dir":"/home/u/dotfiles""#, r#""dir":"dotfiles""#),
+            ),
+            (
+                "dir vazio",
+                linha_v4().replace(r#""dir":"/home/u/dotfiles""#, r#""dir":"""#),
+            ),
+            (
+                "dir com escape de terminal",
+                linha_v4().replace(
+                    r#""dir":"/home/u/dotfiles""#,
+                    r#""dir":"/home/u/\u001b[31mx""#,
+                ),
+            ),
+            (
+                "action install",
+                linha_v4().replace(r#""action":"adopt""#, r#""action":"install""#),
+            ),
+            (
+                "action remove",
+                linha_v4().replace(r#""action":"adopt""#, r#""action":"remove","undoes":1"#),
+            ),
+            (
+                "undoes na adoção",
+                linha_v4().replace(r#""action":"adopt""#, r#""action":"adopt","undoes":1"#),
+            ),
+            (
+                "installed diferente do pedido",
+                linha_v4().replacen(r#""installed":[".bashrc"]"#, r#""installed":[]"#, 1),
+            ),
+            (
+                "still_missing preenchido",
+                linha_v4().replacen(r#""still_missing":[]"#, r#""still_missing":[".bashrc"]"#, 1),
+            ),
+            (
+                "dois caminhos no pedido",
+                linha_v4()
+                    .replacen(
+                        r#""requested":[".bashrc"]"#,
+                        r#""requested":[".bashrc",".profile"]"#,
+                        1,
+                    )
+                    .replacen(
+                        r#""installed":[".bashrc"]"#,
+                        r#""installed":[".bashrc",".profile"]"#,
+                        1,
+                    ),
+            ),
+        ];
+        for (nome, linha) in casos {
+            assert!(parse_line(&linha).is_err(), "{nome}: {linha}");
+        }
+    }
+
+    #[test]
+    fn v4_valida_o_caminho_com_a_regra_dos_dotfiles() {
+        // Mesma regra do relatório (ADR 0021): relativo, sem `..`, fora da denylist.
+        for ruim in [
+            ".ssh/config",
+            "../.bashrc",
+            "/etc/passwd",
+            "",
+            ".gnupg",
+            "\u{1b}[31m.bashrc",
+            ".bash_history",
+        ] {
+            let mut e = adocao(".bashrc");
+            e.requested = v(&[ruim]);
+            e.installed = v(&[ruim]);
+            assert_eq!(
+                parse_line(&to_line(&e)).unwrap_err(),
+                HistoryError::InvalidPackageName(ruim.to_string()),
+                "{ruim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn v4_aceita_maiuscula_que_o_pacman_recusaria() {
+        assert!(parse_line(&to_line(&adocao(".config/Code/User/settings.json"))).is_ok());
     }
 
     // --- data legível (UTC, sem crate de datas) ---

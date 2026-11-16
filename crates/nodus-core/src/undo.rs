@@ -109,6 +109,10 @@ pub enum UndoError {
     OutOfRange { n: u32, len: usize },
     #[error("a entrada {0} não é uma instalação; só se desfaz instalação")]
     NotAnInstall(u32),
+    #[error(
+        "a entrada {0} é a adoção de um dotfile; a reversão de dotfile ainda não existe (o arquivo continua na pasta-fonte e nada foi alterado)"
+    )]
+    Dotfile(u32),
     #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
     NotPacman(u32),
     #[error("a simulação do pacman não listou nada")]
@@ -172,6 +176,9 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
             n,
             len: entries.len(),
         })?;
+    if entry.action == Action::Adopt {
+        return Err(UndoError::Dotfile(n));
+    }
     if entry.action != Action::Install {
         return Err(UndoError::NotAnInstall(n));
     }
@@ -207,6 +214,7 @@ pub fn entry_for_undo(
         action: Action::Remove,
         undoes: Some(undoes),
         manager: Manager::Pacman,
+        dir: None,
     }
 }
 
@@ -233,6 +241,7 @@ mod tests {
             action: Action::Install,
             undoes: None,
             manager: Manager::Pacman,
+            dir: None,
         }
     }
 
@@ -242,6 +251,23 @@ mod tests {
         e.manager = Manager::Flatpak;
         let erro = select_entry(&[e], 1).unwrap_err();
         assert_eq!(erro, UndoError::NotPacman(1));
+    }
+
+    #[test]
+    fn adocao_de_dotfile_nao_se_desfaz_ainda_e_o_erro_diz_o_motivo() {
+        let adocao = crate::history::entry_from_adopt(
+            ".bashrc",
+            "/home/u/dotfiles",
+            &["nodusctl".to_string()],
+            1_700_000_300,
+        );
+        let erro = select_entry(&[adocao], 1).unwrap_err();
+        assert_eq!(erro, UndoError::Dotfile(1));
+        let texto = erro.to_string();
+        assert!(
+            texto.contains("dotfile") && texto.contains("pasta-fonte"),
+            "{texto}"
+        );
     }
 
     fn remocao(undoes: u32) -> HistoryEntry {
@@ -256,6 +282,7 @@ mod tests {
             action: Action::Remove,
             undoes: Some(undoes),
             manager: Manager::Pacman,
+            dir: None,
         }
     }
 

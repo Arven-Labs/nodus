@@ -110,6 +110,7 @@ mod tests {
             action: Action::Install,
             undoes: None,
             manager: Manager::Pacman,
+            dir: None,
             at_unix: at,
             command: ["sudo", "pacman", "-S", "--needed", "--", pacote]
                 .map(String::from)
