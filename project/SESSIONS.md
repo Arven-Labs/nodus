@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-16 — Sessão 20, verificação do `apply` confirmado com `s` (só docs)
+
+- **Pedido**: fechar a dívida de verificação do `preset apply` (P-18, ADR 0016), em vez de código novo.
+- **Feito**: roteiro num script (o dono rodou no terminal real, `main` em `261124a`, histórico em `XDG_STATE_HOME` temporário). Preset `sl`, `brave-bin`, nome inexistente: `plan` e `apply` com o mesmo plano; `s` rodou só `sudo pacman -S --needed -- sl`, instalou `sl 5.05-6` (explícito), exit 0; "Depois:" correto; histórico com 1 linha; `plan` seguinte com 2 presentes; `history undo 1` removeu `sl` (`sudo pacman -Rs -- sl`, exit 0) e o histórico ficou com 2 linhas.
+- **Achado**: o pacman faz a própria pergunta `Proceed? [Y/n]` depois do `Executar? [s/N]` do nodus (duas confirmações); o nodus não passa `--noconfirm`, de propósito (ADR 0011).
+- **Não verificado**: item indisponível que o pacman só recusa na instalação; custo do `plan` com muitos itens faltando; o `apply` do passo Flatpak junto com indisponíveis.
+- **Fica**: `undo` da ligação de dotfile (fatia 5) e `link` em lote; verificar `adopt`, `undo` e `link` num dotfile real; o `~/dotfiles` do dono; reconferência de corrida com gancho (decisão); P-02, P-14, P-17.
+
 ### 2026-11-16 — Sessão 20, `dotfiles link` (critério 11, fatia 4)
 
 - **Pedido**: seguir com a fatia 4, em plan mode. Decisões do dono: um caminho por vez; destino existente sempre recusa; criar pastas-pai; ADR 0024 criado a pedido (PR #69, mesclado).
