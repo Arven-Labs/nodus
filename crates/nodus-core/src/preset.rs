@@ -244,7 +244,7 @@ fn insert_into_array(
     if closes_on_its_own_line {
         // Uma linha por nome, logo antes da linha do `]`. O último elemento precisa de vírgula.
         if let Some(end) = last_end
-            && next_significant(&text[end..close]) == Some('x')
+            && next_significant(&text[end..close]) != Some(',')
         {
             edits.push((end, ",".to_string()));
         }
