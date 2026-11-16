@@ -242,6 +242,20 @@ mod tests {
     }
 
     #[test]
+    fn dotfiles_link_recebe_o_caminho_relativo() {
+        let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", ".config/git/config"]).unwrap();
+        match cli.command {
+            Command::Dotfiles {
+                action: Some(DotfilesAction::Link { path }),
+                ..
+            } => assert_eq!(path, ".config/git/config"),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        // sem caminho, é erro de uso
+        assert!(Cli::try_parse_from(["nodus", "dotfiles", "link"]).is_err());
+    }
+
+    #[test]
     fn workspace_sem_argumento_e_em_texto() {
         let cli = Cli::try_parse_from(["nodus", "workspace"]).unwrap();
         match cli.command {

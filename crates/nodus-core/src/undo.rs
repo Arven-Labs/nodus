@@ -354,6 +354,20 @@ mod tests {
     }
 
     #[test]
+    fn select_adoption_recusa_ligacao_porque_desfazer_ligacao_ainda_nao_existe() {
+        let ligacao = crate::history::entry_from_link(
+            ".bashrc",
+            "/home/u/dotfiles",
+            &v(&["nodusctl", "dotfiles", "link", "--", ".bashrc"]),
+            1_700_000_500,
+        );
+        assert_eq!(
+            select_adoption(&[ligacao], 1).unwrap_err(),
+            UndoError::NotAnAdoption(1)
+        );
+    }
+
+    #[test]
     fn select_adoption_recusa_adocao_ja_desfeita() {
         let entradas = [adocao(".bashrc"), reversao_dotfile(1, ".bashrc")];
         assert_eq!(

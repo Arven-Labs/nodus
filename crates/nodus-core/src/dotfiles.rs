@@ -725,6 +725,140 @@ mod tests {
         );
     }
 
+    // ---- plan_link: ligar um arquivo da pasta-fonte ao HOME (ADR 0024) ----
+
+    fn link_for(path: &str, source: Observed, dest: Observed) -> Result<LinkPlan, LinkError> {
+        plan_link(Path::new(HOME), Path::new(DIR), path, &source, &dest)
+    }
+
+    #[test]
+    fn link_com_fonte_comum_e_destino_ausente_guarda_link_alvo_e_tamanho() {
+        let plan = link_for(".bashrc", Observed::File { size: 1670 }, Observed::Missing).unwrap();
+        assert_eq!(plan.path, ".bashrc");
+        assert_eq!(plan.link, Path::new("/home/u/.bashrc"));
+        assert_eq!(plan.target, Path::new("/home/u/dotfiles/.bashrc"));
+        assert_eq!(plan.size, 1670);
+    }
+
+    #[test]
+    fn link_aninhado_espelha_o_caminho_na_pasta_fonte() {
+        let plan = link_for(
+            ".config/git/config",
+            Observed::File { size: 10 },
+            Observed::Missing,
+        )
+        .unwrap();
+        assert_eq!(plan.link, Path::new("/home/u/.config/git/config"));
+        assert_eq!(
+            plan.target,
+            Path::new("/home/u/dotfiles/.config/git/config")
+        );
+    }
+
+    #[test]
+    fn link_recusa_destino_que_existe_seja_qual_for_o_tipo() {
+        for dest in [
+            Observed::File { size: 5 },
+            Observed::Dir,
+            Observed::Other,
+            Observed::Symlink {
+                target: "/etc/profile".into(),
+            },
+            Observed::Symlink {
+                target: "/home/u/dotfiles/.zshrc".into(),
+            },
+        ] {
+            let erro = link_for(".bashrc", Observed::File { size: 5 }, dest.clone()).unwrap_err();
+            assert_eq!(erro, LinkError::DestExists, "{dest:?}");
+        }
+    }
+
+    #[test]
+    fn link_diz_que_ja_esta_ligado_so_quando_o_alvo_e_exatamente_o_da_fonte() {
+        let ligado = Observed::Symlink {
+            target: "/home/u/dotfiles/.bashrc".into(),
+        };
+        assert_eq!(
+            link_for(".bashrc", Observed::File { size: 5 }, ligado).unwrap_err(),
+            LinkError::AlreadyLinked
+        );
+        // barra final ou caminho relativo não são o que o nodus grava: contam como outro destino
+        for alvo in ["/home/u/dotfiles/.bashrc/", "dotfiles/.bashrc", ".bashrc"] {
+            let erro = link_for(
+                ".bashrc",
+                Observed::File { size: 5 },
+                Observed::Symlink {
+                    target: alvo.to_string(),
+                },
+            )
+            .unwrap_err();
+            assert_eq!(erro, LinkError::DestExists, "{alvo}");
+        }
+    }
+
+    #[test]
+    fn link_recusa_fonte_ausente_ou_que_nao_e_arquivo_comum() {
+        let casos = [
+            (Observed::Missing, LinkError::SourceMissing),
+            (Observed::Dir, LinkError::SourceNotAFile),
+            (Observed::Other, LinkError::SourceNotAFile),
+            (
+                Observed::Symlink {
+                    target: "/etc/passwd".into(),
+                },
+                LinkError::SourceNotAFile,
+            ),
+        ];
+        for (source, esperado) in casos {
+            let erro = link_for(".bashrc", source, Observed::Missing).unwrap_err();
+            assert_eq!(erro, esperado);
+        }
+    }
+
+    #[test]
+    fn link_aceita_fonte_de_exatamente_1_mib_e_recusa_um_byte_a_mais() {
+        assert!(
+            link_for(
+                ".bashrc",
+                Observed::File {
+                    size: MAX_ADOPT_BYTES
+                },
+                Observed::Missing
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            link_for(
+                ".bashrc",
+                Observed::File {
+                    size: MAX_ADOPT_BYTES + 1
+                },
+                Observed::Missing
+            )
+            .unwrap_err(),
+            LinkError::SourceTooBig(MAX_ADOPT_BYTES + 1)
+        );
+    }
+
+    #[test]
+    fn link_revalida_o_caminho_e_a_pasta() {
+        for path in [".ssh/config", "../x", "/etc/passwd", ""] {
+            let erro = link_for(path, Observed::File { size: 5 }, Observed::Missing).unwrap_err();
+            assert!(matches!(erro, LinkError::Path(_)), "{path}: {erro:?}");
+        }
+        for dir in ["/home/u", "/home/u/.ssh/dots", "relativa"] {
+            let erro = plan_link(
+                Path::new(HOME),
+                Path::new(dir),
+                ".bashrc",
+                &Observed::File { size: 5 },
+                &Observed::Missing,
+            )
+            .unwrap_err();
+            assert!(matches!(erro, LinkError::Dir(_)), "{dir}: {erro:?}");
+        }
+    }
+
     // ---- plan_undo_adopt: desfazer a adoção (ADR 0023) ----
 
     fn undo_for(
