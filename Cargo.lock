@@ -181,6 +181,7 @@ dependencies = [
  "nodus-core",
  "serde_json",
  "sysinfo",
+ "toml",
 ]
 
 [[package]]

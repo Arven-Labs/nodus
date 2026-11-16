@@ -29,7 +29,7 @@ pub fn history_path(xdg_state_home: Option<&str>, home: Option<&str>) -> Result<
 
 /// `false` se o arquivo não existe. Recusa symlink, o que não é arquivo comum e permissão mais larga
 /// que 0600 (outro usuário não pode ler nem alterar o histórico).
-fn check_file(path: &Path) -> Result<bool> {
+pub(crate) fn check_file(path: &Path) -> Result<bool> {
     let meta = match std::fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),

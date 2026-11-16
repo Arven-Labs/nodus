@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Command, HistoryAction, PresetAction};
+use cli::{Cli, Command, HistoryAction, PresetAction, WorkspaceAction};
 use nodus_core::history::Manager;
 use nodus_core::runner::CommandRunner;
 
 mod apply;
 mod cli;
+mod config;
 mod discovery;
 mod hardware;
 mod history;
@@ -41,7 +42,11 @@ fn main() -> Result<()> {
             Some(HistoryAction::Undo { n }) => history_undo(n),
         },
         Command::Repos { dir, fetch, json } => repos(dir.as_deref(), fetch, json),
-        Command::Workspace { dir, json } => workspace_command(dir.as_deref(), json),
+        Command::Workspace { dir, json, action } => match action {
+            None => workspace_command(dir.as_deref(), json),
+            Some(WorkspaceAction::Set { dir }) => workspace_set(&dir),
+            Some(WorkspaceAction::Unset) => workspace_unset(),
+        },
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
             PresetAction::Plan { file, json } => preset_plan(&file, json),
@@ -209,10 +214,50 @@ fn preset_suggest(file: &std::path::Path, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Onde fica o config, a partir do ambiente.
+fn config_file() -> Result<std::path::PathBuf> {
+    config::config_path(
+        std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )
+}
+
+/// A pasta gravada com `workspace set`, se houver. Só é chamada quando nem o argumento nem a variável
+/// decidem (ver `workspace::resolve`).
+fn stored_workspace() -> Result<Option<std::path::PathBuf>> {
+    config::read_workspace(&config_file()?)
+}
+
+fn workspace_set(dir: &std::path::Path) -> Result<()> {
+    // A mesma conferência da pasta informada: existe e é pasta. Grava o caminho real, não o digitado.
+    let chosen = workspace::validate(dir)?;
+    let file = config_file()?;
+    config::write_workspace(&file, &chosen.path)?;
+    if chosen.repo_count == 0 {
+        eprintln!("aviso: a pasta não tem repositórios Git entre os filhos diretos");
+    }
+    emit(&format!(
+        "Workspace gravado: {} (repositórios: {}); config: {}\n",
+        chosen.path.display(),
+        chosen.repo_count,
+        file.display()
+    ))
+}
+
+fn workspace_unset() -> Result<()> {
+    let removed = config::clear_workspace(&config_file()?)?;
+    emit(if removed {
+        "Workspace gravado removido.\n"
+    } else {
+        "Não havia workspace gravado.\n"
+    })
+}
+
 fn workspace_command(dir: Option<&std::path::Path>, json: bool) -> Result<()> {
     let report = workspace::resolve(
         dir,
         std::env::var("NODUS_WORKSPACE").ok().as_deref(),
+        stored_workspace,
         std::env::var("HOME").ok().as_deref(),
     )?;
     if json {
@@ -230,6 +275,7 @@ fn repos(dir: Option<&std::path::Path>, fetch: bool, json: bool) -> Result<()> {
     let (dir, source) = workspace::pick_dir(
         dir,
         std::env::var("NODUS_WORKSPACE").ok().as_deref(),
+        stored_workspace,
         std::env::var("HOME").ok().as_deref(),
     )?;
     if let Some(source) = source {

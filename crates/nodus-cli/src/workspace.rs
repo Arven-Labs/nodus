@@ -30,6 +30,8 @@ pub enum Source {
     Informed,
     /// Variável `NODUS_WORKSPACE`.
     Environment,
+    /// Pasta gravada no config com `workspace set` (ADR 0018).
+    Stored,
     /// Candidato conhecido sob o `$HOME`.
     Detected,
 }
@@ -40,6 +42,7 @@ impl Source {
         match self {
             Source::Informed => "informado",
             Source::Environment => "ambiente",
+            Source::Stored => "gravado",
             Source::Detected => "detectado",
         }
     }
@@ -48,6 +51,7 @@ impl Source {
         match self {
             Source::Informed => "informed",
             Source::Environment => "environment",
+            Source::Stored => "stored",
             Source::Detected => "detected",
         }
     }
@@ -74,10 +78,23 @@ pub struct Report {
     pub candidates: Vec<Candidate>,
 }
 
+/// Valida uma pasta informada à mão (existe, é pasta) e devolve o caminho real, com a contagem de
+/// repositórios. É o que o `workspace set` confere antes de gravar.
+pub fn validate(dir: &Path) -> Result<Chosen> {
+    manual(dir, Source::Informed)
+}
+
 /// Resolve o workspace. `env` e `home` são os valores das variáveis `NODUS_WORKSPACE` e `HOME`
-/// (entram como argumento para a função ser testável). Argumento e variável inválidos são erro: cair
-/// em silêncio na detecção esconderia o engano de quem os informou.
-pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Result<Report> {
+/// (entram como argumento para a função ser testável). `stored` devolve a pasta gravada no config; só
+/// é chamada se não houver argumento nem variável (não lê o config à toa). Precedência: argumento,
+/// variável, gravada, detecção. Argumento, variável e pasta gravada inválidos são erro: cair em
+/// silêncio na detecção esconderia o engano de quem os informou.
+pub fn resolve(
+    arg: Option<&Path>,
+    env: Option<&str>,
+    stored: impl FnOnce() -> Result<Option<PathBuf>>,
+    home: Option<&str>,
+) -> Result<Report> {
     if let Some(dir) = arg {
         return Ok(manual_report(manual(dir, Source::Informed)?));
     }
@@ -88,6 +105,15 @@ pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Res
         }
         let chosen = manual(path, Source::Environment)
             .map_err(|erro| anyhow!("NODUS_WORKSPACE={value:?}: {erro:#}"))?;
+        return Ok(manual_report(chosen));
+    }
+    if let Some(path) = stored()? {
+        let chosen = manual(&path, Source::Stored).map_err(|erro| {
+            anyhow!(
+                "workspace gravado {} ({erro:#}): informe outra pasta ou use `nodusctl workspace set <pasta>` ou `unset`",
+                path.display()
+            )
+        })?;
         return Ok(manual_report(chosen));
     }
     let Some(home) = home.filter(|home| !home.is_empty() && Path::new(home).is_absolute()) else {
@@ -109,20 +135,22 @@ pub fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Res
 
 /// A pasta que o `repos` examina. Com argumento, vale o argumento como está (o contrato antigo do
 /// `repos`, sem origem). Sem argumento, vale o workspace resolvido por `resolve`, com a origem para o
-/// chamador avisar o usuário. Sem workspace achável, erro com a saída: informar a pasta ou a variável.
+/// chamador avisar o usuário. Sem workspace achável, erro com a saída: informar a pasta, a variável
+/// ou gravar uma escolha.
 pub fn pick_dir(
     arg: Option<&Path>,
     env: Option<&str>,
+    stored: impl FnOnce() -> Result<Option<PathBuf>>,
     home: Option<&str>,
 ) -> Result<(PathBuf, Option<Source>)> {
     if let Some(dir) = arg {
         return Ok((dir.to_path_buf(), None));
     }
-    let report = resolve(None, env, home)?;
+    let report = resolve(None, env, stored, home)?;
     match report.chosen {
         Some(chosen) => Ok((chosen.path, Some(chosen.source))),
         None => bail!(
-            "não achei a pasta de workspace: informe a pasta (`nodusctl repos <pasta>`) ou defina NODUS_WORKSPACE"
+            "não achei a pasta de workspace: informe a pasta (`nodusctl repos <pasta>`), defina NODUS_WORKSPACE ou grave uma com `nodusctl workspace set <pasta>`"
         ),
     }
 }
@@ -222,6 +250,30 @@ mod tests {
 
     fn home(tmp: &TmpDir) -> String {
         tmp.path().to_str().unwrap().to_string()
+    }
+
+    // `resolve` e `pick_dir` ganharam o parâmetro `stored` (a pasta do config gravado). Estes atalhos
+    // sombreiam as funções do módulo e mantêm os testes antigos, que não têm config, como estavam.
+    fn resolve(arg: Option<&Path>, env: Option<&str>, home: Option<&str>) -> Result<Report> {
+        super::resolve(arg, env, || Ok(None), home)
+    }
+
+    fn pick_dir(
+        arg: Option<&Path>,
+        env: Option<&str>,
+        home: Option<&str>,
+    ) -> Result<(PathBuf, Option<Source>)> {
+        super::pick_dir(arg, env, || Ok(None), home)
+    }
+
+    /// `resolve` com uma pasta gravada no config.
+    fn com_gravada(
+        arg: Option<&Path>,
+        env: Option<&str>,
+        gravada: &Path,
+        home: Option<&str>,
+    ) -> Result<Report> {
+        super::resolve(arg, env, || Ok(Some(gravada.to_path_buf())), home)
     }
 
     fn detectar(tmp: &TmpDir) -> Report {
@@ -538,6 +590,110 @@ mod tests {
         assert!(format!("{erro:#}").contains("NODUS_WORKSPACE"));
     }
 
+    // --- pasta gravada no config: depois do argumento e da variável, antes da detecção ---
+
+    #[test]
+    fn gravada_vence_a_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 5);
+        let gravada = com_repos(tmp.path(), "meu-ws", 2);
+        let r = com_gravada(None, None, &gravada, Some(&home(&tmp))).unwrap();
+        assert_eq!(
+            r.chosen,
+            Some(Chosen {
+                path: real(&gravada),
+                source: Source::Stored,
+                repo_count: 2
+            })
+        );
+        assert!(r.candidates.is_empty());
+    }
+
+    #[test]
+    fn variavel_vence_a_gravada() {
+        let tmp = TmpDir::novo();
+        let gravada = com_repos(tmp.path(), "gravada", 1);
+        let ambiente = com_repos(tmp.path(), "ambiente", 1);
+        let r = com_gravada(None, Some(ambiente.to_str().unwrap()), &gravada, None).unwrap();
+        let chosen = r.chosen.unwrap();
+        assert_eq!(chosen.path, real(&ambiente));
+        assert_eq!(chosen.source, Source::Environment);
+    }
+
+    #[test]
+    fn variavel_vazia_nao_vence_a_gravada() {
+        let tmp = TmpDir::novo();
+        let gravada = com_repos(tmp.path(), "gravada", 1);
+        let r = com_gravada(None, Some(""), &gravada, None).unwrap();
+        assert_eq!(r.chosen.unwrap().source, Source::Stored);
+    }
+
+    #[test]
+    fn argumento_vence_a_gravada() {
+        let tmp = TmpDir::novo();
+        let gravada = com_repos(tmp.path(), "gravada", 1);
+        let informada = com_repos(tmp.path(), "informada", 1);
+        let r = com_gravada(Some(&informada), None, &gravada, None).unwrap();
+        let chosen = r.chosen.unwrap();
+        assert_eq!(chosen.path, real(&informada));
+        assert_eq!(chosen.source, Source::Informed);
+    }
+
+    #[test]
+    fn gravada_que_sumiu_e_erro_e_nao_cai_na_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 3);
+        let sumida = tmp.path().join("nao-existe");
+        let erro = com_gravada(None, None, &sumida, Some(&home(&tmp))).unwrap_err();
+        assert!(format!("{erro:#}").contains("gravado"), "{erro:#}");
+    }
+
+    #[test]
+    fn gravada_que_virou_arquivo_e_erro() {
+        let tmp = TmpDir::novo();
+        let arquivo = tmp.path().join("arquivo");
+        fs::write(&arquivo, "").unwrap();
+        let erro = com_gravada(None, None, &arquivo, None).unwrap_err();
+        assert!(format!("{erro:#}").contains("gravado"), "{erro:#}");
+    }
+
+    #[test]
+    fn erro_ao_ler_o_config_sobe_e_nao_cai_na_deteccao() {
+        let tmp = TmpDir::novo();
+        com_repos(tmp.path(), "Documents/workspace", 3);
+        let erro = super::resolve(
+            None,
+            None,
+            || Err(anyhow!("config ilegível")),
+            Some(&home(&tmp)),
+        )
+        .unwrap_err();
+        assert!(format!("{erro:#}").contains("config ilegível"), "{erro:#}");
+    }
+
+    #[test]
+    fn config_so_e_lido_quando_nao_ha_argumento_nem_variavel() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "ws", 1);
+        let quebrado = || Err(anyhow!("não devia ler o config"));
+        assert!(super::resolve(Some(&ws), None, quebrado, None).is_ok());
+        assert!(super::resolve(None, Some(ws.to_str().unwrap()), quebrado, None).is_ok());
+    }
+
+    #[test]
+    fn pick_dir_sem_argumento_usa_a_gravada() {
+        let tmp = TmpDir::novo();
+        let ws = com_repos(tmp.path(), "ws", 1);
+        let (pasta, origem) = super::pick_dir(None, None, || Ok(Some(ws.clone())), None).unwrap();
+        assert_eq!(pasta, real(&ws));
+        assert_eq!(origem, Some(Source::Stored));
+    }
+
+    #[test]
+    fn rotulo_da_origem_gravada() {
+        assert_eq!(Source::Stored.label(), "gravado");
+    }
+
     #[test]
     fn json_sem_escolha_tem_chosen_nulo_e_os_nomes_das_origens() {
         let vazio = Report {
@@ -551,6 +707,7 @@ mod tests {
         for (source, nome) in [
             (Source::Informed, "informed"),
             (Source::Environment, "environment"),
+            (Source::Stored, "stored"),
             (Source::Detected, "detected"),
         ] {
             let r = Report {
