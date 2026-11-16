@@ -11,6 +11,7 @@ mod config;
 mod discovery;
 mod dotfiles;
 mod dotfiles_adopt;
+mod dotfiles_undo;
 mod hardware;
 mod history;
 mod preset_file;

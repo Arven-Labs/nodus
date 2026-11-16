@@ -648,6 +648,177 @@ mod tests {
         );
     }
 
+    // ---- plan_undo_adopt: desfazer a adoção (ADR 0023) ----
+
+    fn undo_for(
+        path: &str,
+        link: Observed,
+        source: Observed,
+        mode: u32,
+    ) -> Result<UndoAdoptPlan, UndoAdoptError> {
+        plan_undo_adopt(Path::new(HOME), Path::new(DIR), path, &link, &source, mode)
+    }
+
+    fn link_ok(path: &str) -> Observed {
+        Observed::Symlink {
+            target: format!("{DIR}/{path}"),
+        }
+    }
+
+    #[test]
+    fn undo_com_symlink_certo_e_fonte_comum_guarda_link_fonte_tamanho_e_permissao() {
+        let plan = undo_for(
+            ".bashrc",
+            link_ok(".bashrc"),
+            Observed::File { size: 1670 },
+            REGULAR | 0o644,
+        )
+        .unwrap();
+        assert_eq!(plan.path, ".bashrc");
+        assert_eq!(plan.link, Path::new("/home/u/.bashrc"));
+        assert_eq!(plan.source, Path::new("/home/u/dotfiles/.bashrc"));
+        assert_eq!(plan.size, 1670);
+        assert_eq!(plan.mode, 0o644);
+    }
+
+    #[test]
+    fn undo_tira_setuid_setgid_e_sticky_da_permissao() {
+        let plan = undo_for(
+            ".bashrc",
+            link_ok(".bashrc"),
+            Observed::File { size: 1 },
+            REGULAR | 0o7755,
+        )
+        .unwrap();
+        assert_eq!(plan.mode, 0o755);
+    }
+
+    #[test]
+    fn undo_recusa_quando_o_home_nao_e_symlink() {
+        for link in [
+            Observed::Missing,
+            Observed::File { size: 5 },
+            Observed::Dir,
+            Observed::Other,
+        ] {
+            let erro = undo_for(
+                ".bashrc",
+                link.clone(),
+                Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert_eq!(erro, UndoAdoptError::NotALink, "{link:?}");
+        }
+    }
+
+    #[test]
+    fn undo_recusa_symlink_que_aponta_para_outro_lugar() {
+        for alvo in [
+            "/etc/profile",
+            "/home/u/dotfiles/.zshrc",
+            "/home/u/dotfiles/.bashrc/",
+            "/home/u/outra/.bashrc",
+            ".bashrc",
+        ] {
+            let erro = undo_for(
+                ".bashrc",
+                Observed::Symlink {
+                    target: alvo.to_string(),
+                },
+                Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert_eq!(
+                erro,
+                UndoAdoptError::WrongTarget {
+                    expected: "/home/u/dotfiles/.bashrc".to_string(),
+                    found: alvo.to_string(),
+                },
+                "{alvo}"
+            );
+        }
+    }
+
+    #[test]
+    fn undo_recusa_fonte_ausente_ou_que_nao_e_arquivo_comum() {
+        let casos = [
+            (Observed::Missing, UndoAdoptError::SourceMissing),
+            (Observed::Dir, UndoAdoptError::SourceNotAFile),
+            (Observed::Other, UndoAdoptError::SourceNotAFile),
+            (
+                Observed::Symlink {
+                    target: "/etc/passwd".into(),
+                },
+                UndoAdoptError::SourceNotAFile,
+            ),
+        ];
+        for (source, esperado) in casos {
+            let erro =
+                undo_for(".bashrc", link_ok(".bashrc"), source, REGULAR | 0o644).unwrap_err();
+            assert_eq!(erro, esperado);
+        }
+    }
+
+    #[test]
+    fn undo_aceita_fonte_de_exatamente_1_mib_e_recusa_um_byte_a_mais() {
+        assert!(
+            undo_for(
+                ".bashrc",
+                link_ok(".bashrc"),
+                Observed::File {
+                    size: MAX_ADOPT_BYTES
+                },
+                REGULAR | 0o644
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            undo_for(
+                ".bashrc",
+                link_ok(".bashrc"),
+                Observed::File {
+                    size: MAX_ADOPT_BYTES + 1
+                },
+                REGULAR | 0o644
+            )
+            .unwrap_err(),
+            UndoAdoptError::SourceTooBig(MAX_ADOPT_BYTES + 1)
+        );
+    }
+
+    #[test]
+    fn undo_revalida_o_caminho_e_a_pasta_vindos_do_historico() {
+        // Histórico não é assinado (T5): uma linha plantada não pode virar escrita fora da regra.
+        for path in [".ssh/authorized_keys", "../x", "/etc/passwd", ""] {
+            let erro = undo_for(
+                path,
+                Observed::Symlink {
+                    target: format!("{DIR}/{path}"),
+                },
+                Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoAdoptError::Path(_)), "{path}: {erro:?}");
+        }
+        for dir in ["/home/u", "/home/u/.ssh/dots", "relativa"] {
+            let erro = plan_undo_adopt(
+                Path::new(HOME),
+                Path::new(dir),
+                ".bashrc",
+                &Observed::Symlink {
+                    target: format!("{dir}/.bashrc"),
+                },
+                &Observed::File { size: 5 },
+                REGULAR | 0o644,
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoAdoptError::Dir(_)), "{dir}: {erro:?}");
+        }
+    }
+
     #[test]
     fn json_tem_path_kind_e_os_campos_do_tipo() {
         let json = |entry: Entry| serde_json::to_value(entry).unwrap();
