@@ -28,11 +28,15 @@ pub struct Config {
     pub dotfiles_extra: Vec<String>,
     /// Caminhos que saem do relatório de dotfiles (padrão ou extra).
     pub dotfiles_skip: Vec<String>,
+    /// Pasta-fonte do `dotfiles adopt`, que espelha o HOME (ADR 0022). Absoluta e sem componente
+    /// estranho; o resto (HOME, denylist) é conferido no `adopt`, que conhece o HOME.
+    pub dotfiles_dir: Option<PathBuf>,
 }
 
 impl Config {
     fn is_empty(&self) -> bool {
         self.workspace.is_none()
+            && self.dotfiles_dir.is_none()
             && self.ignore_pacman.is_empty()
             && self.ignore_flatpak.is_empty()
             && self.dotfiles_extra.is_empty()
@@ -92,6 +96,7 @@ fn parse(text: &str) -> Result<Config> {
                 | "ignore_flatpak"
                 | "dotfiles_extra"
                 | "dotfiles_skip"
+                | "dotfiles_dir"
         )
     }) {
         bail!("chave desconhecida: {key:?}");
@@ -121,7 +126,22 @@ fn parse(text: &str) -> Result<Config> {
         ignore_flatpak: name_list(&table, "ignore_flatpak", is_valid_flatpak_id)?,
         dotfiles_extra: path_list(&table, "dotfiles_extra")?,
         dotfiles_skip: path_list(&table, "dotfiles_skip")?,
+        dotfiles_dir: dotfiles_dir(&table)?,
     })
+}
+
+/// A pasta-fonte: texto, caminho absoluto e sem componente estranho (`check_dir_shape`).
+fn dotfiles_dir(table: &toml::Table) -> Result<Option<PathBuf>> {
+    match table.get("dotfiles_dir") {
+        None => Ok(None),
+        Some(toml::Value::String(value)) => {
+            let dir = Path::new(value);
+            dotfiles::check_dir_shape(dir)
+                .map_err(|e| anyhow::anyhow!("`dotfiles_dir`: {value:?}: {e}"))?;
+            Ok(Some(dir.to_path_buf()))
+        }
+        Some(_) => bail!("`dotfiles_dir` precisa ser texto"),
+    }
 }
 
 /// Lista de caminhos de dotfile: cada item passa em `validate_path` (relativo ao HOME, fora da
@@ -258,6 +278,12 @@ fn store(path: &Path, config: &Config) -> Result<()> {
             .to_str()
             .with_context(|| format!("caminho fora de UTF-8: {}", workspace.display()))?;
         table.insert("workspace".into(), toml::Value::String(value.into()));
+    }
+    if let Some(dir) = &config.dotfiles_dir {
+        let value = dir
+            .to_str()
+            .with_context(|| format!("caminho fora de UTF-8: {}", dir.display()))?;
+        table.insert("dotfiles_dir".into(), toml::Value::String(value.into()));
     }
     for (key, names) in [
         ("ignore_pacman", &config.ignore_pacman),

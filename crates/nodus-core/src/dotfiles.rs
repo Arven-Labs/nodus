@@ -148,9 +148,9 @@ pub enum DirError {
     Denied,
 }
 
-/// A pasta-fonte (ADR 0022): absoluta, sem componente estranho, diferente do HOME e, se estiver
-/// dentro dele, fora da denylist de segredos. Pura: não toca o disco (o CLI resolve o caminho real).
-pub fn validate_dir(home: &Path, dir: &Path) -> Result<(), DirError> {
+/// A parte da validação que não precisa do HOME: absoluta e sem componente estranho. É o que o
+/// config confere ao ler `dotfiles_dir`; o resto (HOME, denylist) é do `validate_dir`, no `adopt`.
+pub fn check_dir_shape(dir: &Path) -> Result<(), DirError> {
     if !dir.is_absolute() {
         return Err(DirError::Relative);
     }
@@ -167,6 +167,13 @@ pub fn validate_dir(home: &Path, dir: &Path) -> Result<(), DirError> {
     {
         return Err(DirError::BadComponent);
     }
+    Ok(())
+}
+
+/// A pasta-fonte (ADR 0022): absoluta, sem componente estranho, diferente do HOME e, se estiver
+/// dentro dele, fora da denylist de segredos. Pura: não toca o disco (o CLI resolve o caminho real).
+pub fn validate_dir(home: &Path, dir: &Path) -> Result<(), DirError> {
+    check_dir_shape(dir)?;
     if dir == home {
         return Err(DirError::IsHome);
     }
