@@ -312,6 +312,58 @@ pub fn plan_link(
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
+pub enum UndoLinkError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o caminho no HOME não é um symlink; o nodus só remove o que o `link` criou")]
+    NotALink,
+    #[error("o symlink aponta para {found}, não para {expected}; o nodus só desfaz o que criou")]
+    WrongTarget { expected: String, found: String },
+}
+
+/// O que o `undo` de uma ligação vai fazer (ADR 0025): remover o symlink `link`, que aponta para
+/// `target`. O alvo não é tocado. Dado, sem efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoLinkPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: o symlink que será removido.
+    pub link: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: para onde o symlink aponta; não é alterado.
+    pub target: PathBuf,
+}
+
+/// `path` e `dir` vêm do histórico, que não é assinado: são revalidados aqui. O symlink precisa
+/// apontar **exatamente** (texto, não `Path`, que ignora a barra final) para `<dir>/<path>`.
+pub fn plan_undo_link(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    link: &Observed,
+) -> Result<UndoLinkPlan, UndoLinkError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let target = dir.join(path);
+    let expected = target.to_string_lossy().into_owned();
+    match link {
+        Observed::Symlink { target: found } if *found == expected => {}
+        Observed::Symlink { target: found } => {
+            return Err(UndoLinkError::WrongTarget {
+                expected,
+                found: found.clone(),
+            });
+        }
+        _ => return Err(UndoLinkError::NotALink),
+    }
+    Ok(UndoLinkPlan {
+        path: path.to_string(),
+        link: home.join(path),
+        target,
+    })
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum UndoAdoptError {
     #[error("caminho inválido: {0}")]
     Path(#[from] DotfileError),

@@ -113,8 +113,8 @@ pub enum UndoError {
         "a entrada {0} é a adoção de um dotfile; ela se desfaz pelo caminho de dotfile, não pelo do pacman (nada foi alterado)"
     )]
     Dotfile(u32),
-    #[error("a entrada {0} não é a adoção de um dotfile")]
-    NotAnAdoption(u32),
+    #[error("a entrada {0} não é a adoção nem a ligação de um dotfile")]
+    NotADotfileEntry(u32),
     #[error("a adoção da entrada {0} já foi desfeita")]
     AlreadyUndone(u32),
     #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
@@ -192,9 +192,21 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
     Ok(entry)
 }
 
-/// A adoção de dotfile escolhida pelo número (ADR 0023). Recusa o que não é adoção e a adoção que
-/// já tem uma reversão no histórico (`undoes` apontando para ela).
-pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
+/// O que uma entrada de dotfile desfazível registrou (ADRs 0023 e 0025).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DotfileKind {
+    /// `dotfiles adopt`: desfazer troca o symlink por uma cópia da fonte.
+    Adopt,
+    /// `dotfiles link`: desfazer remove o symlink.
+    Link,
+}
+
+/// A adoção ou ligação de dotfile escolhida pelo número. Recusa o que não é uma das duas e a que já
+/// tem uma reversão no histórico (`undoes` apontando para ela).
+pub fn select_dotfile_entry(
+    entries: &[HistoryEntry],
+    n: u32,
+) -> Result<(&HistoryEntry, DotfileKind), UndoError> {
     let entry = usize::try_from(n)
         .ok()
         .and_then(|n| n.checked_sub(1))
@@ -203,9 +215,11 @@ pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry
             n,
             len: entries.len(),
         })?;
-    if entry.action != Action::Adopt {
-        return Err(UndoError::NotAnAdoption(n));
-    }
+    let kind = match entry.action {
+        Action::Adopt => DotfileKind::Adopt,
+        Action::Link => DotfileKind::Link,
+        _ => return Err(UndoError::NotADotfileEntry(n)),
+    };
     let undone = entries.iter().any(|other| {
         other.action == Action::Remove
             && other.manager == Manager::Dotfiles
@@ -214,7 +228,7 @@ pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry
     if undone {
         return Err(UndoError::AlreadyUndone(n));
     }
-    Ok(entry)
+    Ok((entry, kind))
 }
 
 /// A entrada que a reversão acrescenta ao histórico. `still_installed` é o `pacman -Q` de depois:

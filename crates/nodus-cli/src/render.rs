@@ -181,9 +181,21 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
         match (entry.action, entry.undoes) {
             (Action::Remove, Some(undoes)) if entry.manager == Manager::Dotfiles => {
                 let dir = entry.dir.as_deref().unwrap_or("?");
+                // A linha de uma reversão é a mesma para adoção e ligação (ADR 0025): quem
+                // distingue é a entrada que `undoes` aponta.
+                let undid_link = usize::try_from(undoes)
+                    .ok()
+                    .and_then(|undoes| undoes.checked_sub(1))
+                    .and_then(|index| entries.get(index))
+                    .is_some_and(|original| original.action == Action::Link);
+                let what = if undid_link {
+                    "ligação desfeita"
+                } else {
+                    "dotfile restaurado"
+                };
                 let _ = writeln!(
                     out,
-                    "[{n}] {when}  {result}  desfez [{undoes}]  dotfile restaurado: {}  (pasta-fonte {dir})",
+                    "[{n}] {when}  {result}  desfez [{undoes}]  {what}: {}  (pasta-fonte {dir})",
                     entry.requested.join(", ")
                 );
             }
