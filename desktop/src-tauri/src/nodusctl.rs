@@ -5,8 +5,9 @@
 //! e só roda depois de conferir que o `nodusctl --version` tem o mesmo `major.minor` da GUI.
 
 use serde::Serialize;
+use std::ffi::OsString;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Limite da saída aceita de um comando (16 MiB). O `inventory` de uma máquina com milhares de pacotes fica bem abaixo.
@@ -44,6 +45,23 @@ impl Allowed {
         match self {
             Self::Inventory => ["inventory", "--json"],
         }
+    }
+}
+
+/// Escolhe o binário a partir do valor de `NODUSCTL`. Sem a variável, `nodusctl` no PATH. Com ela, só caminho **absoluto**:
+/// o app roda com o diretório atual em `src-tauri/`, então um caminho relativo apontaria para outro lugar que o do terminal.
+pub fn resolve_binary(env_value: Option<OsString>) -> Result<PathBuf, CmdError> {
+    let Some(value) = env_value else {
+        return Ok(PathBuf::from("nodusctl"));
+    };
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err(CmdError::new(
+            "invalid_binary",
+            format!("NODUSCTL precisa ser um caminho absoluto (recebi {:?})", path.as_os_str()),
+        ))
     }
 }
 
