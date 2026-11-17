@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 5), ADR 0026: arquitetura da GUI (só docs)
+
+- **Pedido**: o dono só vai usar o nodus com interface; seguir a Fase 1.5 pelo ADR antes do código, em plan mode (plano aprovado). Escolhas do dono: integração por **processo** (`nodusctl --json`), primeira versão **só de leitura**, stack **Tauri 2 + React/TypeScript**.
+- **Feito**: `adr/0026-gui-desktop.md` e a linha da Fase 1.5 no `ROADMAP.md`. Nenhum código.
+- **Achado que mudou o plano**: o plano previa um campo `schema` em cada JSON, mas `repos`, `dotfiles` e `history` emitem um **array na raiz**; o campo exigiria embrulhar tudo em `{schema, data}` e quebrar a forma atual. O ADR recomenda, no lugar, travar a GUI no mesmo `major.minor` do `nodusctl --version` (CLI e GUI saem da mesma tag) e deixa o campo para quando andarem em versões diferentes. **É recomendação a confirmar pelo dono.**
+- **Não verificado**: tamanho e tempo de build de um shell Tauri, versões atuais do Tauri 2 e do WebKitGTK, latência por chamada do `nodusctl`.
+- **Fica**: decidir a exceção ao ADR 0009 para `tauri dev` local; scaffold Tauri com a tela de inventário (testes primeiro, backend falso); ADR das ações privilegiadas; P-02 antes de divulgar; P-14; P-17; remoto da `~/dotfiles`.
+
 ### 2026-11-17 — Sessão 21 (continuação 4), MVP declarado fechado (só docs)
 
 - **Pedido**: o dono escolheu declarar o MVP fechado, em vez de seguir construindo. Recomendação minha, registrada: usar o nodus de verdade por uma ou duas semanas antes de decidir a Fase 1.5 ou o PKGBUILD.
