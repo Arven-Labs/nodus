@@ -39,7 +39,7 @@ impl Allowed {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "inventory" => Some(Self::Inventory),
-            n if n.starts_with("repos") => Some(Self::Repos),
+            "repos" => Some(Self::Repos),
             _ => None,
         }
     }
