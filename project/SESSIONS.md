@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 8), `NODUSCTL` só como caminho absoluto (PR #84)
+
+- **Pedido**: depois da abertura da sessão (git, PRs, disco), seguir a recomendação: conferir o flaky, triar o alerta do Dependabot e recusar `NODUSCTL` relativo (plan mode, plano aprovado).
+- **Conferido**: o fix do ETXTBSY (PR #83, `1f73caf`) está na `main` e o CI Desktop desse commit passou em `push`. É **uma** passagem; só várias seguidas dariam confiança.
+- **Alerta do Dependabot nº 1 (`glib` 0.18.5, GHSA-wrw7-89jp-8q8g, runtime, média)**: transitivo (`tauri` 2.12 → `gtk` 0.18 → `glib` 0.18.5); a API afetada (`glib::VariantStrIter`) não é chamada pelo nodus (não li o código do Tauri; confiança média); corrigir exige o upstream migrar para o gtk4. Propus dispensar como "código não usado"; o `gh api` para isso foi **barrado pelo classificador de permissões**, então o alerta **continua aberto** e a decisão (dispensar na aba Security ou deixar aberto) é do dono.
+- **Feito**: `resolve_binary` em `nodusctl.rs` (sem variável: `nodusctl` do PATH; absoluto: usa; relativo ou vazio: `kind = "invalid_binary"`, antes de executar qualquer coisa); `lib.rs` usa a função; README diz que `NODUSCTL` precisa ser absoluto.
+- **Testes primeiro**: commit só com os testes: CI Desktop **vermelho** por `cannot find function resolve_binary` (E0425). Depois da implementação, tudo verde.
+- **Mutação**: trocar `is_absolute()` por "não vazio" derrubou **1 teste** (`caminho_relativo_ou_vazio_e_recusado`; 17 passaram); revertida com `git revert`, CI verde de novo.
+- **Não verificado**: a mensagem nova na janela real (`npm run tauri dev`, com `NODUSCTL=../target/release/nodusctl`); o `read` não tem teste próprio de "nada é executado com `NODUSCTL` inválido" (a garantia vem da ordem: `resolve_binary` roda antes de `read`); `cargo tree` no `src-tauri` baixou crates para o cache do cargo (`~/.cargo`), sem mudar o repo.
+- **Fica**: decidir o alerta do `glib`; limpeza do `src-tauri/target`; telas de `updates`, `repos` e `dotfiles`; `cargo-deny` do `src-tauri`; tempo limite do `nodusctl`; ADR das ações privilegiadas; P-02; P-14; P-17; remoto da `~/dotfiles`.
+
 ### 2026-11-17 — Sessão 21 (continuação 7), GUI desktop fatia 1: tela de inventário (PR #82)
 
 - **Pedido**: scaffold da GUI (ADR 0026), em plan mode (plano aprovado). Escolhas do dono: dependências do **mesmo conjunto do warden** (TypeScript ~5.8, Vite ^7, plugin-react ^4, playwright-core 1.61, React ^19, Tauri ^2).

@@ -9,7 +9,7 @@ Interface do nodus (Fase 1.5, [ADR 0026](../project/adr/0026-gui-desktop.md)): T
 - A GUI não roda `sudo`, não escreve no HOME e não chama nenhum comando que escreve.
 
 ## Rodar (exceção ao ADR 0009 para o `desktop/`, emenda do ADR 0026)
-Pré-requisitos no Arch: `webkit2gtk-4.1`, `base-devel`, `librsvg`, `libappindicator`, `xdotool`, Node e Rust ([pré-requisitos do Tauri 2](https://v2.tauri.app/start/prerequisites/)). O `nodusctl` precisa estar no PATH (ou em `NODUSCTL=/caminho/nodusctl`) **na mesma versão major.minor** (hoje `0.1.x`).
+Pré-requisitos no Arch: `webkit2gtk-4.1`, `base-devel`, `librsvg`, `libappindicator`, `xdotool`, Node e Rust ([pré-requisitos do Tauri 2](https://v2.tauri.app/start/prerequisites/)). O `nodusctl` precisa estar no PATH (ou em `NODUSCTL=/caminho/nodusctl`, que **precisa ser absoluto**: o app roda com o diretório atual em `src-tauri/`) **na mesma versão major.minor** (hoje `0.1.x`).
 
 ```bash
 cd desktop

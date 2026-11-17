@@ -5,8 +5,9 @@
 //! e só roda depois de conferir que o `nodusctl --version` tem o mesmo `major.minor` da GUI.
 
 use serde::Serialize;
+use std::ffi::OsString;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Limite da saída aceita de um comando (16 MiB). O `inventory` de uma máquina com milhares de pacotes fica bem abaixo.
@@ -44,6 +45,23 @@ impl Allowed {
         match self {
             Self::Inventory => ["inventory", "--json"],
         }
+    }
+}
+
+/// Escolhe o binário a partir do valor de `NODUSCTL`. Sem a variável, `nodusctl` no PATH. Com ela, só caminho **absoluto**:
+/// o app roda com o diretório atual em `src-tauri/`, então um caminho relativo apontaria para outro lugar que o do terminal.
+pub fn resolve_binary(env_value: Option<OsString>) -> Result<PathBuf, CmdError> {
+    let Some(value) = env_value else {
+        return Ok(PathBuf::from("nodusctl"));
+    };
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err(CmdError::new(
+            "invalid_binary",
+            format!("NODUSCTL precisa ser um caminho absoluto (recebi {:?})", path.as_os_str()),
+        ))
     }
 }
 
@@ -193,6 +211,29 @@ mod tests {
     #[test]
     fn argumentos_sao_fixos_e_terminam_em_json() {
         assert_eq!(Allowed::Inventory.args(), ["inventory", "--json"]);
+    }
+
+    // --- binário: `NODUSCTL` só vale como caminho absoluto (o app roda com o diretório atual em `src-tauri/`) ---
+
+    #[test]
+    fn sem_variavel_usa_o_nodusctl_do_path() {
+        assert_eq!(resolve_binary(None).unwrap(), PathBuf::from("nodusctl"));
+    }
+
+    #[test]
+    fn caminho_absoluto_e_aceito() {
+        for caminho in ["/usr/bin/nodusctl", "/home/x/nodus/target/release/nodusctl", "/a/../b/nodusctl"] {
+            assert_eq!(resolve_binary(Some(caminho.into())).unwrap(), PathBuf::from(caminho));
+        }
+    }
+
+    #[test]
+    fn caminho_relativo_ou_vazio_e_recusado() {
+        for caminho in ["../target/release/nodusctl", "./nodusctl", "target/release/nodusctl", "nodusctl", "ls", "", " ", "~/nodusctl"] {
+            let erro = resolve_binary(Some(caminho.into())).unwrap_err();
+            assert_eq!(erro.kind, "invalid_binary", "{caminho:?}");
+            assert!(erro.message.contains("caminho absoluto"), "{caminho:?}: {}", erro.message);
+        }
     }
 
     // --- versão: `nodusctl --version` tem que ser o mesmo major.minor da GUI ---
