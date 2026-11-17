@@ -170,7 +170,7 @@ mod tests {
     fn version_imprime_nome_e_versao() {
         let erro = Cli::try_parse_from(["nodus", "--version"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::DisplayVersion);
-        assert_eq!(erro.to_string().trim(), "nodusctl 0.0.1");
+        assert_eq!(erro.to_string().trim(), "nodusctl 0.1.0");
     }
 
     #[test]

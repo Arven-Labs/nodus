@@ -18,6 +18,6 @@ mod tests {
 
     #[test]
     fn version_vem_do_cargo_toml() {
-        assert_eq!(VERSION, "0.0.1");
+        assert_eq!(VERSION, "0.1.0");
     }
 }
