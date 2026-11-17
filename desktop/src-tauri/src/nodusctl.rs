@@ -195,6 +195,29 @@ mod tests {
         assert_eq!(Allowed::Inventory.args(), ["inventory", "--json"]);
     }
 
+    // --- binário: `NODUSCTL` só vale como caminho absoluto (o app roda com o diretório atual em `src-tauri/`) ---
+
+    #[test]
+    fn sem_variavel_usa_o_nodusctl_do_path() {
+        assert_eq!(resolve_binary(None).unwrap(), PathBuf::from("nodusctl"));
+    }
+
+    #[test]
+    fn caminho_absoluto_e_aceito() {
+        for caminho in ["/usr/bin/nodusctl", "/home/x/nodus/target/release/nodusctl", "/a/../b/nodusctl"] {
+            assert_eq!(resolve_binary(Some(caminho.into())).unwrap(), PathBuf::from(caminho));
+        }
+    }
+
+    #[test]
+    fn caminho_relativo_ou_vazio_e_recusado() {
+        for caminho in ["../target/release/nodusctl", "./nodusctl", "target/release/nodusctl", "nodusctl", "ls", "", " ", "~/nodusctl"] {
+            let erro = resolve_binary(Some(caminho.into())).unwrap_err();
+            assert_eq!(erro.kind, "invalid_binary", "{caminho:?}");
+            assert!(erro.message.contains("caminho absoluto"), "{caminho:?}: {}", erro.message);
+        }
+    }
+
     // --- versão: `nodusctl --version` tem que ser o mesmo major.minor da GUI ---
 
     #[test]
