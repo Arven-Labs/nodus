@@ -21,7 +21,7 @@ Revisão só de leitura de `MVP.md`, `SESSIONS.md`, `PENDING.md`, README e ADR 0
 
 | # | Estado | Lacuna |
 |---|---|---|
-| 1 | **Não pronto** | Falta a primeira tag assinada (ver abaixo) |
+| 1 | Pronto | Tag `v0.1.0` assinada, "Verified" no GitHub e instalação medida em container Arch limpo (2026-11-17); o container usa o kernel e o hardware do host |
 | 2 | Pronto | Discos não conferidos com `lsblk` |
 | 3 | Pronto | Só pacotes e apps; configurações = dotfiles (critério 11), decisão de 2026-11-17 |
 | 4 | Pronto | Custo do `plan` com muitos itens faltando não medido |
@@ -33,7 +33,7 @@ Revisão só de leitura de `MVP.md`, `SESSIONS.md`, `PENDING.md`, README e ADR 0
 | 10 | Pronto com lacuna | Reversão de Flatpak não existe (o critério diz "quando suportada") |
 | 11 | Pronto com lacuna | Logout real, KDE, permissão negada, nano, vim; `link` em lote não existe |
 
-**O que bloqueia declarar o MVP fechado:** só o critério 1. O ADR 0010 pede antes da primeira tag: `git tag -v` numa máquina limpa (só testado em repo descartável), selo "Verified" do GitHub numa tag real (nenhuma tag existe) e `cargo install --locked --git --tag` medido (build no CI ou pelo dono, ADR 0009). A P-02 (nome) não bloqueia a tag, que é só código-fonte, mas bloqueia divulgação e pacote.
+**O que bloqueava declarar o MVP fechado:** só o critério 1, resolvido em 2026-11-17: tag `v0.1.0` (commit `6b2e4ed`, CI verde), `verified: true` na API do GitHub, e `project/spikes/tag-limpa/verificar.sh` deu 7 OK e 0 FALHA num container Arch (chave idêntica na API e no README, `git tag -v` exit 0, chave errada exit 1, `Cargo.toml` da tag em `0.1.0`, instalação `--locked --tag` e `--version`). A P-02 (nome) não bloqueia a tag, que é só código-fonte, mas bloqueia divulgação e pacote. O dono decide se declara o MVP fechado.
 
 **Só refinamento:** `dotfiles dir set`, `link` em lote, nano e vim, hash do commit em `--version`, reversão de Flatpak.
 
