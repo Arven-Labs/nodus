@@ -197,9 +197,21 @@ mod tests {
     // --- allowlist: a GUI só roda comandos de leitura, com argumentos fixos (ADR 0026) ---
 
     #[test]
-    fn allowlist_aceita_so_inventory_e_repos() {
+    fn allowlist_aceita_so_inventory_repos_e_dotfiles() {
         assert_eq!(Allowed::parse("inventory"), Some(Allowed::Inventory));
         assert_eq!(Allowed::parse("repos"), Some(Allowed::Repos));
+        assert_eq!(Allowed::parse("dotfiles"), Some(Allowed::Dotfiles));
+    }
+
+    #[test]
+    fn dotfiles_so_o_relatorio_nunca_adopt_nem_link() {
+        // `dotfiles adopt` e `dotfiles link` escrevem no HOME: a GUI não pode pedi-los (ADR 0026).
+        for nome in [
+            "dotfiles adopt", "dotfiles link", "dotfiles --json", "dotfiles adopt .bashrc", "dotfiles link .bashrc",
+            "Dotfiles", "DOTFILES", "dotfiles ", " dotfiles", "dotfiles\n", "dotfiles;ls", "dotfilesadopt",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar");
+        }
     }
 
     #[test]
@@ -214,7 +226,7 @@ mod tests {
         for nome in [
             "", " ", "Inventory", "INVENTORY", "inventory ", " inventory", "inventory --json", "inventory;ls",
             "inventory\n", "inventory\0", "apply", "undo", "adopt", "link", "preset", "history", "workspace",
-            "dotfiles", "--version", "--help", "../inventory", "/bin/sh", "-c", "sudo",
+            "--version", "--help", "../inventory", "/bin/sh", "-c", "sudo",
         ] {
             assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar");
         }
@@ -224,6 +236,32 @@ mod tests {
     fn argumentos_sao_fixos_e_terminam_em_json() {
         assert_eq!(Allowed::Inventory.args(), ["inventory", "--json"]);
         assert_eq!(Allowed::Repos.args(), ["repos", "--json"], "sem --fetch: a GUI não usa a rede nem escreve em .git");
+    }
+
+    #[test]
+    fn argumentos_de_dotfiles_sao_so_o_relatorio() {
+        assert_eq!(Allowed::Dotfiles.args(), ["dotfiles", "--json"]);
+    }
+
+    #[test]
+    fn le_o_json_de_dotfiles() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
+if [ "$1" = "dotfiles" ] && [ "$2" = "--json" ] && [ -z "$3" ]; then echo '[]'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+        let (dir, bin) = falso(corpo);
+        assert_eq!(ler(&bin, "dotfiles", (0, 1, 0)).unwrap().trim(), "[]");
+        assert_eq!(chamadas(&dir), ["--version", "dotfiles --json"]);
+    }
+
+    #[test]
+    fn adopt_e_link_nao_executam_nada() {
+        let (dir, bin) = falso(BOM);
+        for nome in ["dotfiles adopt .bashrc", "dotfiles link .bashrc"] {
+            assert_eq!(ler(&bin, nome, (0, 1, 0)).unwrap_err().kind, "not_allowed", "{nome:?}");
+        }
+        assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
     }
 
     #[test]
