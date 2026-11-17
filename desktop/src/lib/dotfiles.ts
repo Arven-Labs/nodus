@@ -53,7 +53,7 @@ function parseDotfilesFields(jsonText: string): Dotfile[] {
           outsideHome: bool(field(e, "outside_home", at), `${at}outside_home`),
         };
       default:
-        throw new DotfilesError(`campo \`${at}kind\`: esperava missing, file, dir, symlink ou other`);
+        return { path, kind: "other" };
     }
   });
 }
