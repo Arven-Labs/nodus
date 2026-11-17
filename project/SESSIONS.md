@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 11), GUI desktop: tempo limite do `nodusctl` (PR #87)
+
+- **Pedido**: antes da tela `updates` (usa a rede), dar prazo ao `nodusctl` na GUI; em plan mode (plano aprovado, dois PRs: este e a tela depois). Escolhas do dono: **30 s por comando** (120 s só no `updates`, que entra no PR da tela) e **matar o grupo de processos** no estouro.
+- **Feito** (`desktop/src-tauri/src/nodusctl.rs`): `Allowed::timeout()` (30 s); `run` espera com `try_wait` a cada 20 ms, lê stdout e stderr em threads e, no estouro, mata o grupo (`process_group(0)` + `/usr/bin/kill -KILL -- -PID`, com `child.kill()` de reserva) e devolve `kind = "timeout"` ("o nodusctl demorou mais de N s e foi interrompido"); `read_with` recebe o prazo (os testes usam 300 ms a 1 s); a saída acima de 16 MiB agora levanta uma bandeira e a thread principal mata o grupo. Sem dependência nova, sem `unsafe`.
+- **Testes primeiro**: commit só com testes: CI Desktop **vermelho** (`cannot find function read_with`, `no method named timeout`). Depois da implementação, tudo verde, inclusive o teste do neto (o `/usr/bin/kill` do runner aceita `-KILL -- -PID`).
+- **Mutação** (duas, em commits separados, porque juntas uma esconde a outra): (A) matar o pid em vez do grupo derrubou **2 testes** (o do neto e `prazo_estourado_vira_timeout_e_nao_trava`; 27 passaram); (B) o prazo nunca estourar derrubou **3 testes** (`estouro_na_versao_nao_roda_o_comando`, o do neto e o do timeout; 26 passaram). Tentei antes duas trocas que não compilavam limpas sob `-D warnings` (código sem uso e `&& false`): cairiam no clippy sem provar nada; desfeitas antes de enviar. Ambas revertidas com `git revert`.
+- **Achado de CI**: o job Desktop Rust passou a levar 11 a 20 min; os testes levam 7 a 40 s e o clippy segundos: o tempo está no passo "Dependências do Tauri 2 (apt)" (11 min na rodada medida). Causa não investigada (espelho ou runner lento); ver se vale cachear.
+- **Não verificado**: o tempo limite na janela real (só faz sentido com o `updates`); a conferência contra o `/usr/bin/kill` do Arch (testado só no runner Ubuntu); um neto que faça `setsid` escapa do grupo (aceito); se o `nodusctl` termina e deixa um neto vivo segurando o cano, a leitura ainda pode esperar (igual a antes, o prazo não cobre esse caso).
+- **Fica**: tela `updates` (PR C2, com `Allowed::Updates` e 120 s); lentidão do `apt` no CI Desktop; alerta nº 1 do `glib` (dispensar é decisão do dono); limpeza do `src-tauri/target`; `cargo-deny` do `src-tauri`; ADR das ações privilegiadas; P-02; P-14; P-17; remoto da `~/dotfiles`.
+
 ### 2026-11-17 — Sessão 21 (continuação 10), GUI desktop: aba de Dotfiles (PR #86)
 
 - **Pedido**: seguir para a tela de `dotfiles` (PR B da ordem repos → dotfiles → updates), em plan mode (plano aprovado).
