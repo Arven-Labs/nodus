@@ -30,7 +30,7 @@ export function nullableText(value: unknown, path: string): string | null {
 }
 
 export function count(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) fail(path, "um inteiro não negativo");
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) fail(path, "um inteiro não negativo");
   return value;
 }
 
