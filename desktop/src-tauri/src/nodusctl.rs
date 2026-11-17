@@ -1,3 +1,159 @@
+//! Ponte entre a GUI e o `nodusctl` (ADR 0026).
+//!
+//! A fronteira de confiança é aqui, no Rust, e não no JavaScript: a webview é código de página web. O frontend só
+//! manda o **nome** de um comando; este módulo recusa o que não está na lista, monta os argumentos sozinho, sem shell,
+//! e só roda depois de conferir que o `nodusctl --version` tem o mesmo `major.minor` da GUI.
+
+use serde::Serialize;
+use std::io::Read;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+/// Limite da saída aceita de um comando (16 MiB). O `inventory` de uma máquina com milhares de pacotes fica bem abaixo.
+const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+/// Erro devolvido ao frontend: `kind` é um código estável (a tela decide o que mostrar), `message` é para pessoas.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CmdError {
+    pub kind: &'static str,
+    pub message: String,
+}
+
+impl CmdError {
+    fn new(kind: &'static str, message: impl Into<String>) -> Self {
+        Self { kind, message: message.into() }
+    }
+}
+
+/// Comandos de **leitura** que a GUI pode pedir. Cada um tem argumentos fixos, terminados em `--json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Allowed {
+    Inventory,
+}
+
+impl Allowed {
+    /// Aceita só o nome exato; qualquer outra coisa (maiúscula, espaço, argumento embutido) é recusada.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "inventory" => Some(Self::Inventory),
+            _ => None,
+        }
+    }
+
+    pub fn args(self) -> [&'static str; 2] {
+        match self {
+            Self::Inventory => ["inventory", "--json"],
+        }
+    }
+}
+
+/// Lê `nodusctl X.Y.Z` (a saída de `nodusctl --version`). Estrito: sem sufixo, sem prefixo, sem número fora de `u64`.
+pub fn parse_version(output: &str) -> Option<(u64, u64, u64)> {
+    let version = output.trim_end_matches('\n').strip_prefix("nodusctl ")?;
+    let mut parts = version.split('.');
+    let mut number = || -> Option<u64> {
+        let part = parts.next()?;
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        part.parse().ok()
+    };
+    let (major, minor, patch) = (number()?, number()?, number()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
+}
+
+/// A GUI aceita a CLI do mesmo `major.minor` (em 0.x, uma mudança de minor pode quebrar o JSON). O patch pode diferir.
+pub fn compatible(gui: (u64, u64, u64), cli: (u64, u64, u64)) -> bool {
+    gui.0 == cli.0 && gui.1 == cli.1
+}
+
+/// Roda o binário com `args`, com um limite de saída. Sem shell; entrada vazia; o erro padrão volta junto para as mensagens.
+fn run(binary: &Path, args: &[&str]) -> Result<(std::process::ExitStatus, String, String), CmdError> {
+    let mut child = Command::new(binary)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => CmdError::new("not_found", format!("nodusctl não encontrado ({})", binary.display())),
+            _ => CmdError::new("failed", format!("não foi possível executar o nodusctl: {e}")),
+        })?;
+
+    // O erro padrão é lido em outra thread: se o processo encher o cano do stderr enquanto esperamos o stdout, os dois travariam.
+    // Guarda só os primeiros 64 KiB e descarta o resto.
+    let stderr_reader = child.stderr.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut kept = Vec::new();
+            let mut buf = [0u8; 8192];
+            while let Ok(n) = pipe.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                if kept.len() < 64 * 1024 {
+                    kept.extend_from_slice(&buf[..n]);
+                }
+            }
+            String::from_utf8_lossy(&kept).into_owned()
+        })
+    });
+
+    let mut stdout = String::new();
+    let mut too_large = false;
+    if let Some(pipe) = child.stdout.take() {
+        let mut limited = pipe.take(MAX_OUTPUT_BYTES as u64 + 1);
+        let mut bytes = Vec::new();
+        limited.read_to_end(&mut bytes).map_err(|e| CmdError::new("failed", format!("lendo a saída do nodusctl: {e}")))?;
+        if bytes.len() > MAX_OUTPUT_BYTES {
+            too_large = true;
+            // Fecha o cano para o processo não ficar bloqueado escrevendo.
+            drop(limited);
+            let _ = child.kill();
+        } else {
+            stdout = String::from_utf8_lossy(&bytes).into_owned();
+        }
+    }
+    let status = child.wait().map_err(|e| CmdError::new("failed", format!("esperando o nodusctl: {e}")))?;
+    let stderr = stderr_reader.and_then(|handle| handle.join().ok()).unwrap_or_default();
+    if too_large {
+        return Err(CmdError::new("output_too_large", "a saída do nodusctl passou do limite aceito"));
+    }
+    Ok((status, stdout, stderr))
+}
+
+/// Roda um comando de leitura e devolve o JSON bruto (texto). Ordem: lista, versão, comando.
+pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64)) -> Result<String, CmdError> {
+    let allowed = Allowed::parse(name)
+        .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
+
+    let (status, out, _) = run(binary, &["--version"])?;
+    let cli_version = parse_version(&out).filter(|_| status.success()).ok_or_else(|| {
+        CmdError::new("version_unknown", "não consegui ler a versão do nodusctl (saída de --version inesperada)")
+    })?;
+    if !compatible(gui_version, cli_version) {
+        return Err(CmdError::new(
+            "version_mismatch",
+            format!(
+                "nodusctl {}.{}.{} não é compatível com esta interface ({}.{}.x)",
+                cli_version.0, cli_version.1, cli_version.2, gui_version.0, gui_version.1
+            ),
+        ));
+    }
+
+    let (status, out, err) = run(binary, &allowed.args())?;
+    if !status.success() {
+        let detail = err.trim();
+        return Err(CmdError::new(
+            "failed",
+            if detail.is_empty() { format!("o nodusctl terminou com {status}") } else { detail.to_string() },
+        ));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
