@@ -2,6 +2,8 @@
 
 CLI + agente local, só Arch Linux (ADR 0004). Base: SPEC §16.
 
+**Status: fechado pelo dono em 2026-11-17** (versão `v0.1.0`; ver "Fechamento do MVP" abaixo).
+
 ## Critérios de pronto
 1. Instalar a CLI em um Arch Linux (por código-fonte, ADR 0010).
 2. `inventory`: hardware, sistema e aplicativos instalados. (Marcos 2 a 4: sistema, hardware (CPU, RAM, discos), pacotes pacman e apps Flatpak, texto e `--json`. Critério 2 completo no código; sistema, kernel, CPU, memória, pacotes e Flatpak conferidos por leitura contra `/etc/os-release`, `uname`, `/proc` e `pacman -Q` (SESSIONS.md); discos não aparecem como conferidos com `lsblk`.)
