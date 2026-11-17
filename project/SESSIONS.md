@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 2), revisão de fechamento do MVP (só docs)
+
+- **Pedido**: depois dos dotfiles reais, fechar o MVP formalmente, em plan mode (plano aprovado). Revisão só de leitura, critério por critério.
+- **Feito**: seção "Fechamento do MVP" no `MVP.md` (tabela dos 11 critérios). Só o **critério 1** está não pronto: falta a primeira tag assinada (`git tag -v` numa máquina limpa, selo "Verified" numa tag real e `cargo install --locked --git --tag` medido). Critério 10 pronto com lacuna (sem reversão de Flatpak) e 11 pronto com lacunas de verificação. Texto desatualizado dos critérios 2 e 3 corrigido. **Decidido pelo dono:** "configurações" do preset (critério 3) são os dotfiles do critério 11; o preset fica só de pacotes e apps.
+- **Não verificado**: nada foi rodado; a tabela herda o que o `SESSIONS.md` registra. Discos do `inventory` sem conferência com `lsblk`.
+- **Fica**: roteiro da primeira tag `v0.1.0` (você executa; usa a chave de assinatura, P-13); decidir se a P-02 entra antes da tag; remoto da `~/dotfiles`; P-14, P-17.
+
 ### 2026-11-17 — Sessão 21 (continuação), `~/dotfiles` real, só local (só docs)
 
 - **Pedido**: depois da verificação, montar o `~/dotfiles` definitivo. Decisões do dono: adotar só `.bash_logout` e `.gitconfig` (os de shell de login ficam para depois); **só local, sem remoto** por enquanto.
