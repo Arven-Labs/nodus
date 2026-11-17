@@ -10,3 +10,8 @@
 
 # Build do Cargo (build só no CI, ADR 0009)
 target/
+
+# GUI desktop (ADR 0026): dependências do Node, build do Vite e schemas gerados pelo tauri-build
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/gen/

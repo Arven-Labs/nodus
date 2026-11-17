@@ -1,0 +1,95 @@
+name: CI Desktop
+
+# GUI desktop (ADR 0026): frontend (tsc, build, testes e e2e com backend falso) e o Rust do `src-tauri`.
+# Só roda quando `desktop/**` muda. NÃO é o check obrigatório da main (esse é o `Rust (clippy and tests)` do CI.yml,
+# que continua sem filtro de caminho). `desktop/src-tauri` tem workspace Cargo próprio: não entra no CI da CLI.
+# Modelo: `warden/.github/workflows/desktop-e2e.yml`.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - 'desktop/**'
+      - '.github/workflows/ci-desktop.yml'
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+
+concurrency:
+  group: ci-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  frontend:
+    name: Desktop frontend (tsc, build, tests, e2e)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: Build (tsc + vite)
+        run: npm run build
+
+      - name: Unit tests (parsing do contrato)
+        run: npm test
+
+      - name: e2e com backend falso
+        run: npm run test:e2e
+
+  rust:
+    name: Desktop Rust (clippy and tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop/src-tauri
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Dependências do Tauri 2 (Debian/Ubuntu)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      # O `tauri-build` valida o `frontendDist` (`../dist`): uma pasta vazia basta para o clippy e os testes.
+      - name: Pasta dist vazia (o Tauri exige que exista)
+        run: mkdir -p ../dist
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
