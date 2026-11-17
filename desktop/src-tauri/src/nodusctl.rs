@@ -161,6 +161,16 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Mutex;
+
+    /// Serializa "criar o script" e "executá-lo". Sem isso, o `fork` de um teste herda o descritor de escrita ainda aberto do
+    /// script de outro teste, e o `exec` desse outro recebe ETXTBSY ("text file busy"): falha intermitente, que já derrubou o CI da main.
+    static EXEC: Mutex<()> = Mutex::new(());
+
+    fn ler(binary: &Path, name: &str, gui: (u64, u64, u64)) -> Result<String, CmdError> {
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        read(binary, name, gui)
+    }
 
     // --- allowlist: a GUI só roda comandos de leitura, com argumentos fixos (ADR 0026) ---
 
@@ -226,6 +236,7 @@ mod tests {
             std::process::id(),
             CONTADOR.fetch_add(1, Ordering::SeqCst)
         ));
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
         fs::create_dir_all(&dir).unwrap();
         let bin = dir.join("nodusctl");
         fs::write(&bin, format!("#!/bin/sh\necho \"$*\" >> '{}/chamadas'\n{corpo}\n", dir.display())).unwrap();
@@ -246,7 +257,7 @@ echo "argumentos inesperados: $*" >&2; exit 64
     #[test]
     fn le_o_json_do_inventario() {
         let (dir, bin) = falso(BOM);
-        let saida = read(&bin, "inventory", (0, 1, 0)).unwrap();
+        let saida = ler(&bin, "inventory", (0, 1, 0)).unwrap();
         assert_eq!(saida.trim(), r#"{"ok":true}"#);
         assert_eq!(chamadas(&dir), ["--version", "inventory --json"], "versão primeiro, depois o comando, nada mais");
     }
@@ -255,7 +266,7 @@ echo "argumentos inesperados: $*" >&2; exit 64
     fn comando_fora_da_lista_nao_executa_nada() {
         let (dir, bin) = falso(BOM);
         for nome in ["apply", "inventory --json", "", "sudo", "undo 1"] {
-            let erro = read(&bin, nome, (0, 1, 0)).unwrap_err();
+            let erro = ler(&bin, nome, (0, 1, 0)).unwrap_err();
             assert_eq!(erro.kind, "not_allowed", "{nome:?}");
         }
         assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
@@ -264,8 +275,8 @@ echo "argumentos inesperados: $*" >&2; exit 64
     #[test]
     fn versao_incompativel_bloqueia_e_nao_roda_o_comando() {
         let (dir, bin) = falso(&BOM.replace("0.1.4", "0.2.0"));
-        let erro = read(&bin, "inventory", (0, 1, 0)).unwrap_err();
-        assert_eq!(erro.kind, "version_mismatch");
+        let erro = ler(&bin, "inventory", (0, 1, 0)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch", "{}", erro.message);
         assert!(erro.message.contains("0.2.0"), "a mensagem diz qual versão veio: {}", erro.message);
         assert_eq!(chamadas(&dir), ["--version"], "só a versão foi pedida; o inventário nunca rodou");
     }
@@ -273,20 +284,20 @@ echo "argumentos inesperados: $*" >&2; exit 64
     #[test]
     fn major_diferente_tambem_bloqueia() {
         let (_dir, bin) = falso(&BOM.replace("0.1.4", "1.1.0"));
-        assert_eq!(read(&bin, "inventory", (0, 1, 0)).unwrap_err().kind, "version_mismatch");
+        assert_eq!(ler(&bin, "inventory", (0, 1, 0)).unwrap_err().kind, "version_mismatch");
     }
 
     #[test]
     fn saida_de_versao_ilegivel_e_erro_proprio() {
         let (dir, bin) = falso("echo hello; exit 0");
-        let erro = read(&bin, "inventory", (0, 1, 0)).unwrap_err();
+        let erro = ler(&bin, "inventory", (0, 1, 0)).unwrap_err();
         assert_eq!(erro.kind, "version_unknown");
         assert_eq!(chamadas(&dir), ["--version"]);
     }
 
     #[test]
     fn binario_inexistente_e_not_found() {
-        let erro = read(Path::new("/nao/existe/nodusctl"), "inventory", (0, 1, 0)).unwrap_err();
+        let erro = ler(Path::new("/nao/existe/nodusctl"), "inventory", (0, 1, 0)).unwrap_err();
         assert_eq!(erro.kind, "not_found");
     }
 
@@ -297,7 +308,7 @@ if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
 echo "falhou de propósito" >&2; exit 3
 "#;
         let (_dir, bin) = falso(corpo);
-        let erro = read(&bin, "inventory", (0, 1, 0)).unwrap_err();
+        let erro = ler(&bin, "inventory", (0, 1, 0)).unwrap_err();
         assert_eq!(erro.kind, "failed");
         assert!(erro.message.contains("falhou de propósito"), "{}", erro.message);
     }
@@ -309,7 +320,7 @@ if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
 head -c 20000000 /dev/zero | tr '\0' 'a'
 "#;
         let (_dir, bin) = falso(corpo);
-        assert_eq!(read(&bin, "inventory", (0, 1, 0)).unwrap_err().kind, "output_too_large");
+        assert_eq!(ler(&bin, "inventory", (0, 1, 0)).unwrap_err().kind, "output_too_large");
     }
 
     #[test]
@@ -317,7 +328,7 @@ head -c 20000000 /dev/zero | tr '\0' 'a'
         // O que o frontend manda é só o nome; qualquer tentativa de embutir argumento é recusada (teste acima) e
         // o conjunto de argumentos executados é exatamente o da allowlist.
         let (dir, bin) = falso(BOM);
-        read(&bin, "inventory", (0, 1, 0)).unwrap();
+        ler(&bin, "inventory", (0, 1, 0)).unwrap();
         for linha in chamadas(&dir) {
             assert!(linha == "--version" || linha == "inventory --json", "chamada fora do esperado: {linha}");
         }
