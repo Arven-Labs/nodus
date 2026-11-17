@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21, verificação em dotfile real (só docs e script)
+
+- **Pedido**: fechar a dívida "verificar `adopt`, `undo` e `link` num dotfile real", em vez de fatia nova.
+- **Feito**: roteiro `project/spikes/dotfiles-real/verificar.sh` (o dono rodou no terminal real, `main` em `f703c12`, binário de `target/release` de 2026-11-16 20:51). Toca só `~/.bash_logout` e `~/.gitconfig` reais, com backup antes; config, histórico e pasta-fonte em `/tmp` (`XDG_*`), então o `config.toml` e o `history.jsonl` do dono não foram tocados. **26 OK, 0 FALHA**: `adopt` dos dois, `git config --global --list` igual antes e depois, `git config --global` escrevendo **pelo symlink** sem trocá-lo por arquivo comum (a escrita chegou na fonte; depois do `--unset` o diff com o backup ficou vazio), `undo 2` e `undo 1` (arquivos comuns, idênticos ao backup byte a byte), segundo `undo 1` recusado, `link` recusado com destino existente, `link` após mover o original, `undo` do link (só o symlink sai, a fonte fica) e estado final igual ao backup, sem sobras `.nodus-*`.
+- **Correção minha**: avisei que o binário (de 20:51, anterior ao commit de 21:12) podia não ter o `undo` de ligação; tinha. A comparação por data de arquivo era palpite, e `nodusctl --version` (`0.0.1`) não diz o commit.
+- **Não verificado**: editor salvando por cima do symlink (editores que gravam em temporário e renomeiam podem trocá-lo por arquivo comum); logout real executando o `.bash_logout`; KDE; permissão negada; adoção com a pasta-fonte definitiva (a desta rodada foi em `/tmp`); versão do git não anotada.
+- **Fica**: teste do editor (`adopt` num arquivo, abrir no editor, salvar, `ls -l`); o `~/dotfiles` do dono (commit, remoto privado); `link` em lote; `dotfiles dir set`; decidir sobre testes de corrida com gancho; considerar o hash do commit em `--version`; P-02, P-14, P-17.
+
 ### 2026-11-17 — Sessão 20, `history undo` de ligação (critério 11, fatia 5)
 
 - **Pedido**: seguir com a fatia 5, em plan mode. Decisão do dono: as pastas-pai criadas pelo `link` **ficam**; ADR 0025 criado a pedido (PR #72, mesclado).
