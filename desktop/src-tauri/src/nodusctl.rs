@@ -55,7 +55,7 @@ pub fn resolve_binary(env_value: Option<OsString>) -> Result<PathBuf, CmdError> 
         return Ok(PathBuf::from("nodusctl"));
     };
     let path = PathBuf::from(value);
-    if path.is_absolute() {
+    if !path.as_os_str().is_empty() {
         Ok(path)
     } else {
         Err(CmdError::new(
