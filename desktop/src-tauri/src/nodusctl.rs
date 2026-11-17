@@ -42,7 +42,7 @@ impl Allowed {
         match name {
             "inventory" => Some(Self::Inventory),
             "repos" => Some(Self::Repos),
-            n if n.starts_with("dotfiles") => Some(Self::Dotfiles),
+            "dotfiles" => Some(Self::Dotfiles),
             _ => None,
         }
     }
