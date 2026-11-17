@@ -188,6 +188,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Mutex;
+    use std::time::{Duration, Instant};
 
     /// Serializa "criar o script" e "executá-lo". Sem isso, o `fork` de um teste herda o descritor de escrita ainda aberto do
     /// script de outro teste, e o `exec` desse outro recebe ETXTBSY ("text file busy"): falha intermitente, que já derrubou o CI da main.
@@ -196,6 +197,20 @@ mod tests {
     fn ler(binary: &Path, name: &str, gui: (u64, u64, u64)) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
         read(binary, name, gui)
+    }
+
+    /// Como `ler`, mas com um prazo curto escolhido pelo teste (sem esperar 30 s no CI).
+    fn ler_com_prazo(binary: &Path, name: &str, gui: (u64, u64, u64), prazo: Duration) -> Result<String, CmdError> {
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        read_with(binary, name, gui, prazo)
+    }
+
+    /// O processo existe e não é zumbi? (Um filho morto cujo pai não o recolheu ainda aparece em `/proc` como `Z`.)
+    fn viva(pid: u32) -> bool {
+        match fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(stat) => stat.rsplit_once(") ").is_some_and(|(_, resto)| !resto.starts_with('Z')),
+            Err(_) => false,
+        }
     }
 
     // --- allowlist: a GUI só roda comandos de leitura, com argumentos fixos (ADR 0026) ---
@@ -429,6 +444,71 @@ head -c 20000000 /dev/zero | tr '\0' 'a'
 "#;
         let (_dir, bin) = falso(corpo);
         assert_eq!(ler(&bin, "inventory", (0, 1, 0)).unwrap_err().kind, "output_too_large");
+    }
+
+    // --- tempo limite: o `nodusctl` que não termina é morto, junto com os filhos (ADR 0026) ---
+
+    #[test]
+    fn prazo_estourado_vira_timeout_e_nao_trava() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
+sleep 5
+echo '{"ok":true}'
+"#;
+        let (_dir, bin) = falso(corpo);
+        let inicio = Instant::now();
+        let erro = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_millis(300)).unwrap_err();
+        assert_eq!(erro.kind, "timeout", "{}", erro.message);
+        assert!(erro.message.contains("demorou"), "{}", erro.message);
+        assert!(inicio.elapsed() < Duration::from_secs(3), "voltou em {:?}: esperou o script inteiro", inicio.elapsed());
+    }
+
+    #[test]
+    fn estouro_na_versao_nao_roda_o_comando() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then sleep 5; echo "nodusctl 0.1.0"; exit 0; fi
+echo '{"ok":true}'
+"#;
+        let (dir, bin) = falso(corpo);
+        let erro = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_millis(300)).unwrap_err();
+        assert_eq!(erro.kind, "timeout", "{}", erro.message);
+        assert_eq!(chamadas(&dir), ["--version"], "o comando nunca pode rodar depois de a versão estourar");
+    }
+
+    #[test]
+    fn prazo_estourado_mata_tambem_o_neto_que_segura_o_cano() {
+        // O neto (`sleep`) herda o cano de saída: matar só o filho deixaria o neto vivo e a leitura sem fim.
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
+sleep 30 &
+echo $! > "$(dirname "$0")/neto.pid"
+wait
+"#;
+        let (dir, bin) = falso(corpo);
+        let inicio = Instant::now();
+        let erro = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_secs(1)).unwrap_err();
+        assert_eq!(erro.kind, "timeout", "{}", erro.message);
+        assert!(inicio.elapsed() < Duration::from_secs(10), "voltou em {:?}: ficou preso no cano", inicio.elapsed());
+        let pid: u32 = fs::read_to_string(dir.join("neto.pid")).unwrap().trim().parse().unwrap();
+        let limite = Instant::now() + Duration::from_secs(2);
+        while viva(pid) && Instant::now() < limite {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!viva(pid), "o neto {pid} continua vivo depois do tempo limite");
+    }
+
+    #[test]
+    fn dentro_do_prazo_o_resultado_e_o_de_sempre() {
+        let (_dir, bin) = falso(BOM);
+        let saida = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_secs(30)).unwrap();
+        assert_eq!(saida.trim(), r#"{"ok":true}"#);
+    }
+
+    #[test]
+    fn o_prazo_de_cada_comando_e_de_30_segundos() {
+        assert_eq!(Allowed::Inventory.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::Repos.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::Dotfiles.timeout(), Duration::from_secs(30));
     }
 
     #[test]
