@@ -12,7 +12,10 @@ TAG=${1:?uso: verificar.sh <tag>, ex.: v0.1.0}
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag inesperada: $TAG"; exit 2; }
 command -v docker >/dev/null || { echo "docker não encontrado"; exit 2; }
 
-docker run --rm -i -e TAG="$TAG" archlinux:latest bash -s <<'CONTAINER'
+# --network host: em 2026-11-17 o kernel em execução (7.2.14) estava sem módulos (só havia os do 7.3.4,
+# atualização sem reinício) e a rede em ponte do Docker falhava no `veth`. Com a rede do host o
+# container só faz HTTPS de saída. Com o sistema reiniciado, pode-se tirar a opção.
+docker run --rm -i --network host -e TAG="$TAG" archlinux:latest bash -s <<'CONTAINER'
 set -u
 REPO=Arven-Labs/nodus
 OWNER=masterlxz
