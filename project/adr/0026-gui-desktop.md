@@ -35,6 +35,9 @@ Escolhas do dono em 2026-11-17.
 - **Tensão com o ADR 0009 do workspace (build e teste só no CI):** `tauri dev` compila localmente e o frontend traz `node_modules` (100 a 300 MB no `warden/desktop` e no `anchor/desktop`). Proposta: build e testes no CI (workflows separados, como no warden); desenvolvimento local só com exceção pontual do dono, que precisa ser decidida **antes** de existir código.
 - Fica para depois, com ADR próprio: ações privilegiadas (pkexec/polkit), GUI falando com agente remoto, campo de versão no JSON, empacotamento (AppImage, PKGBUILD) e assinatura do binário da GUI (o ADR 0010 proíbe binário distribuído sem ADR novo).
 
+## Emenda (2026-11-17): exceção ao ADR 0009 para o desenvolvimento local da GUI
+**Decidido pelo dono (opção 1):** o `tauri dev` e o build local da GUI são permitidos **pontualmente**, rodados pelo dono (o hook `guard-heavy` barra o agente; o dono roda com `!` ou no terminal). O CI continua sendo o juiz: testes, clippy, build de produção e e2e da GUI rodam lá, em workflows separados. A exceção cobre só o `desktop/` (Node e `src-tauri`); o resto do nodus segue o ADR 0009. **Disco:** antes do primeiro `npm install`, rodar `scripts/disk-report.sh`; o `node_modules` do warden e do anchor tem de 100 a 300 MB. Se um projeto passar de 2 GB, a limpeza volta a ser decisão do dono. A exceção vale para o desenvolvimento da Fase 1.5 e deve ser revista quando a GUI tiver CI próprio estável. Não medido: quanto o `target/` do `src-tauri` pesa neste disco (o `kin/target` tem 1,9 GB, o `warden/target` 606 MB).
+
 ## Não verificado
 - Tamanho real de um shell Tauri, tempo de build no CI e dependências no Arch (WebKitGTK): não medidos.
 - Versões atuais do Tauri 2 e do WebKitGTK: conferir na documentação oficial antes de implementar; meu conhecimento pode estar desatualizado.

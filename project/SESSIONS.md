@@ -2,6 +2,12 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 6), exceção ao ADR 0009 para o `tauri dev` (só docs)
+
+- **Pedido**: destravar o scaffold da GUI. **Decidido pelo dono:** `tauri dev` e build local da GUI **pontuais**, rodados por ele; CI continua o juiz; vale só para `desktop/`. Registrado como emenda no ADR 0026.
+- **Não verificado**: peso do `target/` do `src-tauri` neste disco; se o `guard-heavy` barra também `npm` e `tauri` (só vi barrar `cargo install`).
+- **Fica**: scaffold Tauri com a tela de inventário (testes primeiro, backend falso, em plan mode); ADR das ações privilegiadas; P-02; P-14; P-17; remoto da `~/dotfiles`.
+
 ### 2026-11-17 — Sessão 21 (continuação 5), ADR 0026: arquitetura da GUI (só docs)
 
 - **Pedido**: o dono só vai usar o nodus com interface; seguir a Fase 1.5 pelo ADR antes do código, em plan mode (plano aprovado). Escolhas do dono: integração por **processo** (`nodusctl --json`), primeira versão **só de leitura**, stack **Tauri 2 + React/TypeScript**.
