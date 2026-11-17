@@ -32,6 +32,8 @@ pub enum Allowed {
     Inventory,
     /// Sem `--fetch`: a GUI não usa a rede nem escreve em `.git`. A pasta é a que a CLI resolve (workspace).
     Repos,
+    /// Só o relatório. `dotfiles adopt` e `dotfiles link` escrevem no HOME e ficam de fora (ADR 0026).
+    Dotfiles,
 }
 
 impl Allowed {
@@ -40,6 +42,7 @@ impl Allowed {
         match name {
             "inventory" => Some(Self::Inventory),
             "repos" => Some(Self::Repos),
+            "dotfiles" => Some(Self::Dotfiles),
             _ => None,
         }
     }
@@ -48,6 +51,7 @@ impl Allowed {
         match self {
             Self::Inventory => ["inventory", "--json"],
             Self::Repos => ["repos", "--json"],
+            Self::Dotfiles => ["dotfiles", "--json"],
         }
     }
 }
