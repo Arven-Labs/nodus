@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 10), GUI desktop: aba de Dotfiles (PR #86)
+
+- **Pedido**: seguir para a tela de `dotfiles` (PR B da ordem repos → dotfiles → updates), em plan mode (plano aprovado).
+- **Feito**: `Allowed::Dotfiles` (`["dotfiles","--json"]`, só o relatório: `dotfiles adopt` e `dotfiles link` escrevem no HOME e são recusados); `src/lib/dotfiles.ts` (união discriminada por `kind`; `kind` desconhecido é erro); `DotfilesScreen` com o estado de cada entrada e "Presentes: N de M"; `type Command` em `backend.ts` (uma só cópia da união); as abas saem de uma lista `TABS`.
+- **Testes primeiro**: commit só com os testes: CI Desktop **vermelho** (Rust: `no variant Dotfiles`; frontend: falta de `dotfiles.ts`). Depois da implementação, tudo verde.
+- **Mutação** (duas trocas num commit): allowlist por prefixo (`starts_with("dotfiles")`) derrubou **2 testes Rust** (`adopt_e_link_nao_executam_nada`, `dotfiles_so_o_relatorio_nunca_adopt_nem_link`; 22 passaram); `kind` desconhecido virando `other` derrubou **1 teste de frontend**. Revertida com `git revert`.
+- **Não verificado**: a aba na janela real (`npm run tauri dev`, `NODUSCTL` absoluto), comparada com `nodusctl dotfiles` no terminal (inclusive os symlinks do `~/dotfiles` adotado); o visual (reusa os estilos da lista de repositórios).
+- **Fica**: tela `updates` (PR C: usa a rede e pede o tempo limite do `nodusctl` antes); alerta nº 1 do `glib` (dispensar é decisão do dono); limpeza do `src-tauri/target`; `cargo-deny` do `src-tauri`; ADR das ações privilegiadas; P-02; P-14; P-17; remoto da `~/dotfiles`.
+
 ### 2026-11-17 — Sessão 21 (continuação 9), GUI desktop: abas e tela de Repositórios (PR #85)
 
 - **Pedido**: seguir para as telas da GUI (plan mode, plano aprovado). Escolhas do dono: ordem **repos → dotfiles → updates**, um PR por tela; navegação por **abas com estado local** (sem `react-router`).
