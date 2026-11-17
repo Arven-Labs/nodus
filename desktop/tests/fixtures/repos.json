@@ -1,0 +1,54 @@
+[
+  {
+    "name": "alpha",
+    "path": "/ws-teste/alpha",
+    "branch": "main",
+    "commit": "1111111",
+    "upstream": "origin/main",
+    "ahead": 2,
+    "behind": 0,
+    "upstream_gone": false,
+    "origin_url": "https://example.test/alpha.git",
+    "fetch": null,
+    "error": null
+  },
+  {
+    "name": "beta",
+    "path": "/ws-teste/beta",
+    "branch": "feature-x",
+    "commit": "2222222",
+    "upstream": null,
+    "ahead": null,
+    "behind": null,
+    "upstream_gone": false,
+    "origin_url": null,
+    "fetch": null,
+    "error": null
+  },
+  {
+    "name": "gamma",
+    "path": "/ws-teste/gamma",
+    "branch": "velha",
+    "commit": "3333333",
+    "upstream": "origin/velha",
+    "ahead": null,
+    "behind": null,
+    "upstream_gone": true,
+    "origin_url": "git@example.test:gamma.git",
+    "fetch": null,
+    "error": null
+  },
+  {
+    "name": "delta",
+    "path": "/ws-teste/delta",
+    "branch": null,
+    "commit": null,
+    "upstream": null,
+    "ahead": null,
+    "behind": null,
+    "upstream_gone": false,
+    "origin_url": null,
+    "fetch": null,
+    "error": "git terminou com status 128"
+  }
+]

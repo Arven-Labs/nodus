@@ -30,6 +30,8 @@ impl CmdError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Allowed {
     Inventory,
+    /// Sem `--fetch`: a GUI não usa a rede nem escreve em `.git`. A pasta é a que a CLI resolve (workspace).
+    Repos,
 }
 
 impl Allowed {
@@ -37,6 +39,7 @@ impl Allowed {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "inventory" => Some(Self::Inventory),
+            "repos" => Some(Self::Repos),
             _ => None,
         }
     }
@@ -44,6 +47,7 @@ impl Allowed {
     pub fn args(self) -> [&'static str; 2] {
         match self {
             Self::Inventory => ["inventory", "--json"],
+            Self::Repos => ["repos", "--json"],
         }
     }
 }
@@ -193,8 +197,16 @@ mod tests {
     // --- allowlist: a GUI só roda comandos de leitura, com argumentos fixos (ADR 0026) ---
 
     #[test]
-    fn allowlist_aceita_so_inventory() {
+    fn allowlist_aceita_so_inventory_e_repos() {
         assert_eq!(Allowed::parse("inventory"), Some(Allowed::Inventory));
+        assert_eq!(Allowed::parse("repos"), Some(Allowed::Repos));
+    }
+
+    #[test]
+    fn repos_nao_aceita_argumento_nem_fetch() {
+        for nome in ["repos --fetch", "repos --json", "repos /tmp", "Repos", "REPOS", "repos ", "repos\n", "repos;ls"] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar");
+        }
     }
 
     #[test]
@@ -211,6 +223,19 @@ mod tests {
     #[test]
     fn argumentos_sao_fixos_e_terminam_em_json() {
         assert_eq!(Allowed::Inventory.args(), ["inventory", "--json"]);
+        assert_eq!(Allowed::Repos.args(), ["repos", "--json"], "sem --fetch: a GUI não usa a rede nem escreve em .git");
+    }
+
+    #[test]
+    fn le_o_json_de_repos() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
+if [ "$1" = "repos" ] && [ "$2" = "--json" ]; then echo '[]'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+        let (dir, bin) = falso(corpo);
+        assert_eq!(ler(&bin, "repos", (0, 1, 0)).unwrap().trim(), "[]");
+        assert_eq!(chamadas(&dir), ["--version", "repos --json"]);
     }
 
     // --- binário: `NODUSCTL` só vale como caminho absoluto (o app roda com o diretório atual em `src-tauri/`) ---
