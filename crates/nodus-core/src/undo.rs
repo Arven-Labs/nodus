@@ -115,7 +115,7 @@ pub enum UndoError {
     Dotfile(u32),
     #[error("a entrada {0} não é a adoção nem a ligação de um dotfile")]
     NotADotfileEntry(u32),
-    #[error("a adoção da entrada {0} já foi desfeita")]
+    #[error("a entrada {0} já foi desfeita")]
     AlreadyUndone(u32),
     #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
     NotPacman(u32),
@@ -418,6 +418,8 @@ mod tests {
     fn a_mensagem_de_ja_desfeita_cita_a_entrada() {
         let texto = UndoError::AlreadyUndone(3).to_string();
         assert!(texto.contains('3') && texto.contains("desfeita"), "{texto}");
+        // vale para adoção e ligação: não pode dizer só "adoção"
+        assert!(!texto.contains("adoção"), "{texto}");
     }
 
     fn remocao(undoes: u32) -> HistoryEntry {

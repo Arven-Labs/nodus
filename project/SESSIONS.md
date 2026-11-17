@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 20, `history undo` de ligação (critério 11, fatia 5)
+
+- **Pedido**: seguir com a fatia 5, em plan mode. Decisão do dono: as pastas-pai criadas pelo `link` **ficam**; ADR 0025 criado a pedido (PR #72, mesclado).
+- **Feito (PR #73)**: testes primeiro, CI **vermelho** por item inexistente (`plan_undo_link`, `UndoLinkError`, `UndoLinkPlan`, `select_dotfile_entry`, `DotfileKind`, `NotADotfileEntry`). Os testes de `select_adoption` foram reescritos para `select_dotfile_entry` (devolve também adopt ou link). Implementação: core (`plan_undo_link` com alvo por texto, seleção generalizada), CLI (`dotfiles_undo.rs` com um `Plan` de duas variantes, `remove_link` que reconfere o alvo e remove só o symlink), render ("ligação desfeita" consultando a entrada de `undoes`). Sem mudança de formato do histórico. Passou de primeira no CI.
+- **Mutação**: 4 quebras (aceitar qualquer symlink; ignorar "já desfeita"; `remove_file` no alvo em vez do symlink; inverter o render) derrubaram **11 testes** (8 no CLI, 3 no core); revertidas com `git revert`. **A reconferência do `read_link` no `remove_link` não tem teste.**
+- **Verificado no Arch real, em HOMEs temporários (dono, terminal real, `cargo build --release` na branch do PR #73)**: ver ADR 0025. A 1ª rodada foi com o `!` (sem terminal) e só provou a recusa sem terminal.
+- **Achado na verificação**: a mensagem de "já desfeita" dizia "adoção" para uma ligação; corrigida e testada.
+- **Não verificado**: num dotfile real; permissão negada; `git config --global`, editores e KDE; o runner do CI ser root.
+- **Fica**: `link` em lote; decidir se testa as reconferências de corrida (undo da adoção, undo da ligação, link) com gancho; verificar `adopt`, `undo` e `link` num dotfile real; o `~/dotfiles` do dono (commit, remoto privado); `dotfiles dir set`; P-02, P-14, P-17.
+
 ### 2026-11-16 — Sessão 20, verificação do `apply` confirmado com `s` (só docs)
 
 - **Pedido**: fechar a dívida de verificação do `preset apply` (P-18, ADR 0016), em vez de código novo.

@@ -13,7 +13,7 @@ O `adopt` (ADR 0022) leva um arquivo real do HOME para a pasta-fonte e deixa um 
 5. **Sequência**, cada passo só depois do anterior: validar e observar (só leitura); plano e `Executar? [s/N]` (só `s`/`sim`; sem terminal, recusa); criar as pastas-pai; reconferir a fonte; **`symlink(2)` direto** em `~/<caminho>`, apontando para o caminho real da pasta-fonte. Sem temporário nem `rename`: o `rename` sobrescreveria um destino que apareceu no meio; o `symlink` falha com `EEXIST`, então a própria syscall garante "nunca sobrescreve".
 6. **Aviso no plano:** ligar um arquivo de shell (`.bashrc`, `.profile`) de uma pasta-fonte faz o shell executar o conteúdo dele no próximo login. O nodus não lê o conteúdo; só ligue de pasta em que você confia.
 7. **Histórico v4:** `action = "link"`, `manager = "dotfiles"`, `dir`; mesma forma do `adopt` (um caminho, `installed` igual a `requested`, sem `still_missing`, resultado ok). A leitura continua estrita; nodus antigo recusa a linha (`UnsupportedVersion`).
-8. **`history undo` numa entrada `link` recusa** (`NotAnAdoption`). Remover o symlink é a fatia seguinte.
+8. **`history undo` numa entrada `link` recusa** (`NotAnAdoption`). Remover o symlink é a fatia seguinte. *(Emenda, ADR 0025: o `undo` da ligação existe e remove só o symlink; a recusa passou a ser `NotADotfileEntry`, só para o que não é adoção nem ligação.)*
 9. Sem dependência nova.
 
 ## Alternativas
