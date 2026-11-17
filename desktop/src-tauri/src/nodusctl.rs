@@ -120,7 +120,7 @@ pub fn compatible(gui: (u64, u64, u64), cli: (u64, u64, u64)) -> bool {
 /// segura o cano de saída aberto e a leitura nunca termina. O número vem do `child.id()`, nunca de entrada externa; sem shell.
 /// Se o `kill` do sistema falhar (não existe, ou o grupo já acabou), cai para matar só o filho.
 fn kill_group(child: &mut Child) {
-    let group = format!("-{}", child.id());
+    let group = format!("{}", child.id());
     let killed = Command::new(KILL_BINARY)
         .args(["-KILL", "--", &group])
         .stdin(Stdio::null())
