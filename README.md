@@ -2,7 +2,7 @@
 
 Plataforma open source e extensível para conhecer, configurar, padronizar, monitorar e administrar computadores, servidores, VPS, ambientes de desenvolvimento e aplicações em um único lugar. Local-first, self-hostable e independente de fabricante.
 
-**Status:** em desenvolvimento, antes do primeiro release (nenhuma tag ainda). Há uma CLI em Rust (`nodus`) para Arch Linux, sem GUI, com estes comandos:
+**Status:** em desenvolvimento; primeira versão `v0.1.0` (tag assinada, só código-fonte). Há uma CLI em Rust (`nodus`) para Arch Linux, sem GUI, com estes comandos:
 
 - `nodusctl inventory`: sistema, hardware e pacotes (pacman e Flatpak), com `--json`.
 - `nodusctl updates`: atualizações pendentes (pacman e Flatpak).
@@ -14,13 +14,24 @@ Plataforma open source e extensível para conhecer, configurar, padronizar, moni
 - `nodusctl preset init | plan | apply`: descrever os pacotes desejados em TOML, ver o que falta e instalar o que falta, com uma confirmação por passo: pacotes do pacman (`sudo pacman -S`) e depois apps Flatpak (`flatpak install --user`, remote `flathub`).
 - `nodusctl history` e `nodusctl history undo <n>`: listar as execuções do `apply` (o que foi pedido, não as dependências que vieram junto) e desfazer uma instalação, com simulação e confirmação.
 
-Ainda não há canal de instalação: a distribuição será só por código-fonte, com tag assinada (ver abaixo e o [ADR 0010](project/adr/0010-distribuicao-e-integridade.md)). A [spec inicial](project/SPEC.md) ainda usa o nome provisório "Universal". Escopo e fases em [`project/OVERVIEW.md`](project/OVERVIEW.md) e [`project/MVP.md`](project/MVP.md).
+A distribuição é só por código-fonte, com tag assinada (ver "Instalar" e "Verificar uma versão" abaixo e o [ADR 0010](project/adr/0010-distribuicao-e-integridade.md)); não há binário, pacote no AUR nem crates.io. A [spec inicial](project/SPEC.md) ainda usa o nome provisório "Universal". Escopo e fases em [`project/OVERVIEW.md`](project/OVERVIEW.md) e [`project/MVP.md`](project/MVP.md).
 
 ## Documentação
 
 - [`project/INDEX.md`](project/INDEX.md): ponto de entrada.
 - [`project/SPEC.md`](project/SPEC.md): visão de produto e especificação inicial.
 - [`project/adr/`](project/adr/): registros de decisão de arquitetura.
+
+## Instalar
+
+Só Arch Linux, a partir do código-fonte (precisa de Rust). Verifique a tag antes (próxima seção), depois:
+
+```bash
+cargo install --locked --git https://github.com/Arven-Labs/nodus --tag v0.1.0 nodus-cli
+nodusctl --version   # nodusctl 0.1.0
+```
+
+O binário se chama `nodusctl` (ADR 0013). `--locked` compila exatamente as dependências que passaram no CI e no `cargo-deny`. O `cargo install` **não** verifica a assinatura da tag: a verificação é o passo da seção seguinte. Medido em 2026-11-17 num container Arch limpo (`project/spikes/tag-limpa/verificar.sh`).
 
 ## Verificar uma versão
 

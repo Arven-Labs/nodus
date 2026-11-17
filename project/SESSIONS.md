@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 3), primeira tag assinada `v0.1.0` (critério 1)
+
+- **Pedido**: fechar o critério 1, em plan mode (plano aprovado). Decisões do dono: tag **antes** da busca de marca (P-02); verificação numa máquina limpa descartável.
+- **Feito**: PR #77 (testes primeiro, CI **vermelho** com 2 falhas `0.0.1` vs `0.1.0`; depois bump em `Cargo.toml` e `Cargo.lock`, CI verde), mesclado em `6b2e4ed`, CI da `main` verde. O dono criou `git tag -s v0.1.0` e empurrou. Conferi antes do push: `git tag -v` com a chave do GitHub exit 0, chave errada exit 1. GitHub: `verified: true`, `reason: valid` (e-mail `noreply` casou). Roteiro `project/spikes/tag-limpa/verificar.sh` (container `archlinux`, `--rm`): **7 OK, 0 FALHA** (chave igual na API e no README, `tag -v` 0, errada 1, `Cargo.toml` da tag, instalação `--locked --tag`, `nodusctl --version = 0.1.0`). README ganhou "Instalar".
+- **Achado**: o Docker falhou no `veth` (kernel em execução 7.2.14 sem módulos; só havia os do 7.3.4, atualização sem reinício). O dono não quis reiniciar; o script passou a usar `--network host`.
+- **Não verificado**: o container usa o kernel e o hardware do host (a fumaça do `inventory` mostrou o i5 do dono e o kernel 7.2.14), então não é outra máquina; só Arch com `rust` do pacman, rustc da data; o ADR 0010 pede também conferir o PKGBUILD (P-14, adiada).
+- **Fica**: o dono declarar o MVP fechado; P-02 (busca de marca) antes de divulgar ou publicar pacote; P-14; P-17; remoto da `~/dotfiles`; reiniciar para carregar o kernel novo; a branch `docs/verificacao-tag-limpa` mesclar.
+
 ### 2026-11-17 — Sessão 21 (continuação 2), revisão de fechamento do MVP (só docs)
 
 - **Pedido**: depois dos dotfiles reais, fechar o MVP formalmente, em plan mode (plano aprovado). Revisão só de leitura, critério por critério.
