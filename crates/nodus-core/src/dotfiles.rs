@@ -312,6 +312,58 @@ pub fn plan_link(
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
+pub enum UndoLinkError {
+    #[error("caminho inválido: {0}")]
+    Path(#[from] DotfileError),
+    #[error("pasta-fonte inválida: {0}")]
+    Dir(#[from] DirError),
+    #[error("o caminho no HOME não é um symlink; o nodus só remove o que o `link` criou")]
+    NotALink,
+    #[error("o symlink aponta para {found}, não para {expected}; o nodus só desfaz o que criou")]
+    WrongTarget { expected: String, found: String },
+}
+
+/// O que o `undo` de uma ligação vai fazer (ADR 0025): remover o symlink `link`, que aponta para
+/// `target`. O alvo não é tocado. Dado, sem efeito.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoLinkPlan {
+    pub path: String,
+    /// `<home>/<caminho>`: o symlink que será removido.
+    pub link: PathBuf,
+    /// `<pasta-fonte>/<caminho>`: para onde o symlink aponta; não é alterado.
+    pub target: PathBuf,
+}
+
+/// `path` e `dir` vêm do histórico, que não é assinado: são revalidados aqui. O symlink precisa
+/// apontar **exatamente** (texto, não `Path`, que ignora a barra final) para `<dir>/<path>`.
+pub fn plan_undo_link(
+    home: &Path,
+    dir: &Path,
+    path: &str,
+    link: &Observed,
+) -> Result<UndoLinkPlan, UndoLinkError> {
+    validate_path(path)?;
+    validate_dir(home, dir)?;
+    let target = dir.join(path);
+    let expected = target.to_string_lossy().into_owned();
+    match link {
+        Observed::Symlink { target: found } if *found == expected => {}
+        Observed::Symlink { target: found } => {
+            return Err(UndoLinkError::WrongTarget {
+                expected,
+                found: found.clone(),
+            });
+        }
+        _ => return Err(UndoLinkError::NotALink),
+    }
+    Ok(UndoLinkPlan {
+        path: path.to_string(),
+        link: home.join(path),
+        target,
+    })
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum UndoAdoptError {
     #[error("caminho inválido: {0}")]
     Path(#[from] DotfileError),
@@ -924,6 +976,97 @@ mod tests {
             )
             .unwrap_err();
             assert!(matches!(erro, LinkError::Dir(_)), "{dir}: {erro:?}");
+        }
+    }
+
+    // ---- plan_undo_link: desfazer a ligação (ADR 0025) ----
+
+    fn undo_link_for(path: &str, link: Observed) -> Result<UndoLinkPlan, UndoLinkError> {
+        plan_undo_link(Path::new(HOME), Path::new(DIR), path, &link)
+    }
+
+    #[test]
+    fn undo_link_com_o_symlink_certo_guarda_link_e_alvo() {
+        let plan = undo_link_for(".bashrc", link_ok(".bashrc")).unwrap();
+        assert_eq!(plan.path, ".bashrc");
+        assert_eq!(plan.link, Path::new("/home/u/.bashrc"));
+        assert_eq!(plan.target, Path::new("/home/u/dotfiles/.bashrc"));
+    }
+
+    #[test]
+    fn undo_link_aninhado_espelha_o_caminho() {
+        let plan = undo_link_for(".config/git/config", link_ok(".config/git/config")).unwrap();
+        assert_eq!(plan.link, Path::new("/home/u/.config/git/config"));
+        assert_eq!(
+            plan.target,
+            Path::new("/home/u/dotfiles/.config/git/config")
+        );
+    }
+
+    #[test]
+    fn undo_link_recusa_quando_o_home_nao_e_symlink() {
+        for link in [
+            Observed::Missing,
+            Observed::File { size: 5 },
+            Observed::Dir,
+            Observed::Other,
+        ] {
+            let erro = undo_link_for(".bashrc", link.clone()).unwrap_err();
+            assert_eq!(erro, UndoLinkError::NotALink, "{link:?}");
+        }
+    }
+
+    #[test]
+    fn undo_link_recusa_alvo_que_nao_e_exatamente_o_da_fonte() {
+        for alvo in [
+            "/etc/profile",
+            "/home/u/dotfiles/.zshrc",
+            "/home/u/dotfiles/.bashrc/",
+            "/home/u/outra/.bashrc",
+            "dotfiles/.bashrc",
+            ".bashrc",
+        ] {
+            let erro = undo_link_for(
+                ".bashrc",
+                Observed::Symlink {
+                    target: alvo.to_string(),
+                },
+            )
+            .unwrap_err();
+            assert_eq!(
+                erro,
+                UndoLinkError::WrongTarget {
+                    expected: "/home/u/dotfiles/.bashrc".to_string(),
+                    found: alvo.to_string(),
+                },
+                "{alvo}"
+            );
+        }
+    }
+
+    #[test]
+    fn undo_link_revalida_o_caminho_e_a_pasta_vindos_do_historico() {
+        for path in [".ssh/authorized_keys", "../x", "/etc/passwd", ""] {
+            let erro = undo_link_for(
+                path,
+                Observed::Symlink {
+                    target: format!("{DIR}/{path}"),
+                },
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoLinkError::Path(_)), "{path}: {erro:?}");
+        }
+        for dir in ["/home/u", "/home/u/.ssh/dots", "relativa"] {
+            let erro = plan_undo_link(
+                Path::new(HOME),
+                Path::new(dir),
+                ".bashrc",
+                &Observed::Symlink {
+                    target: format!("{dir}/.bashrc"),
+                },
+            )
+            .unwrap_err();
+            assert!(matches!(erro, UndoLinkError::Dir(_)), "{dir}: {erro:?}");
         }
     }
 

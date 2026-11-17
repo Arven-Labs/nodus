@@ -181,9 +181,21 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
         match (entry.action, entry.undoes) {
             (Action::Remove, Some(undoes)) if entry.manager == Manager::Dotfiles => {
                 let dir = entry.dir.as_deref().unwrap_or("?");
+                // A linha de uma reversão é a mesma para adoção e ligação (ADR 0025): quem
+                // distingue é a entrada que `undoes` aponta.
+                let undid_link = usize::try_from(undoes)
+                    .ok()
+                    .and_then(|undoes| undoes.checked_sub(1))
+                    .and_then(|index| entries.get(index))
+                    .is_some_and(|original| original.action == Action::Link);
+                let what = if undid_link {
+                    "ligação desfeita"
+                } else {
+                    "dotfile restaurado"
+                };
                 let _ = writeln!(
                     out,
-                    "[{n}] {when}  {result}  desfez [{undoes}]  dotfile restaurado: {}  (pasta-fonte {dir})",
+                    "[{n}] {when}  {result}  desfez [{undoes}]  {what}: {}  (pasta-fonte {dir})",
                     entry.requested.join(", ")
                 );
             }
@@ -976,6 +988,45 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
         // A linha da entrada não usa o formato de pacotes (a nota de rodapé fala de "pedidos").
         let linha = saida.lines().nth(1).unwrap_or_default();
         assert!(!linha.contains("pedidos"), "{saida}");
+    }
+
+    #[test]
+    fn historico_distingue_a_reversao_de_uma_ligacao_da_de_uma_adocao() {
+        let comando = ["nodusctl".to_string()];
+        let adocao = nodus_core::history::entry_from_adopt(
+            ".bashrc",
+            "/home/u/dotfiles",
+            &comando,
+            1_700_000_000,
+        );
+        let ligacao = nodus_core::history::entry_from_link(
+            ".profile",
+            "/home/u/dotfiles",
+            &comando,
+            1_700_000_100,
+        );
+        let desfaz = |n| {
+            nodus_core::history::entry_for_dotfile_undo(
+                n,
+                if n == 1 { ".bashrc" } else { ".profile" },
+                "/home/u/dotfiles",
+                &comando,
+                1_700_000_400,
+            )
+        };
+        let saida = render_history(&[adocao, ligacao, desfaz(1), desfaz(2)]);
+        assert!(
+            saida.contains(
+                "desfez [1]  dotfile restaurado: .bashrc  (pasta-fonte /home/u/dotfiles)\n"
+            ),
+            "{saida}"
+        );
+        assert!(
+            saida.contains(
+                "desfez [2]  ligação desfeita: .profile  (pasta-fonte /home/u/dotfiles)\n"
+            ),
+            "{saida}"
+        );
     }
 
     #[test]

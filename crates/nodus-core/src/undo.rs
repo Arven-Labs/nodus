@@ -113,9 +113,9 @@ pub enum UndoError {
         "a entrada {0} é a adoção de um dotfile; ela se desfaz pelo caminho de dotfile, não pelo do pacman (nada foi alterado)"
     )]
     Dotfile(u32),
-    #[error("a entrada {0} não é a adoção de um dotfile")]
-    NotAnAdoption(u32),
-    #[error("a adoção da entrada {0} já foi desfeita")]
+    #[error("a entrada {0} não é a adoção nem a ligação de um dotfile")]
+    NotADotfileEntry(u32),
+    #[error("a entrada {0} já foi desfeita")]
     AlreadyUndone(u32),
     #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
     NotPacman(u32),
@@ -192,9 +192,21 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
     Ok(entry)
 }
 
-/// A adoção de dotfile escolhida pelo número (ADR 0023). Recusa o que não é adoção e a adoção que
-/// já tem uma reversão no histórico (`undoes` apontando para ela).
-pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
+/// O que uma entrada de dotfile desfazível registrou (ADRs 0023 e 0025).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DotfileKind {
+    /// `dotfiles adopt`: desfazer troca o symlink por uma cópia da fonte.
+    Adopt,
+    /// `dotfiles link`: desfazer remove o symlink.
+    Link,
+}
+
+/// A adoção ou ligação de dotfile escolhida pelo número. Recusa o que não é uma das duas e a que já
+/// tem uma reversão no histórico (`undoes` apontando para ela).
+pub fn select_dotfile_entry(
+    entries: &[HistoryEntry],
+    n: u32,
+) -> Result<(&HistoryEntry, DotfileKind), UndoError> {
     let entry = usize::try_from(n)
         .ok()
         .and_then(|n| n.checked_sub(1))
@@ -203,9 +215,11 @@ pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry
             n,
             len: entries.len(),
         })?;
-    if entry.action != Action::Adopt {
-        return Err(UndoError::NotAnAdoption(n));
-    }
+    let kind = match entry.action {
+        Action::Adopt => DotfileKind::Adopt,
+        Action::Link => DotfileKind::Link,
+        _ => return Err(UndoError::NotADotfileEntry(n)),
+    };
     let undone = entries.iter().any(|other| {
         other.action == Action::Remove
             && other.manager == Manager::Dotfiles
@@ -214,7 +228,7 @@ pub fn select_adoption(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry
     if undone {
         return Err(UndoError::AlreadyUndone(n));
     }
-    Ok(entry)
+    Ok((entry, kind))
 }
 
 /// A entrada que a reversão acrescenta ao histórico. `still_installed` é o `pacman -Q` de depois:
@@ -320,26 +334,39 @@ mod tests {
         )
     }
 
-    #[test]
-    fn select_adoption_devolve_a_entrada_de_adocao() {
-        let entradas = [instalacao(&["sl"]), adocao(".bashrc")];
-        let e = select_adoption(&entradas, 2).unwrap();
-        assert_eq!(e.requested, v(&[".bashrc"]));
+    fn ligacao(path: &str) -> HistoryEntry {
+        crate::history::entry_from_link(
+            path,
+            "/home/u/dotfiles",
+            &v(&["nodusctl", "dotfiles", "link", "--", path]),
+            1_700_000_500,
+        )
     }
 
     #[test]
-    fn select_adoption_fora_do_intervalo() {
+    fn select_dotfile_entry_devolve_a_entrada_e_diz_se_e_adocao_ou_ligacao() {
+        let entradas = [instalacao(&["sl"]), adocao(".bashrc"), ligacao(".profile")];
+        let (e, tipo) = select_dotfile_entry(&entradas, 2).unwrap();
+        assert_eq!(e.requested, v(&[".bashrc"]));
+        assert_eq!(tipo, DotfileKind::Adopt);
+        let (e, tipo) = select_dotfile_entry(&entradas, 3).unwrap();
+        assert_eq!(e.requested, v(&[".profile"]));
+        assert_eq!(tipo, DotfileKind::Link);
+    }
+
+    #[test]
+    fn select_dotfile_entry_fora_do_intervalo() {
         let entradas = [adocao(".bashrc")];
         for n in [0, 2] {
             assert_eq!(
-                select_adoption(&entradas, n).unwrap_err(),
+                select_dotfile_entry(&entradas, n).unwrap_err(),
                 UndoError::OutOfRange { n, len: 1 }
             );
         }
     }
 
     #[test]
-    fn select_adoption_recusa_o_que_nao_e_adocao() {
+    fn select_dotfile_entry_recusa_o_que_nao_e_adocao_nem_ligacao() {
         let entradas = [
             instalacao(&["sl"]),
             remocao(1),
@@ -347,49 +374,52 @@ mod tests {
         ];
         for n in 1..=3 {
             assert_eq!(
-                select_adoption(&entradas, n).unwrap_err(),
-                UndoError::NotAnAdoption(n)
+                select_dotfile_entry(&entradas, n).unwrap_err(),
+                UndoError::NotADotfileEntry(n)
             );
         }
     }
 
     #[test]
-    fn select_adoption_recusa_ligacao_porque_desfazer_ligacao_ainda_nao_existe() {
-        let ligacao = crate::history::entry_from_link(
-            ".bashrc",
-            "/home/u/dotfiles",
-            &v(&["nodusctl", "dotfiles", "link", "--", ".bashrc"]),
-            1_700_000_500,
-        );
-        assert_eq!(
-            select_adoption(&[ligacao], 1).unwrap_err(),
-            UndoError::NotAnAdoption(1)
-        );
-    }
-
-    #[test]
-    fn select_adoption_recusa_adocao_ja_desfeita() {
+    fn select_dotfile_entry_recusa_adocao_ja_desfeita() {
         let entradas = [adocao(".bashrc"), reversao_dotfile(1, ".bashrc")];
         assert_eq!(
-            select_adoption(&entradas, 1).unwrap_err(),
+            select_dotfile_entry(&entradas, 1).unwrap_err(),
             UndoError::AlreadyUndone(1)
         );
     }
 
     #[test]
-    fn reversao_de_outra_adocao_nao_conta_como_desfeita() {
+    fn select_dotfile_entry_recusa_ligacao_ja_desfeita() {
+        let entradas = [ligacao(".bashrc"), reversao_dotfile(1, ".bashrc")];
+        assert_eq!(
+            select_dotfile_entry(&entradas, 1).unwrap_err(),
+            UndoError::AlreadyUndone(1)
+        );
+    }
+
+    #[test]
+    fn reversao_de_outra_entrada_nao_conta_como_desfeita() {
         let entradas = [
             adocao(".bashrc"),
-            adocao(".profile"),
+            ligacao(".profile"),
             reversao_dotfile(2, ".profile"),
         ];
-        assert!(select_adoption(&entradas, 1).is_ok());
+        assert!(select_dotfile_entry(&entradas, 1).is_ok());
+    }
+
+    #[test]
+    fn a_mensagem_de_entrada_que_nao_e_de_dotfile_cita_a_entrada() {
+        let texto = UndoError::NotADotfileEntry(4).to_string();
+        assert!(texto.contains('4') && texto.contains("dotfile"), "{texto}");
     }
 
     #[test]
     fn a_mensagem_de_ja_desfeita_cita_a_entrada() {
         let texto = UndoError::AlreadyUndone(3).to_string();
         assert!(texto.contains('3') && texto.contains("desfeita"), "{texto}");
+        // vale para adoção e ligação: não pode dizer só "adoção"
+        assert!(!texto.contains("adoção"), "{texto}");
     }
 
     fn remocao(undoes: u32) -> HistoryEntry {

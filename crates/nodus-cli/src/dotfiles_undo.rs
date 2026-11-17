@@ -1,5 +1,6 @@
-//! `nodusctl history undo <n>` de uma adoção de dotfile (ADR 0023): troca o symlink do HOME por uma
-//! cópia do conteúdo atual da pasta-fonte, que não é alterada. Tudo o que pode ser recusado é
+//! `nodusctl history undo <n>` de uma adoção ou ligação de dotfile (ADRs 0023 e 0025). Desfazer uma
+//! adoção troca o symlink do HOME por uma cópia do conteúdo atual da pasta-fonte; desfazer uma
+//! ligação remove só o symlink. A pasta-fonte não é alterada nos dois casos. Tudo o que pode ser recusado é
 //! recusado **antes** da pergunta. O histórico não é assinado (T5): `path` e `dir` vêm dele e são
 //! revalidados pelo core. A troca é atômica: cópia para um temporário ao lado do symlink, conferida
 //! byte a byte, e `rename` por cima.
@@ -7,9 +8,11 @@
 use crate::dotfiles::observe;
 use crate::dotfiles_adopt::{check_parents, snapshot};
 use anyhow::{Context, Result, bail};
-use nodus_core::dotfiles::{UndoAdoptPlan, plan_undo_adopt, validate_dir, validate_path};
+use nodus_core::dotfiles::{
+    UndoAdoptPlan, UndoLinkPlan, plan_undo_adopt, plan_undo_link, validate_path,
+};
 use nodus_core::history::{HistoryEntry, entry_for_dotfile_undo};
-use nodus_core::undo::select_adoption;
+use nodus_core::undo::{DotfileKind, select_dotfile_entry};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -33,25 +36,64 @@ pub enum Outcome {
     Undone,
 }
 
-fn render_plan(plan: &UndoAdoptPlan) -> String {
-    format!(
-        "Desfazer a adoção do dotfile: {} ({} bytes, permissão {:o})\n  copiar de: {}\n  trocar o symlink {} por um arquivo comum com esse conteúdo\nA pasta-fonte não é alterada: a cópia continua lá.\n",
-        plan.path,
-        plan.size,
-        plan.mode,
-        plan.source.display(),
-        plan.link.display()
-    )
+/// O que vai ser feito, já validado pelo core: restaurar a cópia (desfaz uma adoção) ou remover o
+/// symlink (desfaz uma ligação).
+enum Plan {
+    Restore(UndoAdoptPlan),
+    Unlink(UndoLinkPlan),
 }
 
-/// Valida, mostra o plano, pergunta `Executar? [s/N]`, troca o symlink pela cópia e grava o
-/// histórico. Sem terminal, recusa.
+fn render_plan(plan: &Plan) -> String {
+    match plan {
+        Plan::Restore(plan) => format!(
+            "Desfazer a adoção do dotfile: {} ({} bytes, permissão {:o})\n  copiar de: {}\n  trocar o symlink {} por um arquivo comum com esse conteúdo\nA pasta-fonte não é alterada: a cópia continua lá.\n",
+            plan.path,
+            plan.size,
+            plan.mode,
+            plan.source.display(),
+            plan.link.display()
+        ),
+        Plan::Unlink(plan) => format!(
+            "Desfazer a ligação do dotfile: {}\n  remover o symlink {} -> {}\nA pasta-fonte não é alterada; as pastas que o link tenha criado no HOME ficam.\n",
+            plan.path,
+            plan.link.display(),
+            plan.target.display()
+        ),
+    }
+}
+
+/// Só leitura: valida e observa o disco para montar o plano. O histórico não é confiável, então
+/// `path` e `dir` são revalidados (aqui e dentro do `plan_*` do core).
+fn make_plan(request: &Request, kind: DotfileKind, path: &str, dir: &Path) -> Result<Plan> {
+    let context = || format!("dotfile {path:?}");
+    validate_path(path).with_context(context)?;
+    check_parents(request.home, path).with_context(context)?;
+    let link = observe(request.home, path)?;
+    match kind {
+        DotfileKind::Adopt => {
+            check_parents(dir, path).with_context(context)?;
+            let source = observe(dir, path)?;
+            let mode = fs::symlink_metadata(dir.join(path))
+                .map(|meta| meta.mode())
+                .unwrap_or(0);
+            plan_undo_adopt(request.home, dir, path, &link, &source, mode)
+                .map(Plan::Restore)
+                .with_context(context)
+        }
+        DotfileKind::Link => plan_undo_link(request.home, dir, path, &link)
+            .map(Plan::Unlink)
+            .with_context(context),
+    }
+}
+
+/// Valida, mostra o plano, pergunta `Executar? [s/N]`, desfaz (copia de volta ou remove o symlink)
+/// e grava o histórico. Sem terminal, recusa.
 pub fn undo_dotfile(
     request: &Request,
     input: &mut impl BufRead,
     output: &mut impl Write,
 ) -> Result<Outcome> {
-    let entry = select_adoption(request.entries, request.n)?;
+    let (entry, kind) = select_dotfile_entry(request.entries, request.n)?;
     let path = entry
         .requested
         .first()
@@ -60,21 +102,7 @@ pub fn undo_dotfile(
         .dir
         .as_deref()
         .context("a entrada não tem pasta-fonte")?;
-    let dir = Path::new(dir_text);
-    let context = || format!("dotfile {path:?}");
-
-    // Só leitura até aqui: valida antes de tocar no disco, porque o histórico não é confiável.
-    validate_path(path).with_context(context)?;
-    validate_dir(request.home, dir).with_context(context)?;
-    check_parents(request.home, path).with_context(context)?;
-    check_parents(dir, path).with_context(context)?;
-    let link = observe(request.home, path)?;
-    let source = observe(dir, path)?;
-    let mode = fs::symlink_metadata(dir.join(path))
-        .map(|meta| meta.mode())
-        .unwrap_or(0);
-    let plan =
-        plan_undo_adopt(request.home, dir, path, &link, &source, mode).with_context(context)?;
+    let plan = make_plan(request, kind, path, Path::new(dir_text))?;
 
     write!(output, "{}", render_plan(&plan)).context("escrevendo o plano")?;
     if !request.interactive {
@@ -85,9 +113,26 @@ pub fn undo_dotfile(
         return Ok(Outcome::Declined);
     }
 
-    restore_file(&plan)?;
+    let (done, summary) = match &plan {
+        Plan::Restore(plan) => (
+            restore_file(plan),
+            format!(
+                "Desfeito: {} agora é um arquivo comum (cópia de {}; a pasta-fonte não foi alterada)",
+                plan.link.display(),
+                plan.source.display()
+            ),
+        ),
+        Plan::Unlink(plan) => (
+            remove_link(plan),
+            format!(
+                "Desfeito: {} removido (o arquivo na pasta-fonte não foi alterado)",
+                plan.link.display()
+            ),
+        ),
+    };
+    done?;
 
-    // A troca já aconteceu; se o histórico falhar, o erro diz isso, para o dono não repetir.
+    // A reversão já aconteceu; se o histórico falhar, o erro diz isso, para o dono não repetir.
     let command = [
         "nodusctl".to_string(),
         "history".to_string(),
@@ -95,17 +140,24 @@ pub fn undo_dotfile(
         request.n.to_string(),
     ];
     let record = entry_for_dotfile_undo(request.n, path, dir_text, &command, request.now_unix);
-    crate::history::append(request.history_path, &record).context(
-        "a reversão foi feita (o symlink agora é um arquivo comum), mas não consegui gravar o histórico",
-    )?;
-    writeln!(
-        output,
-        "Desfeito: {} agora é um arquivo comum (cópia de {}; a pasta-fonte não foi alterada)",
-        plan.link.display(),
-        plan.source.display()
-    )
-    .context("escrevendo a saída")?;
+    crate::history::append(request.history_path, &record)
+        .context("a reversão foi feita (o HOME já mudou), mas não consegui gravar o histórico")?;
+    writeln!(output, "{summary}").context("escrevendo a saída")?;
     Ok(Outcome::Undone)
+}
+
+/// Remove o symlink do HOME, só se ainda apontar exatamente para a fonte (comparação byte a byte
+/// do texto). Nunca segue o link nem toca no alvo.
+fn remove_link(plan: &UndoLinkPlan) -> Result<()> {
+    let target = fs::read_link(&plan.link)
+        .with_context(|| format!("o symlink {} mudou durante a reversão", plan.link.display()))?;
+    if target.as_os_str() != plan.target.as_os_str() {
+        bail!(
+            "o symlink {} mudou durante a reversão; nada foi removido",
+            plan.link.display()
+        );
+    }
+    fs::remove_file(&plan.link).with_context(|| format!("removendo {}", plan.link.display()))
 }
 
 /// Copia a fonte para um temporário ao lado do symlink, confere, reconfere o symlink e troca por
@@ -536,6 +588,311 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(nomes, [".bashrc"], "{nomes:?}");
+    }
+
+    // ---- desfazer uma ligação (ADR 0025) ----
+
+    /// Uma máquina nova: o HOME está vazio e a pasta-fonte tem os arquivos. A ligação é feita de
+    /// verdade por `dotfiles_link::link`, então a entrada 1 do histórico é um `link`.
+    fn ligado(path: &str) -> Cenario {
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("dot");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(dir.join(".config/git")).unwrap();
+        fs::write(dir.join(".bashrc"), b"alias x=y\n").unwrap();
+        fs::write(dir.join(".config/git/config"), b"[user]\n").unwrap();
+        let c = Cenario {
+            history: tmp.path().join("state/nodus/history.jsonl"),
+            _tmp: tmp,
+            home,
+            dir,
+        };
+        let pedido = crate::dotfiles_link::Request {
+            home: &c.home,
+            dir: &c.dir,
+            path,
+            interactive: true,
+            history_path: &c.history,
+            now_unix: 1_700_000_500,
+        };
+        let resultado = crate::dotfiles_link::link(&pedido, &mut "s\n".as_bytes(), &mut Vec::new());
+        assert_eq!(resultado.unwrap(), crate::dotfiles_link::Outcome::Linked);
+        c
+    }
+
+    fn continua_ligado(c: &Cenario, path: &str) {
+        assert_eq!(
+            fs::read_link(c.home.join(path)).unwrap(),
+            c.dir.join(path),
+            "o symlink devia continuar"
+        );
+        assert_eq!(historico(c).len(), 1, "nada novo no histórico");
+    }
+
+    fn fonte_continua(c: &Cenario, path: &str, conteudo: &[u8]) {
+        let meta = fs::symlink_metadata(c.dir.join(path)).unwrap();
+        assert!(meta.file_type().is_file());
+        assert_eq!(fs::read(c.dir.join(path)).unwrap(), conteudo);
+    }
+
+    #[test]
+    fn desfazer_a_ligacao_com_s_remove_so_o_symlink_e_mantem_a_fonte() {
+        let c = ligado(".bashrc");
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+
+        assert_eq!(resultado.unwrap(), Outcome::Undone);
+        assert!(fs::symlink_metadata(c.home.join(".bashrc")).is_err());
+        fonte_continua(&c, ".bashrc", b"alias x=y\n");
+        assert!(saida.contains("Executar? [s/N]"), "{saida}");
+        assert!(saida.contains("Desfeito:"), "{saida}");
+    }
+
+    #[test]
+    fn grava_a_mesma_linha_v4_remove_do_undo_da_adocao() {
+        let c = ligado(".bashrc");
+        roda(&c, 1, true, "s\n").0.unwrap();
+
+        let h = historico(&c);
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0].action, Action::Link, "a ligação não é editada");
+        let e = &h[1];
+        assert_eq!(e.version, 4);
+        assert_eq!(e.action, Action::Remove);
+        assert_eq!(e.manager, Manager::Dotfiles);
+        assert_eq!(e.undoes, Some(1));
+        assert_eq!(e.requested, [".bashrc"]);
+        assert!(e.installed.is_empty());
+        assert_eq!(e.still_missing, [".bashrc"]);
+        assert_eq!(e.dir.as_deref(), c.dir.to_str());
+        assert_eq!(e.at_unix, 1_700_000_400);
+    }
+
+    #[test]
+    fn o_plano_da_ligacao_mostra_o_symlink_o_alvo_e_que_a_fonte_nao_muda() {
+        let c = ligado(".bashrc");
+        let (_, saida) = roda(&c, 1, true, "n\n");
+        assert!(
+            saida.contains("Desfazer a ligação do dotfile: .bashrc"),
+            "{saida}"
+        );
+        assert!(
+            saida.contains(&format!(
+                "remover o symlink {} -> {}",
+                c.home.join(".bashrc").display(),
+                c.dir.join(".bashrc").display()
+            )),
+            "{saida}"
+        );
+        assert!(saida.contains("pasta-fonte não é alterada"), "{saida}");
+        // não é o plano de restaurar cópia
+        assert!(!saida.contains("copiar de:"), "{saida}");
+    }
+
+    #[test]
+    fn as_pastas_criadas_pelo_link_ficam() {
+        let c = ligado(".config/git/config");
+        roda(&c, 1, true, "s\n").0.unwrap();
+
+        assert!(fs::symlink_metadata(c.home.join(".config/git/config")).is_err());
+        assert!(c.home.join(".config/git").is_dir());
+        assert!(c.home.join(".config").is_dir());
+        fonte_continua(&c, ".config/git/config", b"[user]\n");
+    }
+
+    #[test]
+    fn desfazer_a_ligacao_nao_toca_em_outro_arquivo_do_home() {
+        let c = ligado(".bashrc");
+        fs::write(c.home.join(".profile"), b"meu\n").unwrap();
+        roda(&c, 1, true, "s\n").0.unwrap();
+        assert_eq!(fs::read(c.home.join(".profile")).unwrap(), b"meu\n");
+    }
+
+    #[test]
+    fn ligacao_qualquer_resposta_que_nao_seja_s_ou_sim_nao_altera_nada() {
+        for resposta in ["n\n", "\n", "", "talvez\n", "y\n", "ss\n"] {
+            let c = ligado(".bashrc");
+            let (resultado, saida) = roda(&c, 1, true, resposta);
+            assert_eq!(resultado.unwrap(), Outcome::Declined, "{resposta:?}");
+            assert!(saida.contains("Nada foi alterado."), "{saida}");
+            continua_ligado(&c, ".bashrc");
+        }
+    }
+
+    #[test]
+    fn ligacao_sem_terminal_recusa_depois_do_plano_e_sem_alterar_nada() {
+        let c = ligado(".bashrc");
+        let (resultado, saida) = roda(&c, 1, false, "s\n");
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("terminal"), "{erro}");
+        assert!(!saida.contains("Executar?"), "{saida}");
+        continua_ligado(&c, ".bashrc");
+    }
+
+    #[test]
+    fn ligacao_recusa_se_o_caminho_virou_arquivo_comum_e_nao_toca_nele() {
+        let c = ligado(".bashrc");
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        fs::write(c.home.join(".bashrc"), b"editado no HOME\n").unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("symlink"), "{erro}");
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(
+            fs::read(c.home.join(".bashrc")).unwrap(),
+            b"editado no HOME\n"
+        );
+        assert_eq!(historico(&c).len(), 1);
+    }
+
+    #[test]
+    fn ligacao_recusa_se_o_caminho_sumiu() {
+        let c = ligado(".bashrc");
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(historico(&c).len(), 1);
+    }
+
+    #[test]
+    fn ligacao_recusa_se_o_symlink_aponta_para_outro_lugar() {
+        let c = ligado(".bashrc");
+        let outro = c.dir.join("outro");
+        fs::write(&outro, b"outro\n").unwrap();
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        symlink(&outro, c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(fs::read_link(c.home.join(".bashrc")).unwrap(), outro);
+        assert_eq!(fs::read(&outro).unwrap(), b"outro\n");
+        assert_eq!(historico(&c).len(), 1);
+    }
+
+    #[test]
+    fn ligacao_recusa_alvo_com_barra_final_porque_o_texto_nao_e_o_que_o_nodus_gravou() {
+        let c = ligado(".bashrc");
+        let com_barra = format!("{}/", c.dir.join(".bashrc").display());
+        fs::remove_file(c.home.join(".bashrc")).unwrap();
+        symlink(&com_barra, c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(c.home.join(".bashrc"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn ligacao_ja_desfeita_recusa_e_nao_grava_de_novo() {
+        let c = ligado(".bashrc");
+        roda(&c, 1, true, "s\n").0.unwrap();
+        // Recria um symlink "certo" para provar que o motivo da recusa é o histórico.
+        symlink(c.dir.join(".bashrc"), c.home.join(".bashrc")).unwrap();
+        let (resultado, saida) = roda(&c, 1, true, "s\n");
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("desfeita"), "{erro}");
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert_eq!(historico(&c).len(), 2);
+        assert!(
+            fs::symlink_metadata(c.home.join(".bashrc"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn linha_de_ligacao_plantada_com_caminho_de_segredo_nao_remove_nada() {
+        let c = ligado(".bashrc");
+        fs::create_dir_all(c.home.join(".ssh")).unwrap();
+        fs::create_dir_all(c.dir.join(".ssh")).unwrap();
+        fs::write(c.dir.join(".ssh/authorized_keys"), b"chave\n").unwrap();
+        symlink(
+            c.dir.join(".ssh/authorized_keys"),
+            c.home.join(".ssh/authorized_keys"),
+        )
+        .unwrap();
+        let plantada = nodus_core::history::entry_from_link(
+            ".ssh/authorized_keys",
+            c.dir.to_str().unwrap(),
+            &["nodusctl".to_string()],
+            1,
+        );
+        let (resultado, saida) = roda_com(&c, &[plantada], 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(c.home.join(".ssh/authorized_keys"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn linha_de_ligacao_plantada_com_pasta_fonte_dentro_de_segredo_nao_remove_nada() {
+        let c = ligado(".bashrc");
+        let dentro = c.home.join(".ssh/dot");
+        fs::create_dir_all(&dentro).unwrap();
+        fs::write(dentro.join(".profile"), b"x\n").unwrap();
+        symlink(dentro.join(".profile"), c.home.join(".profile")).unwrap();
+        let plantada = nodus_core::history::entry_from_link(
+            ".profile",
+            dentro.to_str().unwrap(),
+            &["nodusctl".to_string()],
+            1,
+        );
+        let (resultado, saida) = roda_com(&c, &[plantada], 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(c.home.join(".profile"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn ligacao_recusa_se_uma_pasta_do_caminho_e_symlink() {
+        let c = ligado(".bashrc");
+        let fora = c._tmp.path().join("fora");
+        fs::create_dir_all(fora.join("git")).unwrap();
+        symlink(&fora, c.home.join(".config")).unwrap();
+        symlink(c.dir.join(".config/git/config"), fora.join("git/config")).unwrap();
+        let plantada = nodus_core::history::entry_from_link(
+            ".config/git/config",
+            c.dir.to_str().unwrap(),
+            &["nodusctl".to_string()],
+            1,
+        );
+        let (resultado, saida) = roda_com(&c, &[plantada], 1, true, "s\n");
+        assert!(resultado.is_err());
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(
+            fs::symlink_metadata(fora.join("git/config"))
+                .unwrap()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn falha_ao_gravar_o_historico_diz_que_a_reversao_da_ligacao_ja_foi_feita() {
+        let c = ligado(".bashrc");
+        let entradas = historico(&c);
+        fs::set_permissions(&c.history, fs::Permissions::from_mode(0o400)).unwrap();
+        // Como root a escrita passaria; nesse caso não há o que testar.
+        if fs::OpenOptions::new().append(true).open(&c.history).is_ok() {
+            fs::set_permissions(&c.history, fs::Permissions::from_mode(0o600)).unwrap();
+            return;
+        }
+        let (resultado, _) = roda_com(&c, &entradas, 1, true, "s\n");
+        fs::set_permissions(&c.history, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("a reversão foi feita"), "{erro}");
+        assert!(fs::symlink_metadata(c.home.join(".bashrc")).is_err());
     }
 
     #[test]

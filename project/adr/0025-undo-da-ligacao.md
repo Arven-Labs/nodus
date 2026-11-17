@@ -29,5 +29,6 @@
 
 ## Lacunas
 - Resíduo de corrida: o symlink pode ser trocado entre a reconferência e o `remove_file`; as checagens estreitam a janela, não a fecham.
-- Ainda não implementado nem verificado no Arch real.
+- **Implementado no PR #73** (testes primeiro, CI vermelho por item inexistente; a implementação passou de primeira; mutação de propósito: aceitar qualquer symlink, ignorar "já desfeita", `remove_file` no alvo em vez do symlink e inverter o render derrubaram **11 testes**). **A reconferência do `read_link` dentro do `remove_link` não tem teste** (cobre corrida; exigiria gancho no código de produção). `UndoLinkError` duplica `NotALink` e `WrongTarget` do `UndoAdoptError`, de propósito, para não mexer no undo da adoção já em produção.
+- Verificado no Arch real em 2026-11-17, em HOMEs temporários (`/tmp/ub`, pasta-fonte `/tmp/udot`; a 1ª rodada foi com o `!`, sem terminal, e não provou nada): dois `link` (um aninhado com pastas criadas), `undo 1` e `undo 2` com plano e `s` (symlinks removidos, **pastas `.config` e `.config/git` ficaram com 0700**, fontes intactas), segundo `undo 1` recusado, `history` com "ligação desfeita" nas linhas 3 e 4, e `undo` de um link cujo caminho virou arquivo comum recusado sem tocar nele. **Achado na verificação:** a mensagem de "já desfeita" dizia "a adoção da entrada 1" para uma ligação; corrigida para "a entrada N já foi desfeita" (com teste). **Não verificado:** num dotfile real do HOME do dono; permissão negada na remoção; `git config --global`, editores e KDE.
 - Este ADR foi escrito por IA e revisado só pelo dono.
