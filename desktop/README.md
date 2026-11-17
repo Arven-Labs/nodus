@@ -7,7 +7,7 @@ Interface do nodus (Fase 1.5, [ADR 0026](../project/adr/0026-gui-desktop.md)): T
 - O Rust (`src-tauri/src/nodusctl.rs`) recusa o que não está na lista, monta os argumentos (`inventory --json`) sem shell, confere que `nodusctl --version` tem o mesmo `major.minor` desta interface e só então roda. A saída tem limite de 16 MiB.
 - O frontend lê o JSON com parsing estrito (`src/lib/inventory.ts`): falta de campo ou tipo errado vira uma mensagem de erro, e nomes vindos da máquina são mostrados como texto, nunca como HTML.
 - A GUI não roda `sudo`, não escreve no HOME e não chama nenhum comando que escreve.
-- Telas (abas): Inventário (`inventory`) e Repositórios (`repos`, sem `--fetch`; a pasta é a que a CLI resolve: `NODUS_WORKSPACE`, `workspace set` ou a detectada). Cada aba só roda o seu comando quando é aberta.
+- Telas (abas): Inventário (`inventory`) e Repositórios (`repos`, sem `--fetch`; a pasta é a que a CLI resolve: `NODUS_WORKSPACE`, `workspace set` ou a detectada). Dotfiles (`dotfiles`, só o relatório: `dotfiles adopt` e `dotfiles link` escrevem no HOME e a GUI não os pede). Cada aba só roda o seu comando quando é aberta.
 
 ## Rodar (exceção ao ADR 0009 para o `desktop/`, emenda do ADR 0026)
 Pré-requisitos no Arch: `webkit2gtk-4.1`, `base-devel`, `librsvg`, `libappindicator`, `xdotool`, Node e Rust ([pré-requisitos do Tauri 2](https://v2.tauri.app/start/prerequisites/)). O `nodusctl` precisa estar no PATH (ou em `NODUSCTL=/caminho/nodusctl`, que **precisa ser absoluto**: o app roda com o diretório atual em `src-tauri/`) **na mesma versão major.minor** (hoje `0.1.x`).

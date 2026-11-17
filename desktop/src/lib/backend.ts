@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
+/** Os comandos de leitura que a GUI pede (a lista fechada vive no Rust, `Allowed` em `src-tauri/src/nodusctl.rs`). */
+export type Command = "inventory" | "repos" | "dotfiles";
+
 /** Erro do backend Rust (`CmdError`): `kind` é um código estável e `message` é para pessoas. */
 export class BackendError extends Error {
   kind: string;
@@ -22,7 +25,7 @@ function toBackendError(raw: unknown): BackendError {
  * Pede ao backend um comando de LEITURA do `nodusctl` e devolve o JSON bruto. O frontend manda só o nome; quem recusa o que não
  * está na lista, monta os argumentos e confere a versão é o Rust (`src-tauri/src/nodusctl.rs`, ADR 0026).
  */
-export async function readNodusctl(command: "inventory" | "repos"): Promise<string> {
+export async function readNodusctl(command: Command): Promise<string> {
   try {
     return await invoke<string>("read_nodusctl", { command });
   } catch (raw) {

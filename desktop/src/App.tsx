@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { BackendError, readNodusctl } from "./lib/backend";
+import { BackendError, readNodusctl, type Command } from "./lib/backend";
+import { type Dotfile, parseDotfiles } from "./lib/dotfiles";
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parseRepos, type Repo } from "./lib/repos";
@@ -25,7 +26,7 @@ function toError(error: unknown): { status: "error"; kind: string; message: stri
 }
 
 /** Carrega ao montar: cada tela só roda o seu comando quando a aba é aberta. */
-function useLoad<T>(command: "inventory" | "repos", parse: (text: string) => T): State<T> {
+function useLoad<T>(command: Command, parse: (text: string) => T): State<T> {
   const [state, setState] = useState<State<T>>({ status: "loading" });
   useEffect(() => {
     let alive = true;
@@ -151,21 +152,73 @@ function ReposScreen() {
   );
 }
 
-type Tab = "inventory" | "repos";
+function dotfileState(entry: Dotfile): string {
+  switch (entry.kind) {
+    case "missing":
+      return "ausente";
+    case "file":
+      return `arquivo (${entry.size} bytes)`;
+    case "dir":
+      return "pasta";
+    case "other":
+      return "outro tipo";
+    case "symlink":
+      return `symlink -> ${entry.target}${entry.outsideHome ? " (fora do HOME)" : ""}`;
+  }
+}
+
+function DotfilesScreen() {
+  const state = useLoad("dotfiles", parseDotfiles);
+
+  if (state.status === "loading") return <p>Lendo os dotfiles…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="os dotfiles" />;
+
+  const entries = state.data;
+  const present = entries.filter((e) => e.kind !== "missing").length;
+  return (
+    <section>
+      <h1>Dotfiles</h1>
+      {entries.length === 0 ? (
+        <p data-testid="dotfiles-vazio">Nenhum dotfile na lista.</p>
+      ) : (
+        <>
+          <ul data-testid="dotfiles-list" className="repos">
+            {entries.map((entry, i) => (
+              <li key={i} data-testid="dotfile">
+                <strong>{entry.path}</strong>
+                <div className="detail">{dotfileState(entry)}</div>
+              </li>
+            ))}
+          </ul>
+          <p data-testid="dotfiles-resumo">{`Presentes: ${present} de ${entries.length}.`}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "inventory", label: "Inventário" },
+  { id: "repos", label: "Repositórios" },
+  { id: "dotfiles", label: "Dotfiles" },
+];
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("inventory");
   return (
     <main>
       <nav className="tabs">
-        <button type="button" data-testid="tab-inventory" aria-current={tab === "inventory"} onClick={() => setTab("inventory")}>
-          Inventário
-        </button>
-        <button type="button" data-testid="tab-repos" aria-current={tab === "repos"} onClick={() => setTab("repos")}>
-          Repositórios
-        </button>
+        {TABS.map(({ id, label }) => (
+          <button key={id} type="button" data-testid={`tab-${id}`} aria-current={tab === id} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
       </nav>
-      {tab === "inventory" ? <InventoryScreen /> : <ReposScreen />}
+      {tab === "inventory" && <InventoryScreen />}
+      {tab === "repos" && <ReposScreen />}
+      {tab === "dotfiles" && <DotfilesScreen />}
     </main>
   );
 }

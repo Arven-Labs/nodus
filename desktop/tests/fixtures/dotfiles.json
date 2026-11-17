@@ -1,0 +1,8 @@
+[
+  { "path": ".bashrc", "kind": "file", "size": 1234 },
+  { "path": ".gitconfig", "kind": "symlink", "target": "/dotfiles-teste/.gitconfig", "outside_home": true },
+  { "path": ".profile", "kind": "symlink", "target": ".dotfiles-teste/.profile", "outside_home": false },
+  { "path": ".vimrc", "kind": "missing" },
+  { "path": ".config/git", "kind": "dir" },
+  { "path": ".zshrc", "kind": "other" }
+]
