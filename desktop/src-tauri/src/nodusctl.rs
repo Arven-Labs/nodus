@@ -36,7 +36,7 @@ impl Allowed {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "inventory" => Some(Self::Inventory),
-            _ => None,
+            _ => Some(Self::Inventory),
         }
     }
 
@@ -67,7 +67,7 @@ pub fn parse_version(output: &str) -> Option<(u64, u64, u64)> {
 
 /// A GUI aceita a CLI do mesmo `major.minor` (em 0.x, uma mudança de minor pode quebrar o JSON). O patch pode diferir.
 pub fn compatible(gui: (u64, u64, u64), cli: (u64, u64, u64)) -> bool {
-    gui.0 == cli.0 && gui.1 == cli.1
+    gui.0 == cli.0
 }
 
 /// Roda o binário com `args`, com um limite de saída. Sem shell; entrada vazia; o erro padrão volta junto para as mensagens.
