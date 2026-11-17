@@ -2,6 +2,18 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 7), GUI desktop fatia 1: tela de inventário (PR #82)
+
+- **Pedido**: scaffold da GUI (ADR 0026), em plan mode (plano aprovado). Escolhas do dono: dependências do **mesmo conjunto do warden** (TypeScript ~5.8, Vite ^7, plugin-react ^4, playwright-core 1.61, React ^19, Tauri ^2).
+- **Feito**: `desktop/` (React/TS, escrito à mão) e `desktop/src-tauri/` (workspace Cargo **próprio**, fora do da CLI): comando único `read_nodusctl` com allowlist fechada (só `inventory`), sem shell, gate `major.minor`, limite de saída de 16 MiB; frontend com parsing estrito e tela de inventário; `.github/workflows/ci-desktop.yml` (confirmado no plano, AGENTS §4); `Cargo.lock` e `package-lock.json` gerados sem instalar (`generate-lockfile` e `install --package-lock-only`).
+- **Testes primeiro**: commit só com testes e configuração: CI da CLI verde (sem Tauri no seu `Cargo.lock`), CI Desktop **vermelho** (frontend sem `src/`; Rust com `cannot find function read`, `Allowed`, `parse_version`, `compatible`).
+- **Achado**: depois da implementação o frontend passou, mas o Rust falhou porque o `generate_context!` exige `icons/icon.png` (`failed to open icon`); criei um placeholder 64x64 (azul sólido, gerado por um script Python descartável, não versionado). Verde depois.
+- **Mutação**: aceitar qualquer comando e comparar só o major derrubaram **4 testes** (11 passaram); revertida com `git revert`. A 1ª tentativa de revert (`git revert -q`) falhou em silêncio; refeita sem `-q`.
+- **Verificado na janela real (dono, `npm install` e `npm run tauri dev`)**: (1) com `NODUSCTL=../target/release/nodusctl` (caminho relativo) deu "nodusctl não encontrado", porque o app roda com o diretório em `desktop/src-tauri/`; erro tratado como projetado, o caminho absoluto resolveu; (2) com o `nodusctl 0.0.1` apareceu "Versão incompatível" (o gate funciona na janela real, a CSP não bloqueou o IPC); (3) com um `nodusctl` 0.1.x apareceu o inventário real: Arch Linux, kernel 7.2.14, i5-1135G7 (8 threads), 15,4 GiB, 3 discos, 1301 pacotes, 1 app Flatpak. O botão "Ver pacotes" não foi exercitado.
+- **Achado de disco**: o `src-tauri/target` pesa **3,1 GB** (o ADR 0026 estimava 100 a 600 MB) e o `disk-report.sh` deu `ALERTA` (`nodus` em 3,5 GB, `/home` em 55%); registrado na emenda do ADR 0026. Aviso do npm: o `postinstall` do esbuild foi bloqueado e nada quebrou.
+- **Não verificado**: o botão "Ver pacotes" na janela real; tempo limite do `nodusctl`; `cargo-deny` para o `src-tauri`; a identidade `io.github.arven-labs.nodus` é suposição.
+- **Fica**: recusar `NODUSCTL` com caminho relativo (proposto, não feito; o dono tropeçou nisso); decidir a limpeza do `src-tauri/target`; telas de `updates`, `repos` e `dotfiles`; política de licença (cargo-deny) do `src-tauri`; tempo limite; ADR das ações privilegiadas; P-02; P-14; P-17; remoto da `~/dotfiles`.
+
 ### 2026-11-17 — Sessão 21 (continuação 6), exceção ao ADR 0009 para o `tauri dev` (só docs)
 
 - **Pedido**: destravar o scaffold da GUI. **Decidido pelo dono:** `tauri dev` e build local da GUI **pontuais**, rodados por ele; CI continua o juiz; vale só para `desktop/`. Registrado como emenda no ADR 0026.
