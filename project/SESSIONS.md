@@ -2,6 +2,12 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 4), MVP declarado fechado (só docs)
+
+- **Pedido**: o dono escolheu declarar o MVP fechado, em vez de seguir construindo. Recomendação minha, registrada: usar o nodus de verdade por uma ou duas semanas antes de decidir a Fase 1.5 ou o PKGBUILD.
+- **Feito**: `MVP.md` (status fechado), `ROADMAP.md` (Fase 1 fechada; o texto da linha estava desatualizado, dizia `adopt` sem verificar e `undo` e `link` faltando) e `OVERVIEW.md`. Nenhum código.
+- **Fica**: P-02 (busca de marca) **antes de divulgar ou publicar pacote**; P-14; P-17; remoto privado da `~/dotfiles`; reiniciar para carregar o kernel 7.3.4 (depois tirar o `--network host` do script da tag); uso real do nodus (a dor vira tarefa: `dotfiles dir set`, reversão de Flatpak, `link` em lote); decidir Fase 1.5 só depois.
+
 ### 2026-11-17 — Sessão 21 (continuação 3), primeira tag assinada `v0.1.0` (critério 1)
 
 - **Pedido**: fechar o critério 1, em plan mode (plano aprovado). Decisões do dono: tag **antes** da busca de marca (P-02); verificação numa máquina limpa descartável.
