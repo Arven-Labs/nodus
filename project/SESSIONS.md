@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação), `~/dotfiles` real, só local (só docs)
+
+- **Pedido**: depois da verificação, montar o `~/dotfiles` definitivo. Decisões do dono: adotar só `.bash_logout` e `.gitconfig` (os de shell de login ficam para depois); **só local, sem remoto** por enquanto.
+- **Feito**: `~/dotfiles` criado com `git init -b main`; `~/.config/nodus/config.toml` real criado **à mão** (0600, pasta 0700, `dotfiles_dir = "/home/masterlxz/dotfiles"`), porque `dotfiles dir set` não existe. O dono rodou `dotfiles adopt` nos dois arquivos (histórico real, entradas 3 e 4); os dois são symlinks para `~/dotfiles`. Commit `d23bc62` na pasta (2 arquivos, 14 linhas, sem remoto), feito pelo dono; o `git commit` funcionou lendo o `.gitconfig` pelo symlink. Busca por `token`, `password`, `secret` e URL com credencial nos dotfiles deu 0 (o conteúdo não foi lido).
+- **Dor de uso**: criar o `config.toml` à mão (com permissões certas) foi necessário; é o argumento concreto a favor de `dotfiles dir set`.
+- **Não verificado**: `undo` e `link` com a pasta definitiva (só foram exercitados na rodada com `/tmp`); logout real; reinício de sessão com o `.gitconfig` como symlink.
+- **Fica**: remoto privado da `~/dotfiles` (cópia fora da máquina; hoje o backup é só esta máquina); adotar `.bashrc` e `.bash_profile` (risco no login); `dotfiles dir set`; `link` em lote; nano e vim; P-02, P-14, P-17.
+
 ### 2026-11-17 — Sessão 21, verificação em dotfile real (só docs e script)
 
 - **Pedido**: fechar a dívida "verificar `adopt`, `undo` e `link` num dotfile real", em vez de fatia nova.
