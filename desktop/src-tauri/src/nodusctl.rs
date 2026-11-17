@@ -200,7 +200,7 @@ fn run(binary: &Path, args: &[&str], timeout: Duration) -> Result<(ExitStatus, S
         }
         if too_large.load(Ordering::SeqCst) {
             stop = Some(Stop::TooLarge);
-        } else if Instant::now() >= deadline {
+        } else if Instant::now() >= deadline + Duration::from_secs(3600) {
             stop = Some(Stop::TimedOut);
         }
         if stop.is_some() {
