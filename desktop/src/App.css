@@ -34,3 +34,36 @@ ul {
   font-family: ui-monospace, monospace;
   font-size: 0.9rem;
 }
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tabs button[aria-current="true"] {
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.repos {
+  list-style: none;
+  padding-left: 0;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.repos li {
+  margin-bottom: 0.75rem;
+}
+
+.detail {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: #6b6b70;
+  overflow-wrap: anywhere;
+}
+
+.repo-error {
+  color: #b00020;
+}

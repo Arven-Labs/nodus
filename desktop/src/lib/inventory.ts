@@ -4,6 +4,8 @@
 // do campo), e campos desconhecidos são ignorados (a CLI pode ganhar campos). Nada de `any`, nada de confiar na forma.
 // Só sintaxe que o Node entende ao remover os tipos (sem enums, sem parâmetros de propriedade): os testes importam este arquivo.
 
+import { array, count, field, nullableText, object, ParseError, text } from "./parse.ts";
+
 export interface Disk {
   name: string;
   mountPoint: string;
@@ -32,45 +34,21 @@ export interface Inventory {
   flatpakApps: FlatpakApp[] | null;
 }
 
-export class InventoryError extends Error {
+export class InventoryError extends ParseError {
   name = "InventoryError";
 }
 
-function fail(path: string, expected: string): never {
-  throw new InventoryError(`campo \`${path}\`: esperava ${expected}`);
-}
-
-function object(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(path, "um objeto");
-  return value as Record<string, unknown>;
-}
-
-function array(value: unknown, path: string): unknown[] {
-  if (!Array.isArray(value)) fail(path, "uma lista");
-  return value;
-}
-
-function text(value: unknown, path: string): string {
-  if (typeof value !== "string") fail(path, "texto");
-  return value;
-}
-
-function nullableText(value: unknown, path: string): string | null {
-  if (value === null) return null;
-  return text(value, path);
-}
-
-function count(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) fail(path, "um inteiro não negativo");
-  return value;
-}
-
-function field(parent: Record<string, unknown>, key: string, path: string): unknown {
-  if (!(key in parent)) fail(`${path}${key}`, "o campo (ausente)");
-  return parent[key];
-}
-
+/** Os helpers de `parse.ts` lançam `ParseError`; aqui o erro vira `InventoryError` para a tela saber de onde veio. */
 export function parseInventory(jsonText: string): Inventory {
+  try {
+    return parseInventoryFields(jsonText);
+  } catch (error) {
+    if (error instanceof ParseError && !(error instanceof InventoryError)) throw new InventoryError(error.message);
+    throw error;
+  }
+}
+
+function parseInventoryFields(jsonText: string): Inventory {
   let raw: unknown;
   try {
     raw = JSON.parse(jsonText);

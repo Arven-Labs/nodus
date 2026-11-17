@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { BackendError, readNodusctl } from "./lib/backend";
-import { type Inventory, InventoryError, parseInventory } from "./lib/inventory";
+import { parseInventory } from "./lib/inventory";
+import { ParseError } from "./lib/parse";
+import { parseRepos, type Repo } from "./lib/repos";
 import "./App.css";
 
-type State =
+type State<T> =
   | { status: "loading" }
-  | { status: "ok"; inventory: Inventory }
+  | { status: "ok"; data: T }
   | { status: "error"; kind: string; message: string };
 
 /** Quantos pacotes a lista mostra de uma vez (a contagem é sempre a total). */
@@ -16,53 +18,59 @@ function gib(bytes: number): string {
   return `${Number.isInteger(value) ? value : value.toFixed(1)} GiB`;
 }
 
-function load(): Promise<State> {
-  return readNodusctl("inventory")
-    .then((text): State => ({ status: "ok", inventory: parseInventory(text) }))
-    .catch((error: unknown): State => {
-      if (error instanceof BackendError) return { status: "error", kind: error.kind, message: error.message };
-      if (error instanceof InventoryError) return { status: "error", kind: "invalid_json", message: error.message };
-      return { status: "error", kind: "failed", message: String(error) };
-    });
+function toError(error: unknown): { status: "error"; kind: string; message: string } {
+  if (error instanceof BackendError) return { status: "error", kind: error.kind, message: error.message };
+  if (error instanceof ParseError) return { status: "error", kind: "invalid_json", message: error.message };
+  return { status: "error", kind: "failed", message: String(error) };
 }
 
-export default function App() {
-  const [state, setState] = useState<State>({ status: "loading" });
-  const [showPackages, setShowPackages] = useState(false);
-
+/** Carrega ao montar: cada tela só roda o seu comando quando a aba é aberta. */
+function useLoad<T>(command: "inventory" | "repos", parse: (text: string) => T): State<T> {
+  const [state, setState] = useState<State<T>>({ status: "loading" });
   useEffect(() => {
     let alive = true;
-    load().then((next) => {
-      if (alive) setState(next);
-    });
+    readNodusctl(command)
+      .then((text): State<T> => ({ status: "ok", data: parse(text) }))
+      .catch(toError)
+      .then((next) => {
+        if (alive) setState(next);
+      });
     return () => {
       alive = false;
     };
-  }, []);
+    // `parse` é uma função de módulo (estável): o efeito depende só do comando.
+  }, [command]);
+  return state;
+}
 
-  if (state.status === "loading") return <main><p>Lendo o inventário…</p></main>;
-
-  if (state.status === "error") {
-    if (state.kind === "version_mismatch") {
-      return (
-        <main data-testid="versao-incompativel">
-          <h1>Versão incompatível</h1>
-          <p>{state.message}</p>
-          <p>Instale uma versão do nodusctl com o mesmo major.minor desta interface.</p>
-        </main>
-      );
-    }
+function ErrorView({ kind, message, what }: { kind: string; message: string; what: string }) {
+  if (kind === "version_mismatch") {
     return (
-      <main data-testid="erro">
-        <h1>Não foi possível ler o inventário</h1>
-        <p>{state.message}</p>
-      </main>
+      <section data-testid="versao-incompativel">
+        <h1>Versão incompatível</h1>
+        <p>{message}</p>
+        <p>Instale uma versão do nodusctl com o mesmo major.minor desta interface.</p>
+      </section>
     );
   }
-
-  const { system, hardware, packages, flatpakApps } = state.inventory;
   return (
-    <main>
+    <section data-testid="erro">
+      <h1>{`Não foi possível ler ${what}`}</h1>
+      <p>{message}</p>
+    </section>
+  );
+}
+
+function InventoryScreen() {
+  const state = useLoad("inventory", parseInventory);
+  const [showPackages, setShowPackages] = useState(false);
+
+  if (state.status === "loading") return <p>Lendo o inventário…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="o inventário" />;
+
+  const { system, hardware, packages, flatpakApps } = state.data;
+  return (
+    <section>
       <h1>Inventário</h1>
       <dl>
         <dt>Sistema</dt>
@@ -99,6 +107,65 @@ export default function App() {
           )}
         </>
       )}
+    </section>
+  );
+}
+
+function trackingText(repo: Repo): string {
+  if (repo.upstreamGone) return "upstream removido";
+  if (repo.ahead === null || repo.behind === null) return "sem upstream";
+  return `${repo.ahead} à frente, ${repo.behind} atrás`;
+}
+
+function ReposScreen() {
+  const state = useLoad("repos", parseRepos);
+
+  if (state.status === "loading") return <p>Lendo os repositórios…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="os repositórios" />;
+
+  const repos = state.data;
+  return (
+    <section>
+      <h1>Repositórios</h1>
+      {repos.length === 0 ? (
+        <p data-testid="repos-vazio">Nenhum repositório encontrado no workspace.</p>
+      ) : (
+        <ul data-testid="repos-list" className="repos">
+          {repos.map((repo, i) => (
+            <li key={i} data-testid="repo">
+              <strong>{repo.name}</strong>
+              {repo.error === null ? (
+                <>
+                  {` ${repo.branch ?? "(HEAD solto)"} · ${trackingText(repo)}`}
+                  {repo.originUrl !== null && <div className="detail">{repo.originUrl}</div>}
+                </>
+              ) : (
+                <div className="repo-error">{repo.error}</div>
+              )}
+              <div className="detail">{repo.path}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos";
+
+export default function App() {
+  const [tab, setTab] = useState<Tab>("inventory");
+  return (
+    <main>
+      <nav className="tabs">
+        <button type="button" data-testid="tab-inventory" aria-current={tab === "inventory"} onClick={() => setTab("inventory")}>
+          Inventário
+        </button>
+        <button type="button" data-testid="tab-repos" aria-current={tab === "repos"} onClick={() => setTab("repos")}>
+          Repositórios
+        </button>
+      </nav>
+      {tab === "inventory" ? <InventoryScreen /> : <ReposScreen />}
     </main>
   );
 }

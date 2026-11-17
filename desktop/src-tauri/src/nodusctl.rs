@@ -30,6 +30,8 @@ impl CmdError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Allowed {
     Inventory,
+    /// Sem `--fetch`: a GUI não usa a rede nem escreve em `.git`. A pasta é a que a CLI resolve (workspace).
+    Repos,
 }
 
 impl Allowed {
@@ -37,6 +39,7 @@ impl Allowed {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "inventory" => Some(Self::Inventory),
+            "repos" => Some(Self::Repos),
             _ => None,
         }
     }
@@ -44,6 +47,7 @@ impl Allowed {
     pub fn args(self) -> [&'static str; 2] {
         match self {
             Self::Inventory => ["inventory", "--json"],
+            Self::Repos => ["repos", "--json"],
         }
     }
 }
