@@ -1,0 +1,60 @@
+[
+  {
+    "version": 3,
+    "at_unix": 1700000000,
+    "command": ["sudo", "pacman", "-S", "--needed", "--", "sl", "tree"],
+    "requested": ["sl", "tree"],
+    "installed": ["sl", "tree"],
+    "still_missing": [],
+    "result": { "status": "ok" },
+    "action": "install",
+    "manager": "pacman"
+  },
+  {
+    "version": 3,
+    "at_unix": 1700003600,
+    "command": ["flatpak", "install", "--user", "--", "flathub", "org.exemplo.App"],
+    "requested": ["org.exemplo.App"],
+    "installed": [],
+    "still_missing": ["org.exemplo.App"],
+    "result": { "status": "failed", "code": 1 },
+    "action": "install",
+    "manager": "flatpak"
+  },
+  {
+    "version": 3,
+    "at_unix": 1700007200,
+    "command": ["sudo", "pacman", "-Rs", "--", "sl"],
+    "requested": ["sl"],
+    "installed": [],
+    "still_missing": ["sl"],
+    "result": { "status": "ok" },
+    "action": "remove",
+    "undoes": 1,
+    "manager": "pacman"
+  },
+  {
+    "version": 4,
+    "at_unix": 1700010800,
+    "command": ["nodusctl", "dotfiles", "adopt", ".exemplo"],
+    "requested": [".exemplo"],
+    "installed": [],
+    "still_missing": [],
+    "result": { "status": "failed", "code": null },
+    "action": "adopt",
+    "manager": "dotfiles",
+    "dir": "/home/exemplo/dotfiles"
+  },
+  {
+    "version": 4,
+    "at_unix": 1700014400,
+    "command": ["nodusctl", "dotfiles", "link", ".exemplo"],
+    "requested": [".exemplo"],
+    "installed": [],
+    "still_missing": [],
+    "result": { "status": "ok" },
+    "action": "link",
+    "manager": "dotfiles",
+    "dir": "/home/exemplo/dotfiles"
+  }
+]

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BackendError, readNodusctl, type Command } from "./lib/backend";
 import { type Dotfile, parseDotfiles } from "./lib/dotfiles";
+import { formatUtc, type HistoryEntry, parseHistory } from "./lib/history";
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parseRepos, type Repo } from "./lib/repos";
@@ -329,7 +330,63 @@ function WorkspaceScreen() {
   );
 }
 
-type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace";
+const ACTION_LABEL: Record<HistoryEntry["action"], string> = {
+  install: "instalação",
+  remove: "remoção",
+  adopt: "dotfile adotado",
+  link: "dotfile ligado",
+};
+
+function resultText(result: HistoryEntry["result"]): string {
+  if (result.status === "ok") return "ok";
+  return result.code === null ? "falhou" : `falhou (código ${result.code})`;
+}
+
+function HistoryItem({ entry, n }: { entry: HistoryEntry; n: number }) {
+  const undoes = entry.undoes === null ? "" : ` · desfez #${entry.undoes}`;
+  const where = entry.dir === null ? "" : ` · pasta-fonte ${entry.dir}`;
+  return (
+    <li data-testid="history-entry">
+      <strong>{`#${n}`}</strong>
+      {` ${ACTION_LABEL[entry.action]} · ${resultText(entry.result)}${undoes}`}
+      <div className="detail">{`${formatUtc(entry.atUnix)} · ${entry.manager}${where}`}</div>
+      <div className="detail">{entry.requested.join(", ")}</div>
+      <div className="detail">{entry.command.join(" ")}</div>
+    </li>
+  );
+}
+
+function HistoryScreen() {
+  const state = useLoad("history", parseHistory);
+
+  if (state.status === "loading") return <p>Lendo o histórico…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="o histórico" />;
+
+  const entries = state.data;
+  // A CLI lista do mais antigo ao mais novo e numera a partir de 1 (é o número do `undo`); aqui o mais novo vem primeiro, com o mesmo número.
+  const newestFirst = entries.map((entry, i) => ({ entry, n: i + 1 })).reverse();
+  return (
+    <section>
+      <h1>Histórico</h1>
+      {entries.length === 0 ? (
+        <p data-testid="history-vazio">Nenhuma execução registrada.</p>
+      ) : (
+        <>
+          <ul data-testid="history-list" className="repos">
+            {newestFirst.map(({ entry, n }) => (
+              <HistoryItem key={n} entry={entry} n={n} />
+            ))}
+          </ul>
+          <p data-testid="history-nota">
+            Nota: só os pacotes pedidos são registrados; dependências instaladas ou removidas junto não aparecem aqui.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "inventory", label: "Inventário" },
@@ -337,6 +394,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "dotfiles", label: "Dotfiles" },
   { id: "updates", label: "Atualizações" },
   { id: "workspace", label: "Workspace" },
+  { id: "history", label: "Histórico" },
 ];
 
 export default function App() {
@@ -355,6 +413,7 @@ export default function App() {
       {tab === "dotfiles" && <DotfilesScreen />}
       {tab === "updates" && <UpdatesScreen />}
       {tab === "workspace" && <WorkspaceScreen />}
+      {tab === "history" && <HistoryScreen />}
     </main>
   );
 }

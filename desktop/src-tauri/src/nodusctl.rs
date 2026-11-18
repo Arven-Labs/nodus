@@ -51,6 +51,8 @@ pub enum Allowed {
     Updates,
     /// Só o relatório. `workspace set` e `workspace unset` gravam no `config.toml` e ficam de fora (ADR 0026).
     Workspace,
+    /// Só a listagem. `history undo <n>` roda `sudo pacman -Rs` ou escreve no HOME e fica de fora (ADR 0026).
+    History,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -65,6 +67,7 @@ impl Allowed {
             "dotfiles" => Some(Self::Dotfiles),
             "updates" => Some(Self::Updates),
             "workspace" => Some(Self::Workspace),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
@@ -76,13 +79,14 @@ impl Allowed {
             Self::Dotfiles => ["dotfiles", "--json"],
             Self::Updates => ["updates", "--json"],
             Self::Workspace => ["workspace", "--json"],
+            Self::History => ["history", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace => DEFAULT_TIMEOUT,
+            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
@@ -347,7 +351,7 @@ mod tests {
     fn allowlist_recusa_tudo_o_que_nao_esta_na_lista() {
         for nome in [
             "", " ", "Inventory", "INVENTORY", "inventory ", " inventory", "inventory --json", "inventory;ls",
-            "inventory\n", "inventory\0", "apply", "undo", "adopt", "link", "preset", "history",
+            "inventory\n", "inventory\0", "apply", "undo", "adopt", "link", "preset",
             "--version", "--help", "../inventory", "/bin/sh", "-c", "sudo",
         ] {
             assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar");
@@ -613,6 +617,19 @@ wait
         assert_eq!(Allowed::Repos.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Dotfiles.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Workspace.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::History.timeout(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn history_so_a_listagem_sem_undo() {
+        assert_eq!(Allowed::parse("history"), Some(Allowed::History));
+        assert_eq!(Allowed::History.args(), ["history", "--json"]);
+        for nome in [
+            "history undo", "history undo 1", "history --json", "history 1", "History", "HISTORY", "history ", " history",
+            "history\n", "history;ls", "histor", "historys",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: `undo` roda sudo pacman -Rs e escreve no HOME");
+        }
     }
 
     #[test]
