@@ -1,5 +1,24 @@
-# PROVISÓRIO, SÓ DE MEDIÇÃO (plano do cargo-deny do src-tauri): `allow` vazio faz o cargo-deny listar toda licença da árvore.
-# Este arquivo é substituído pela política definitiva depois que o dono ler o resultado.
+# cargo-deny do `desktop/src-tauri` (ADR 0026, P-11/P-12): licenças, avisos do RustSec, bans e fontes do Cargo.lock da GUI
+# (workspace Cargo próprio, ~430 pacotes do Tauri). A CLI tem a política dela em `deny.toml` na raiz, mais estrita de propósito.
+# Medido no CI em 2026-11-18 (cargo-deny 0.21.0). O que não está aqui usa o default (bans: multiple-versions = "warn";
+# sources: só crates.io).
 
 [licenses]
-allow = []
+# Quase tudo na árvore é "MIT OR Apache-2.0" (basta uma alternativa permitida). Os extras abaixo são crates que só têm essa licença.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    # Copyleft fraco, por arquivo: só obriga se modificarmos os arquivos dessas crates (cssparser, cssparser-macros,
+    # selectors, dtoa-short, option-ext; todas via Tauri/webview). Aceito pelo dono em 2026-11-18 porque a GUI não é distribuída
+    # em binário (ADR 0010). Reabrir se algum dia distribuirmos o binário da GUI (aí vale parecer, como no P-12).
+    "MPL-2.0",
+    "BSD-3-Clause",
+    "Zlib",
+    "Apache-2.0 WITH LLVM-exception",
+]
+
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4 sem manutenção, vem de glib-macros (gtk-rs 0.18) que o Tauri exige no Linux; é macro de compilação, sem versão segura. Aceito pelo dono em 2026-11-18. Reabrir quando o Tauri sair do gtk-rs 0.18." },
+]
