@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-18 — Sessão 21 (continuação 15), GUI desktop: aba Workspace (PR #94)
+
+- **Pedido**: depois de ver a GUI na janela real, fazer a tela `workspace` (mecânica, sem plan mode, autorizado pelo dono).
+- **Verificação visual**: o dono rodou `npm run tauri dev` com `NODUSCTL` absoluto e viu as abas Repositórios, Dotfiles e Atualizações na janela real em 2026-11-18: "tudo certo" (relato dele; o que comparou com o terminal não foi detalhado).
+- **Feito**: `Allowed::Workspace` (`["workspace","--json"]`, 30 s; `workspace set` e `unset` ficam de fora porque gravam no `config.toml`); `src/lib/workspace.ts` (parser estrito: `chosen` pode ser `null`, `source` só um dos quatro valores, contagens inteiras não negativas); `WorkspaceScreen` (pasta escolhida com origem e contagem, candidatos, caso "nenhum workspace").
+- **Testes primeiro**: commit só com os testes: CI Desktop **vermelho** (frontend: `Cannot find module workspace.ts`; Rust: `no variant Workspace`). Depois da implementação, verde. Um teste antigo (`allowlist_recusa_tudo...`) listava `workspace` como recusado e foi atualizado.
+- **Mutação** (duas, em commits separados): (A) allowlist por prefixo (`starts_with("workspace")`) derrubou **1 teste Rust** (`workspace_so_o_relatorio_sem_set_nem_unset`; 32 passaram); (B) `source` aceitando qualquer texto derrubou **1 teste do parser** (`source desconhecida é erro`). Ambas revertidas com `git revert`.
+- **CI**: o job Desktop Rust ficou preso mais de 13 min no passo do `apt` (a lentidão já conhecida); cancelei e rerodei, passou.
+- **Não verificado**: a aba Workspace na janela real (o dono ainda não a viu); `workspace --json` real no Arch (o formato foi lido de `report_json` e do teste dele, não medido); o caso "nenhum workspace" só em teste.
+- **Fica**: ver a aba Workspace na janela; telas de leitura que faltam (`history`, `preset plan`, `preset suggest`); ADR das ações privilegiadas; lentidão do `apt` no CI Desktop; P-02; P-14; P-17.
+
 ### 2026-11-18 — Sessão 21 (continuação 14), triagem do alerta nº 1 do Dependabot (`glib`)
 
 - **Pedido**: triar o único alerta aberto (`/dependencias nodus`). Contagem **antes: 1**.
