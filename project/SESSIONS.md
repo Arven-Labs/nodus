@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-18 — Sessão 21 (continuação 14), triagem do alerta nº 1 do Dependabot (`glib`)
+
+- **Pedido**: triar o único alerta aberto (`/dependencias nodus`). Contagem **antes: 1**.
+- **Alerta**: nº 1, GHSA-wrw7-89jp-8q8g, `glib` 0.18.5 (medium, runtime, `desktop/src-tauri/Cargo.lock`), unsound em `glib::VariantStrIter`; patch só na 0.20.0.
+- **Quem puxa**: transitivo, `tauri` → `gtk`/`webkit2gtk`/`wry` → `gtk-rs` 0.18 (`cargo tree --locked -i glib`). Nenhum `Cargo.toml` nosso o declara. A 0.20 cruza a major do `gtk-rs`, então não há atualização compatível e a subida depende do Tauri migrar de pilha GTK.
+- **Classificação: não alcançável.** `VariantStrIter` só nasce de `Variant::array_iter_str()`. `grep` em `desktop/src-tauri/src` e `Cargo.toml`: nada. `grep -rln array_iter_str` no registry local do cargo: só `glib-0.18.5` (`variant.rs`, `variant_iter.rs`); nenhum outro crate do lock o chama, nem o próprio `glib` fora da definição.
+- **Decisão do dono (2026-11-18)**: dispensar como `not_used`. Feito por `gh api -X PATCH`, com o motivo no `dismissed_comment`. Contagem **depois: 0**, relida da API.
+- **Não verificado**: o registry local só tem os crates baixados neste Linux (alvos macOS e Windows não entram, e o `glib` é do GTK); não li o C do GLib (o aviso é do wrapper Rust); sem `cargo audit` como segunda opinião. **Reabrir** se o código passar a chamar `array_iter_str` ou se uma subida do Tauri trouxer um `glib` que o use.
+- **Fica**: ver a GUI na janela real (Repositórios, Dotfiles e Atualizações); telas de leitura que faltam (`history`, `preset plan`, `preset suggest`, `workspace`); ADR das ações privilegiadas; lentidão do `apt` no CI Desktop; P-02; P-14; P-17.
+
 ### 2026-11-18 — Sessão 21 (continuação 13), CI: `cargo-deny` do `src-tauri`
 
 - **Pedido**: depois do PR #89, "por onde seguir no código"; escolhido o `cargo-deny` do `src-tauri` (sem checagem de licença, aviso ou fonte nos 428 pacotes do Tauri), em plan mode (plano aprovado; toca CI, AGENTS §4).
