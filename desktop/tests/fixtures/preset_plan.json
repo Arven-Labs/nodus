@@ -1,0 +1,8 @@
+{
+  "pacman_missing": ["htop", "ripgrep"],
+  "pacman_present": 150,
+  "pacman_unavailable": ["brave-bin"],
+  "flatpak_missing": ["org.gnome.Calculator"],
+  "flatpak_present": 4,
+  "flatpak_installed": true
+}

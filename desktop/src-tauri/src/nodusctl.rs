@@ -303,13 +303,19 @@ mod tests {
 
     fn ler(binary: &Path, name: &str, gui: (u64, u64, u64)) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
-        read(binary, name, gui)
+        read(binary, name, gui, None)
+    }
+
+    /// Como `ler`, com o valor que `NODUS_PRESET` teria (o backend lê a variável; o frontend nunca fornece caminho).
+    fn ler_preset(binary: &Path, name: &str, gui: (u64, u64, u64), preset: Option<&str>) -> Result<String, CmdError> {
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        read(binary, name, gui, preset.map(std::ffi::OsString::from))
     }
 
     /// Como `ler`, mas com um prazo curto escolhido pelo teste (sem esperar 30 s no CI).
     fn ler_com_prazo(binary: &Path, name: &str, gui: (u64, u64, u64), prazo: Duration) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
-        read_with(binary, name, gui, prazo)
+        read_with(binary, name, gui, None, prazo)
     }
 
     /// O processo existe e não é zumbi? (Um filho morto cujo pai não o recolheu ainda aparece em `/proc` como `Z`.)
@@ -672,6 +678,91 @@ echo "argumentos inesperados: $*" >&2; exit 64
         let saida = ler(&bin, "updates", (0, 1, 0)).unwrap();
         assert_eq!(saida.trim(), r#"{"pacman":[]}"#);
         assert_eq!(chamadas(&dir), ["--version", "updates --json"]);
+    }
+
+    // --- preset plan: o único comando de leitura com um argumento, e ele vem de NODUS_PRESET, nunca do frontend ---
+
+    const PLANO_FALSO: &str = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+if [ "$1" = "preset" ] && [ "$2" = "plan" ] && [ "$3" = "--json" ] && [ -n "$4" ] && [ -z "$5" ]; then echo '{"plano":true}'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+
+    #[test]
+    fn preset_plan_so_o_plano_sem_apply_nem_adopt() {
+        assert_eq!(Allowed::parse("preset_plan"), Some(Allowed::PresetPlan));
+        assert_eq!(Allowed::PresetPlan.timeout(), Duration::from_secs(30));
+        for nome in [
+            "preset plan", "preset_plan /tmp/p.toml", "preset_plan --json", "preset apply", "preset_apply", "preset adopt",
+            "preset_adopt", "preset init", "preset_init", "preset suggest", "preset_suggest", "preset ignored", "preset unignore",
+            "Preset_plan", "PRESET_PLAN", "preset_plan ", " preset_plan", "preset_plan\n", "preset_plan;ls", "preset-plan", "preset_plans",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: apply instala e adopt escreve no preset");
+        }
+    }
+
+    #[test]
+    fn preset_plan_roda_com_o_arquivo_da_variavel() {
+        let (dir, bin) = falso(PLANO_FALSO);
+        let saida = ler_preset(&bin, "preset_plan", (0, 1, 0), Some("/tmp/nodus-teste/p.toml")).unwrap();
+        assert_eq!(saida.trim(), r#"{"plano":true}"#);
+        assert_eq!(chamadas(&dir), ["--version", "preset plan --json /tmp/nodus-teste/p.toml"]);
+    }
+
+    #[test]
+    fn o_caminho_com_espaco_vai_como_um_argumento_so() {
+        // Sem shell: o espaço não separa argumentos (o falso exige exatamente 4 argumentos).
+        let (_dir, bin) = falso(PLANO_FALSO);
+        let saida = ler_preset(&bin, "preset_plan", (0, 1, 0), Some("/tmp/minha pasta/p.toml")).unwrap();
+        assert_eq!(saida.trim(), r#"{"plano":true}"#);
+    }
+
+    #[test]
+    fn sem_a_variavel_o_erro_diz_qual_definir_e_nada_executa() {
+        let (dir, bin) = falso(PLANO_FALSO);
+        let erro = ler_preset(&bin, "preset_plan", (0, 1, 0), None).unwrap_err();
+        assert_eq!(erro.kind, "preset_not_set");
+        assert!(erro.message.contains("NODUS_PRESET"), "a mensagem precisa nomear a variável: {}", erro.message);
+        assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
+    }
+
+    #[test]
+    fn caminho_relativo_ou_vazio_e_recusado_e_nada_executa() {
+        // O app roda com o diretório atual em `src-tauri/`: um caminho relativo apontaria para outro lugar que o do terminal.
+        let (dir, bin) = falso(PLANO_FALSO);
+        for valor in ["", "p.toml", "./p.toml", "../p.toml", "~/p.toml", "-p.toml", "--help"] {
+            let erro = ler_preset(&bin, "preset_plan", (0, 1, 0), Some(valor)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_preset", "{valor:?}");
+        }
+        assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
+    }
+
+    #[test]
+    fn resolve_preset_so_aceita_caminho_absoluto() {
+        assert_eq!(resolve_preset(Some("/home/x/preset.toml".into())).unwrap(), PathBuf::from("/home/x/preset.toml"));
+        assert_eq!(resolve_preset(None).unwrap_err().kind, "preset_not_set");
+        assert_eq!(resolve_preset(Some("preset.toml".into())).unwrap_err().kind, "invalid_preset");
+    }
+
+    #[test]
+    fn a_variavel_so_importa_para_o_preset_plan() {
+        // Uma NODUS_PRESET relativa não pode derrubar as outras abas, e uma absoluta não vira argumento delas.
+        let (dir, bin) = falso(BOM);
+        ler_preset(&bin, "inventory", (0, 1, 0), Some("relativo.toml")).unwrap();
+        ler_preset(&bin, "inventory", (0, 1, 0), Some("/tmp/p.toml")).unwrap();
+        assert_eq!(chamadas(&dir), ["--version", "inventory --json", "--version", "inventory --json"]);
+    }
+
+    #[test]
+    fn falha_do_nodusctl_no_preset_chega_com_a_mensagem_dele() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+echo "Error: lendo /tmp/p.toml: No such file or directory" >&2; exit 1
+"#;
+        let (_dir, bin) = falso(corpo);
+        let erro = ler_preset(&bin, "preset_plan", (0, 1, 0), Some("/tmp/p.toml")).unwrap_err();
+        assert_eq!(erro.kind, "failed");
+        assert!(erro.message.contains("No such file or directory"), "{}", erro.message);
     }
 
     #[test]
