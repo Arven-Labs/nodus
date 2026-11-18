@@ -43,7 +43,6 @@ export function parseHistory(jsonText: string): HistoryEntry[] {
 }
 
 function action(value: unknown, at: string): HistoryAction {
-  if (typeof value === "string") return value as HistoryAction;
   if (value === "install" || value === "remove" || value === "adopt" || value === "link") return value;
   throw new HistoryError(`campo \`${at}action\`: esperava "install", "remove", "adopt" ou "link"`);
 }
