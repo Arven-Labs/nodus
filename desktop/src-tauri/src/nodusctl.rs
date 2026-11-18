@@ -49,6 +49,8 @@ pub enum Allowed {
     Dotfiles,
     /// Só o relatório (`checkupdates` e `flatpak remote-ls`, que usam a rede); nada é instalado nem atualizado.
     Updates,
+    /// Só o relatório. `workspace set` e `workspace unset` gravam no `config.toml` e ficam de fora (ADR 0026).
+    Workspace,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -62,6 +64,7 @@ impl Allowed {
             "repos" => Some(Self::Repos),
             "dotfiles" => Some(Self::Dotfiles),
             "updates" => Some(Self::Updates),
+            "workspace" => Some(Self::Workspace),
             _ => None,
         }
     }
@@ -72,13 +75,14 @@ impl Allowed {
             Self::Repos => ["repos", "--json"],
             Self::Dotfiles => ["dotfiles", "--json"],
             Self::Updates => ["updates", "--json"],
+            Self::Workspace => ["workspace", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles => DEFAULT_TIMEOUT,
+            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }

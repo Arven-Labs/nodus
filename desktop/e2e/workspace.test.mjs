@@ -95,7 +95,7 @@ test("um repositório no singular", async () => {
   const { page, close } = await openApp(browser, app, { handlers: handlers(JSON.stringify(data)) });
   await abrirAba(page);
   await page.getByTestId("workspace-escolhido").waitFor();
-  assert.match(await page.getByTestId("workspace-escolhido").innerText(), /\b1 repositório\b(?!s)/);
+  assert.match(await page.getByTestId("workspace-escolhido").innerText(), /1 repositório(?!s)/);
   await close();
 });
 

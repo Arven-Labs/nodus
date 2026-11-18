@@ -5,6 +5,7 @@ import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parseRepos, type Repo } from "./lib/repos";
 import { parseUpdates, type Updates } from "./lib/updates";
+import { parseWorkspace, type WorkspaceSource } from "./lib/workspace";
 import "./App.css";
 
 type State<T> =
@@ -282,13 +283,60 @@ function UpdatesResult({ updates }: { updates: Updates }) {
   );
 }
 
-type Tab = "inventory" | "repos" | "dotfiles" | "updates";
+const SOURCE_LABEL: Record<WorkspaceSource, string> = {
+  informed: "informado por argumento",
+  environment: "variável NODUS_WORKSPACE",
+  stored: "gravado com `workspace set`",
+  detected: "detectado sob o HOME",
+};
+
+function repoCountText(n: number): string {
+  return `${n} ${n === 1 ? "repositório" : "repositórios"}`;
+}
+
+function WorkspaceScreen() {
+  const state = useLoad("workspace", parseWorkspace);
+
+  if (state.status === "loading") return <p>Lendo o workspace…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="o workspace" />;
+
+  const { chosen, candidates } = state.data;
+  return (
+    <section>
+      <h1>Workspace</h1>
+      {chosen === null ? (
+        <p data-testid="workspace-nenhum">Nenhum workspace detectado. Use `nodusctl workspace set &lt;pasta&gt;` no terminal.</p>
+      ) : (
+        <div data-testid="workspace-escolhido">
+          <strong>{chosen.path}</strong>
+          <div className="detail">{`${repoCountText(chosen.repoCount)} · ${SOURCE_LABEL[chosen.source]}`}</div>
+        </div>
+      )}
+      {candidates.length > 0 && (
+        <>
+          <h2>Candidatos</h2>
+          <ul data-testid="workspace-candidatos" className="repos">
+            {candidates.map((c, i) => (
+              <li key={i} data-testid="workspace-candidato">
+                <strong>{c.path}</strong>
+                <div className="detail">{repoCountText(c.repoCount)}</div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "inventory", label: "Inventário" },
   { id: "repos", label: "Repositórios" },
   { id: "dotfiles", label: "Dotfiles" },
   { id: "updates", label: "Atualizações" },
+  { id: "workspace", label: "Workspace" },
 ];
 
 export default function App() {
@@ -306,6 +354,7 @@ export default function App() {
       {tab === "repos" && <ReposScreen />}
       {tab === "dotfiles" && <DotfilesScreen />}
       {tab === "updates" && <UpdatesScreen />}
+      {tab === "workspace" && <WorkspaceScreen />}
     </main>
   );
 }
