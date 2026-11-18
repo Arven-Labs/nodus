@@ -47,7 +47,12 @@ pub enum Allowed {
     Repos,
     /// Só o relatório. `dotfiles adopt` e `dotfiles link` escrevem no HOME e ficam de fora (ADR 0026).
     Dotfiles,
+    /// Só o relatório (`checkupdates` e `flatpak remote-ls`, que usam a rede); nada é instalado nem atualizado.
+    Updates,
 }
+
+/// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
+const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 
 impl Allowed {
     /// Aceita só o nome exato; qualquer outra coisa (maiúscula, espaço, argumento embutido) é recusada.
@@ -56,6 +61,7 @@ impl Allowed {
             "inventory" => Some(Self::Inventory),
             "repos" => Some(Self::Repos),
             "dotfiles" => Some(Self::Dotfiles),
+            "updates" => Some(Self::Updates),
             _ => None,
         }
     }
@@ -65,6 +71,7 @@ impl Allowed {
             Self::Inventory => ["inventory", "--json"],
             Self::Repos => ["repos", "--json"],
             Self::Dotfiles => ["dotfiles", "--json"],
+            Self::Updates => ["updates", "--json"],
         }
     }
 
@@ -72,6 +79,7 @@ impl Allowed {
     pub fn timeout(self) -> Duration {
         match self {
             Self::Inventory | Self::Repos | Self::Dotfiles => DEFAULT_TIMEOUT,
+            Self::Updates => NETWORK_TIMEOUT,
         }
     }
 }
