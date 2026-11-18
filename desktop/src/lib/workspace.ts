@@ -41,7 +41,6 @@ export function parseWorkspace(jsonText: string): Workspace {
 }
 
 function source(value: unknown): WorkspaceSource {
-  if (typeof value === "string") return value as WorkspaceSource;
   if (value === "informed" || value === "environment" || value === "stored" || value === "detected") return value;
   throw new WorkspaceError('campo `chosen.source`: esperava "informed", "environment", "stored" ou "detected"');
 }
