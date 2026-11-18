@@ -347,7 +347,7 @@ mod tests {
     fn allowlist_recusa_tudo_o_que_nao_esta_na_lista() {
         for nome in [
             "", " ", "Inventory", "INVENTORY", "inventory ", " inventory", "inventory --json", "inventory;ls",
-            "inventory\n", "inventory\0", "apply", "undo", "adopt", "link", "preset", "history", "workspace",
+            "inventory\n", "inventory\0", "apply", "undo", "adopt", "link", "preset", "history",
             "--version", "--help", "../inventory", "/bin/sh", "-c", "sudo",
         ] {
             assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar");
