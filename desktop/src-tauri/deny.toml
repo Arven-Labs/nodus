@@ -1,0 +1,5 @@
+# PROVISÓRIO, SÓ DE MEDIÇÃO (plano do cargo-deny do src-tauri): `allow` vazio faz o cargo-deny listar toda licença da árvore.
+# Este arquivo é substituído pela política definitiva depois que o dono ler o resultado.
+
+[licenses]
+allow = []
