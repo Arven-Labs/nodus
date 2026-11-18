@@ -53,6 +53,9 @@ pub enum Allowed {
     Workspace,
     /// Só a listagem. `history undo <n>` roda `sudo pacman -Rs` ou escreve no HOME e fica de fora (ADR 0026).
     History,
+    /// Só o plano (`preset plan`; nada é instalado). O arquivo do preset é o único argumento que não é fixo, e vem de
+    /// `NODUS_PRESET` lido aqui no Rust, nunca do frontend. `preset apply` e `preset adopt` instalam ou escrevem e ficam de fora.
+    PresetPlan,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -68,25 +71,28 @@ impl Allowed {
             "updates" => Some(Self::Updates),
             "workspace" => Some(Self::Workspace),
             "history" => Some(Self::History),
+            "preset_plan" => Some(Self::PresetPlan),
             _ => None,
         }
     }
 
-    pub fn args(self) -> [&'static str; 2] {
+    /// Os argumentos fixos. No `PresetPlan`, o caminho do arquivo é acrescentado depois, por `read_with`.
+    pub fn args(self) -> Vec<&'static str> {
         match self {
-            Self::Inventory => ["inventory", "--json"],
-            Self::Repos => ["repos", "--json"],
-            Self::Dotfiles => ["dotfiles", "--json"],
-            Self::Updates => ["updates", "--json"],
-            Self::Workspace => ["workspace", "--json"],
-            Self::History => ["history", "--json"],
+            Self::Inventory => vec!["inventory", "--json"],
+            Self::Repos => vec!["repos", "--json"],
+            Self::Dotfiles => vec!["dotfiles", "--json"],
+            Self::Updates => vec!["updates", "--json"],
+            Self::Workspace => vec!["workspace", "--json"],
+            Self::History => vec!["history", "--json"],
+            Self::PresetPlan => vec!["preset", "plan", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History => DEFAULT_TIMEOUT,
+            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History | Self::PresetPlan => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
@@ -105,6 +111,26 @@ pub fn resolve_binary(env_value: Option<OsString>) -> Result<PathBuf, CmdError> 
         Err(CmdError::new(
             "invalid_binary",
             format!("NODUSCTL precisa ser um caminho absoluto (recebi {:?})", path.as_os_str()),
+        ))
+    }
+}
+
+/// O arquivo do preset vem do valor de `NODUS_PRESET`, só caminho **absoluto** (o app roda com o diretório atual em `src-tauri/`).
+/// Só o `preset_plan` chama isto: uma `NODUS_PRESET` ruim não pode derrubar as outras abas.
+pub fn resolve_preset(env_value: Option<OsString>) -> Result<PathBuf, CmdError> {
+    let Some(value) = env_value else {
+        return Err(CmdError::new(
+            "preset_not_set",
+            "defina NODUS_PRESET com o caminho absoluto do arquivo de preset (o mesmo que você passaria a `nodusctl preset plan`)",
+        ));
+    };
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err(CmdError::new(
+            "invalid_preset",
+            format!("NODUS_PRESET precisa ser um caminho absoluto (recebi {:?})", path.as_os_str()),
         ))
     }
 }
@@ -162,7 +188,7 @@ enum Stop {
 
 /// Roda o binário com `args`, com um limite de saída e um prazo. Sem shell; entrada vazia; o erro padrão volta junto para as
 /// mensagens. O filho nasce em um grupo de processos próprio (`process_group(0)`), para o prazo poder matar o grupo inteiro.
-fn run(binary: &Path, args: &[&str], timeout: Duration) -> Result<(ExitStatus, String, String), CmdError> {
+fn run<S: AsRef<std::ffi::OsStr>>(binary: &Path, args: &[S], timeout: Duration) -> Result<(ExitStatus, String, String), CmdError> {
     let mut child = Command::new(binary)
         .args(args)
         .stdin(Stdio::null())
@@ -251,16 +277,28 @@ fn run(binary: &Path, args: &[&str], timeout: Duration) -> Result<(ExitStatus, S
 }
 
 /// Roda um comando de leitura e devolve o JSON bruto (texto). Ordem: lista, versão, comando. O prazo é o do comando.
-pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64)) -> Result<String, CmdError> {
+/// `preset` é o valor cru de `NODUS_PRESET`; só o `preset_plan` o usa.
+pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64), preset: Option<OsString>) -> Result<String, CmdError> {
     let timeout = Allowed::parse(name).map_or(DEFAULT_TIMEOUT, Allowed::timeout);
-    read_with(binary, name, gui_version, timeout)
+    read_with(binary, name, gui_version, preset, timeout)
 }
 
 /// Como `read`, com o prazo escolhido por quem chama (os testes usam um prazo curto). O prazo vale para cada processo: a
 /// conferência de `--version` e o comando.
-pub fn read_with(binary: &Path, name: &str, gui_version: (u64, u64, u64), timeout: Duration) -> Result<String, CmdError> {
+pub fn read_with(
+    binary: &Path,
+    name: &str,
+    gui_version: (u64, u64, u64),
+    preset: Option<OsString>,
+    timeout: Duration,
+) -> Result<String, CmdError> {
     let allowed = Allowed::parse(name)
         .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
+    // O caminho é conferido antes de executar qualquer coisa. Um argumento só (sem shell), então espaço não separa nada.
+    let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
+    if allowed == Allowed::PresetPlan {
+        argv.push(resolve_preset(preset)?.into_os_string());
+    }
 
     let (status, out, _) = run(binary, &["--version"], timeout)?;
     let cli_version = parse_version(&out).filter(|_| status.success()).ok_or_else(|| {
@@ -276,7 +314,7 @@ pub fn read_with(binary: &Path, name: &str, gui_version: (u64, u64, u64), timeou
         ));
     }
 
-    let (status, out, err) = run(binary, &allowed.args(), timeout)?;
+    let (status, out, err) = run(binary, argv.as_slice(), timeout)?;
     if !status.success() {
         let detail = err.trim();
         return Err(CmdError::new(

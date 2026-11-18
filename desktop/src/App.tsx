@@ -4,6 +4,7 @@ import { type Dotfile, parseDotfiles } from "./lib/dotfiles";
 import { formatUtc, type HistoryEntry, parseHistory } from "./lib/history";
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
+import { parsePresetPlan } from "./lib/preset";
 import { parseRepos, type Repo } from "./lib/repos";
 import { parseUpdates, type Updates } from "./lib/updates";
 import { parseWorkspace, type WorkspaceSource } from "./lib/workspace";
@@ -386,7 +387,63 @@ function HistoryScreen() {
   );
 }
 
-type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history";
+function NameList({ items, testId }: { items: string[]; testId: string }) {
+  if (items.length === 0) return null;
+  return (
+    <ul className="repos">
+      {items.map((name, i) => (
+        <li key={i} data-testid={testId}>
+          {name}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function PresetScreen() {
+  const state = useLoad("preset_plan", parsePresetPlan);
+
+  if (state.status === "loading") return <p>Comparando o preset com esta máquina…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="o plano do preset" />;
+
+  const plan = state.data;
+  const nothingToInstall = plan.pacmanMissing.length === 0 && plan.flatpakMissing.length === 0;
+  return (
+    <section>
+      <h1>Preset</h1>
+      <div data-testid="preset-pacman">
+        <h2>{`Pacman (instalar ${plan.pacmanMissing.length}, ${plan.pacmanPresent} já presentes)`}</h2>
+        <NameList items={plan.pacmanMissing} testId="preset-pacman-item" />
+      </div>
+      {plan.pacmanUnavailable.length > 0 && (
+        <div data-testid="preset-indisponiveis">
+          <h2>{`Indisponíveis nos repositórios, o nodus não instala (${plan.pacmanUnavailable.length})`}</h2>
+          <NameList items={plan.pacmanUnavailable} testId="preset-indisponivel-item" />
+        </div>
+      )}
+      <div data-testid="preset-flatpak">
+        <h2>
+          {plan.flatpakInstalled
+            ? `Flatpak (instalar ${plan.flatpakMissing.length}, ${plan.flatpakPresent} já presentes)`
+            : `Flatpak não instalado (apps do preset: ${plan.flatpakMissing.length})`}
+        </h2>
+        <NameList items={plan.flatpakMissing} testId="preset-flatpak-item" />
+      </div>
+      {nothingToInstall && (
+        <p data-testid="preset-nada">
+          {plan.pacmanUnavailable.length === 0
+            ? "Nada a fazer: a máquina já está como o preset."
+            : "Nada a instalar: só restam itens indisponíveis nos repositórios."}
+        </p>
+      )}
+      <p data-testid="preset-nota" className="detail">
+        Só leitura: nada foi executado. Para instalar, use `nodusctl preset apply` no terminal.
+      </p>
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "inventory", label: "Inventário" },
@@ -395,6 +452,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "updates", label: "Atualizações" },
   { id: "workspace", label: "Workspace" },
   { id: "history", label: "Histórico" },
+  { id: "preset", label: "Preset" },
 ];
 
 export default function App() {
@@ -414,6 +472,7 @@ export default function App() {
       {tab === "updates" && <UpdatesScreen />}
       {tab === "workspace" && <WorkspaceScreen />}
       {tab === "history" && <HistoryScreen />}
+      {tab === "preset" && <PresetScreen />}
     </main>
   );
 }
