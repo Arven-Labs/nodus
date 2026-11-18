@@ -52,7 +52,7 @@ pub enum Allowed {
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
-const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
+const NETWORK_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl Allowed {
     /// Aceita só o nome exato; qualquer outra coisa (maiúscula, espaço, argumento embutido) é recusada.
