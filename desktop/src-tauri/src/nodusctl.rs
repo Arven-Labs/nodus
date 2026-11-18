@@ -61,7 +61,7 @@ impl Allowed {
             "inventory" => Some(Self::Inventory),
             "repos" => Some(Self::Repos),
             "dotfiles" => Some(Self::Dotfiles),
-            n if n.starts_with("updates") => Some(Self::Updates),
+            "updates" => Some(Self::Updates),
             _ => None,
         }
     }
