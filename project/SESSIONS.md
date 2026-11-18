@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-17 — Sessão 21 (continuação 12), GUI desktop: aba de Atualizações (PR a numerar)
+
+- **Pedido**: limpar o disco e depois fazer a tela `updates` (PR C2), em plan mode (plano aprovado). Escolha do dono: **botão "Verificar"** (abrir a aba não roda nada, porque o comando usa a rede).
+- **Disco**: `cargo clean` em `desktop/src-tauri` (confirmado pelo dono) liberou 4,7 GiB: o `nodus` foi de 3,5 GB para 405 MB, `/home` de 55% para 53%. A partição `/` (86%) não é afetada.
+- **Feito**: `Allowed::Updates` (`["updates","--json"]`, prazo de 120 s em `NETWORK_TIMEOUT`, os outros seguem 30 s); `src/lib/updates.ts` (parser estrito; `pacman_source` só `checkupdates` ou `pacman-qu`, outro valor é erro; `flatpak: null` é "não instalado", diferente de `[]`); `UpdatesScreen` com `useRunOnDemand` (estado ocioso, "Verificando…", resultado ou erro; botão desabilitado enquanto espera; "Verificar de novo"); aviso quando a origem é `pacman-qu`.
+- **Testes primeiro**: commit só com os testes: CI Desktop **vermelho** (Rust: `no variant Updates`; frontend: `Cannot find module updates.ts`). Depois da implementação, tudo verde (frontend e Rust).
+- **Mutação** (duas, em commits separados): (A) allowlist por prefixo (`starts_with("updates")`) derrubou **1 teste Rust** (`updates_so_o_relatorio_sem_argumento`; 31 passaram); (B) prazo do `updates` em 30 s derrubou **1 teste Rust** (`o_updates_usa_a_rede_e_tem_120_segundos`; 31 passaram). Ambas revertidas com `git revert`.
+- **Não verificado**: a aba na janela real (`npm run tauri dev`, `NODUSCTL` absoluto), comparada com `nodusctl updates` no terminal; o estouro real dos 120 s (só o valor do prazo é testado; o mecanismo de matar o grupo foi testado no PR #87); as abas Repositórios e Dotfiles também seguem sem ser vistas na janela real; o visual (reusa os estilos da lista de repositórios).
+- **Fica**: ver a GUI na janela real; lentidão do `apt` no CI Desktop; alerta nº 1 do `glib` (dispensar é decisão do dono); `cargo-deny` do `src-tauri`; ADR das ações privilegiadas; `desktop/.vite/` sem rastreio (candidato a `.gitignore`); P-02; P-14; P-17; remoto da `~/dotfiles`.
+- **Desvio meu**: rodei `git checkout -- .` com as edições de docs ainda não commitadas e as perdi; refiz as três.
+
 ### 2026-11-17 — Sessão 21 (continuação 11), GUI desktop: tempo limite do `nodusctl` (PR #87)
 
 - **Pedido**: antes da tela `updates` (usa a rede), dar prazo ao `nodusctl` na GUI; em plan mode (plano aprovado, dois PRs: este e a tela depois). Escolhas do dono: **30 s por comando** (120 s só no `updates`, que entra no PR da tela) e **matar o grupo de processos** no estouro.
