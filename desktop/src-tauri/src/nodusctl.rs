@@ -608,6 +608,19 @@ wait
         assert_eq!(Allowed::Inventory.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Repos.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Dotfiles.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::Workspace.timeout(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn workspace_so_o_relatorio_sem_set_nem_unset() {
+        assert_eq!(Allowed::parse("workspace"), Some(Allowed::Workspace));
+        assert_eq!(Allowed::Workspace.args(), ["workspace", "--json"]);
+        for nome in [
+            "workspace set", "workspace set /tmp", "workspace unset", "workspace --json", "workspace /tmp", "Workspace", "WORKSPACE",
+            "workspace ", " workspace", "workspace\n", "workspace;ls", "workspaces", "workspac",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: set e unset gravam no config.toml");
+        }
     }
 
     #[test]
