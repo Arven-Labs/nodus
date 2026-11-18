@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-18 — Sessão 21 (continuação 13), CI: `cargo-deny` do `src-tauri`
+
+- **Pedido**: depois do PR #89, "por onde seguir no código"; escolhido o `cargo-deny` do `src-tauri` (sem checagem de licença, aviso ou fonte nos 428 pacotes do Tauri), em plan mode (plano aprovado; toca CI, AGENTS §4).
+- **Medição (etapa 0, no CI, porque o `cargo-deny` não está instalado local)**: `deny.toml` provisório com `allow = []` (cargo-deny 0.21.0). 26 expressões de licença distintas; quase tudo `MIT OR Apache-2.0`. Só MPL-2.0 (7 crates: `cssparser` x2, `cssparser-macros`, `selectors` x2, `dtoa-short`, `option-ext`), BSD-3-Clause, Zlib e Apache-2.0 WITH LLVM-exception não têm alternativa MIT/Apache. Um aviso: RUSTSEC-2024-0370 (`proc-macro-error` 1.0.4 sem manutenção, via `glib-macros`, sem versão segura). `bans` e `sources` ok. Tropeço meu: a primeira rodada falhou porque pus `--config` depois do `check` (é opção global; vai em `arguments`).
+- **Decisões do dono (2026-11-18)**: aceitar MPL-2.0 só no `deny.toml` do `src-tauri` (a raiz da CLI continua estrita); ignorar o RUSTSEC-2024-0370 com motivo.
+- **Feito**: job `Desktop cargo-deny` no `ci-desktop.yml` (não obrigatório); `desktop/src-tauri/deny.toml` definitivo; verde de primeira (`advisories ok, bans ok, licenses ok, sources ok`). Avisos `duplicate` (versões duplicadas) ficam como `warn`.
+- **Mutação** (duas, em commits separados): (A) tirar MPL-2.0 do `allow` deixou `licenses FAILED`; (B) tirar o `ignore` deixou `advisories FAILED` (`proc-macro-error is unmaintained`). Ambas revertidas com `git revert`.
+- **Não verificado**: o aviso de `glib` do alerta nº 1 do Dependabot **não aparece** no `cargo-deny` (ele só mostra avisos `unsound` de crates do workspace); o alerta segue só no Dependabot, e dispensar é decisão do dono. Só roda no CI.
+- **Fica**: ver a GUI na janela real; alerta nº 1 do `glib`; lentidão do `apt` no CI Desktop; telas de leitura que faltam (`history`, `preset plan`, `preset suggest`, `workspace`); ADR das ações privilegiadas; P-02; P-14; P-17.
+
 ### 2026-11-17 — Sessão 21 (continuação 12), GUI desktop: aba de Atualizações (PR #89)
 
 - **Pedido**: limpar o disco e depois fazer a tela `updates` (PR C2), em plan mode (plano aprovado). Escolha do dono: **botão "Verificar"** (abrir a aba não roda nada, porque o comando usa a rede).

@@ -22,7 +22,7 @@ Critério: (1) licença compatível com MIT (ADR 0002); (2) publicada nos últim
 | Git: descoberta e `fetch` (critério 7) | `git` CLI isolado (processo externo) | n/a | n/a | n/a | Decidido no ADR 0009; `gix` 0.90.0 (MIT OR Apache-2.0) fora do MVP |
 | Git, alternativa | `git2` (libgit2, C) | 0.21.0 | MIT OR Apache-2.0 | 2026-10 | Descartar: liga código C nativo e aumenta a superfície |
 | Testes de arquivo | `tempfile` | 3.27.0 | MIT OR Apache-2.0 | 2026-03 | Adotar (só dev) |
-| Auditoria de licenças e avisos (CI) | `cargo-deny` | 0.20.2 | MIT OR Apache-2.0 | 2026-07 | Adotado (P-11): job `cargo-deny` no CI com `EmbarkStudios/cargo-deny-action@v2` (v2.1.1, cargo-deny 0.20.2, imagem Docker com Rust 1.85), regras em `deny.toml`; não obrigatório no ruleset |
+| Auditoria de licenças e avisos (CI) | `cargo-deny` | 0.20.2 | MIT OR Apache-2.0 | 2026-07 | Adotado (P-11): job `cargo-deny` no CI com `EmbarkStudios/cargo-deny-action@v2` (v2.1.1, cargo-deny 0.20.2, imagem Docker com Rust 1.85), regras em `deny.toml`; não obrigatório no ruleset. O `Cargo.lock` da GUI (`desktop/src-tauri`, ~430 pacotes do Tauri) tem job próprio no `ci-desktop.yml` (`Desktop cargo-deny`, cargo-deny 0.21.0 medido em 2026-11-18) e política própria em `desktop/src-tauri/deny.toml`: além de MIT, Apache-2.0 e Unicode-3.0, aceita MPL-2.0 (7 crates via Tauri/webview, decisão do dono, porque a GUI não é distribuída em binário), BSD-3-Clause, Zlib e Apache-2.0 WITH LLVM-exception, e ignora o RUSTSEC-2024-0370 (`proc-macro-error`, via gtk-rs, sem versão segura) com motivo escrito; também não obrigatório |
 
 ## Achado principal: `alpm` é GPL-3.0
 
