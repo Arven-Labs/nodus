@@ -2,7 +2,7 @@
 
 Mais recente no topo.
 
-### 2026-11-17 — Sessão 21 (continuação 12), GUI desktop: aba de Atualizações (PR a numerar)
+### 2026-11-17 — Sessão 21 (continuação 12), GUI desktop: aba de Atualizações (PR #89)
 
 - **Pedido**: limpar o disco e depois fazer a tela `updates` (PR C2), em plan mode (plano aprovado). Escolha do dono: **botão "Verificar"** (abrir a aba não roda nada, porque o comando usa a rede).
 - **Disco**: `cargo clean` em `desktop/src-tauri` (confirmado pelo dono) liberou 4,7 GiB: o `nodus` foi de 3,5 GB para 405 MB, `/home` de 55% para 53%. A partição `/` (86%) não é afetada.
