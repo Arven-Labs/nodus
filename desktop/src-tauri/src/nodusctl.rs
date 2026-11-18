@@ -7,11 +7,24 @@
 use serde::Serialize;
 use std::ffi::OsString;
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Limite da saída aceita de um comando (16 MiB). O `inventory` de uma máquina com milhares de pacotes fica bem abaixo.
 const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+/// Prazo padrão de uma chamada ao `nodusctl`: os comandos de leitura locais levam de milissegundos a poucos segundos.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// De quanto em quanto tempo a espera olha se o processo terminou, se a saída passou do limite ou se o prazo acabou.
+const POLL_INTERVAL: Duration = Duration::from_millis(20);
+
+/// O `kill` do sistema (util-linux ou procps), por caminho fixo: não depende do PATH.
+const KILL_BINARY: &str = "/usr/bin/kill";
 
 /// Erro devolvido ao frontend: `kind` é um código estável (a tela decide o que mostrar), `message` é para pessoas.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -52,6 +65,13 @@ impl Allowed {
             Self::Inventory => ["inventory", "--json"],
             Self::Repos => ["repos", "--json"],
             Self::Dotfiles => ["dotfiles", "--json"],
+        }
+    }
+
+    /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
+    pub fn timeout(self) -> Duration {
+        match self {
+            Self::Inventory | Self::Repos | Self::Dotfiles => DEFAULT_TIMEOUT,
         }
     }
 }
@@ -96,13 +116,43 @@ pub fn compatible(gui: (u64, u64, u64), cli: (u64, u64, u64)) -> bool {
     gui.0 == cli.0 && gui.1 == cli.1
 }
 
-/// Roda o binário com `args`, com um limite de saída. Sem shell; entrada vazia; o erro padrão volta junto para as mensagens.
-fn run(binary: &Path, args: &[&str]) -> Result<(std::process::ExitStatus, String, String), CmdError> {
+/// Mata o grupo de processos do filho (o `nodusctl` e o que ele lançou: `checkupdates`, `flatpak`...). Sem isso, um neto vivo
+/// segura o cano de saída aberto e a leitura nunca termina. O número vem do `child.id()`, nunca de entrada externa; sem shell.
+/// Se o `kill` do sistema falhar (não existe, ou o grupo já acabou), cai para matar só o filho.
+fn kill_group(child: &mut Child) {
+    let group = format!("-{}", child.id());
+    let killed = Command::new(KILL_BINARY)
+        .args(["-KILL", "--", &group])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !killed {
+        let _ = child.kill();
+    }
+}
+
+/// "30 s" ou "300 ms", para a mensagem de tempo esgotado.
+fn describe(timeout: Duration) -> String {
+    if timeout.as_secs() >= 1 { format!("{} s", timeout.as_secs()) } else { format!("{} ms", timeout.as_millis()) }
+}
+
+/// Por que a espera foi interrompida antes de o processo terminar sozinho.
+enum Stop {
+    TimedOut,
+    TooLarge,
+}
+
+/// Roda o binário com `args`, com um limite de saída e um prazo. Sem shell; entrada vazia; o erro padrão volta junto para as
+/// mensagens. O filho nasce em um grupo de processos próprio (`process_group(0)`), para o prazo poder matar o grupo inteiro.
+fn run(binary: &Path, args: &[&str], timeout: Duration) -> Result<(ExitStatus, String, String), CmdError> {
     let mut child = Command::new(binary)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn()
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => CmdError::new("not_found", format!("nodusctl não encontrado ({})", binary.display())),
@@ -127,35 +177,76 @@ fn run(binary: &Path, args: &[&str]) -> Result<(std::process::ExitStatus, String
         })
     });
 
-    let mut stdout = String::new();
-    let mut too_large = false;
-    if let Some(pipe) = child.stdout.take() {
-        let mut limited = pipe.take(MAX_OUTPUT_BYTES as u64 + 1);
-        let mut bytes = Vec::new();
-        limited.read_to_end(&mut bytes).map_err(|e| CmdError::new("failed", format!("lendo a saída do nodusctl: {e}")))?;
-        if bytes.len() > MAX_OUTPUT_BYTES {
-            too_large = true;
-            // Fecha o cano para o processo não ficar bloqueado escrevendo.
-            drop(limited);
-            let _ = child.kill();
-        } else {
-            stdout = String::from_utf8_lossy(&bytes).into_owned();
+    // A saída é lida em outra thread (como o erro padrão), para a thread principal poder vigiar o prazo. Passou de 16 MiB: levanta
+    // a bandeira e para de ler; a thread principal mata o grupo.
+    let too_large = Arc::new(AtomicBool::new(false));
+    let stdout_reader = child.stdout.take().map(|pipe| {
+        let flag = Arc::clone(&too_large);
+        std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+            let mut bytes = Vec::new();
+            pipe.take(MAX_OUTPUT_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+            if bytes.len() > MAX_OUTPUT_BYTES {
+                flag.store(true, Ordering::SeqCst);
+            }
+            Ok(bytes)
+        })
+    });
+
+    let deadline = Instant::now() + timeout;
+    let mut stop = None;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| CmdError::new("failed", format!("esperando o nodusctl: {e}")))? {
+            break status;
         }
-    }
-    let status = child.wait().map_err(|e| CmdError::new("failed", format!("esperando o nodusctl: {e}")))?;
+        if too_large.load(Ordering::SeqCst) {
+            stop = Some(Stop::TooLarge);
+        } else if Instant::now() >= deadline {
+            stop = Some(Stop::TimedOut);
+        }
+        if stop.is_some() {
+            kill_group(&mut child);
+            break child.wait().map_err(|e| CmdError::new("failed", format!("esperando o nodusctl: {e}")))?;
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    };
+
+    // O grupo morreu (ou o processo terminou): os canos fecham e as threads acabam.
+    let bytes = stdout_reader
+        .map(|handle| handle.join().unwrap_or_else(|_| Err(std::io::Error::other("a thread de leitura falhou"))))
+        .unwrap_or_else(|| Ok(Vec::new()));
     let stderr = stderr_reader.and_then(|handle| handle.join().ok()).unwrap_or_default();
-    if too_large {
+    match stop {
+        Some(Stop::TimedOut) => {
+            return Err(CmdError::new(
+                "timeout",
+                format!("o nodusctl demorou mais de {} e foi interrompido", describe(timeout)),
+            ));
+        }
+        Some(Stop::TooLarge) => {
+            return Err(CmdError::new("output_too_large", "a saída do nodusctl passou do limite aceito"));
+        }
+        None => {}
+    }
+    let bytes = bytes.map_err(|e| CmdError::new("failed", format!("lendo a saída do nodusctl: {e}")))?;
+    if bytes.len() > MAX_OUTPUT_BYTES {
         return Err(CmdError::new("output_too_large", "a saída do nodusctl passou do limite aceito"));
     }
-    Ok((status, stdout, stderr))
+    Ok((status, String::from_utf8_lossy(&bytes).into_owned(), stderr))
 }
 
-/// Roda um comando de leitura e devolve o JSON bruto (texto). Ordem: lista, versão, comando.
+/// Roda um comando de leitura e devolve o JSON bruto (texto). Ordem: lista, versão, comando. O prazo é o do comando.
 pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64)) -> Result<String, CmdError> {
+    let timeout = Allowed::parse(name).map_or(DEFAULT_TIMEOUT, Allowed::timeout);
+    read_with(binary, name, gui_version, timeout)
+}
+
+/// Como `read`, com o prazo escolhido por quem chama (os testes usam um prazo curto). O prazo vale para cada processo: a
+/// conferência de `--version` e o comando.
+pub fn read_with(binary: &Path, name: &str, gui_version: (u64, u64, u64), timeout: Duration) -> Result<String, CmdError> {
     let allowed = Allowed::parse(name)
         .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
 
-    let (status, out, _) = run(binary, &["--version"])?;
+    let (status, out, _) = run(binary, &["--version"], timeout)?;
     let cli_version = parse_version(&out).filter(|_| status.success()).ok_or_else(|| {
         CmdError::new("version_unknown", "não consegui ler a versão do nodusctl (saída de --version inesperada)")
     })?;
@@ -169,7 +260,7 @@ pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64)) -> Result<S
         ));
     }
 
-    let (status, out, err) = run(binary, &allowed.args())?;
+    let (status, out, err) = run(binary, &allowed.args(), timeout)?;
     if !status.success() {
         let detail = err.trim();
         return Err(CmdError::new(
@@ -188,6 +279,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Mutex;
+    use std::time::{Duration, Instant};
 
     /// Serializa "criar o script" e "executá-lo". Sem isso, o `fork` de um teste herda o descritor de escrita ainda aberto do
     /// script de outro teste, e o `exec` desse outro recebe ETXTBSY ("text file busy"): falha intermitente, que já derrubou o CI da main.
@@ -196,6 +288,20 @@ mod tests {
     fn ler(binary: &Path, name: &str, gui: (u64, u64, u64)) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
         read(binary, name, gui)
+    }
+
+    /// Como `ler`, mas com um prazo curto escolhido pelo teste (sem esperar 30 s no CI).
+    fn ler_com_prazo(binary: &Path, name: &str, gui: (u64, u64, u64), prazo: Duration) -> Result<String, CmdError> {
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        read_with(binary, name, gui, prazo)
+    }
+
+    /// O processo existe e não é zumbi? (Um filho morto cujo pai não o recolheu ainda aparece em `/proc` como `Z`.)
+    fn viva(pid: u32) -> bool {
+        match fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(stat) => stat.rsplit_once(") ").is_some_and(|(_, resto)| !resto.starts_with('Z')),
+            Err(_) => false,
+        }
     }
 
     // --- allowlist: a GUI só roda comandos de leitura, com argumentos fixos (ADR 0026) ---
@@ -429,6 +535,71 @@ head -c 20000000 /dev/zero | tr '\0' 'a'
 "#;
         let (_dir, bin) = falso(corpo);
         assert_eq!(ler(&bin, "inventory", (0, 1, 0)).unwrap_err().kind, "output_too_large");
+    }
+
+    // --- tempo limite: o `nodusctl` que não termina é morto, junto com os filhos (ADR 0026) ---
+
+    #[test]
+    fn prazo_estourado_vira_timeout_e_nao_trava() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
+sleep 5
+echo '{"ok":true}'
+"#;
+        let (_dir, bin) = falso(corpo);
+        let inicio = Instant::now();
+        let erro = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_millis(300)).unwrap_err();
+        assert_eq!(erro.kind, "timeout", "{}", erro.message);
+        assert!(erro.message.contains("demorou"), "{}", erro.message);
+        assert!(inicio.elapsed() < Duration::from_secs(3), "voltou em {:?}: esperou o script inteiro", inicio.elapsed());
+    }
+
+    #[test]
+    fn estouro_na_versao_nao_roda_o_comando() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then sleep 5; echo "nodusctl 0.1.0"; exit 0; fi
+echo '{"ok":true}'
+"#;
+        let (dir, bin) = falso(corpo);
+        let erro = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_millis(300)).unwrap_err();
+        assert_eq!(erro.kind, "timeout", "{}", erro.message);
+        assert_eq!(chamadas(&dir), ["--version"], "o comando nunca pode rodar depois de a versão estourar");
+    }
+
+    #[test]
+    fn prazo_estourado_mata_tambem_o_neto_que_segura_o_cano() {
+        // O neto (`sleep`) herda o cano de saída: matar só o filho deixaria o neto vivo e a leitura sem fim.
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.0"; exit 0; fi
+sleep 30 &
+echo $! > "$(dirname "$0")/neto.pid"
+wait
+"#;
+        let (dir, bin) = falso(corpo);
+        let inicio = Instant::now();
+        let erro = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_secs(1)).unwrap_err();
+        assert_eq!(erro.kind, "timeout", "{}", erro.message);
+        assert!(inicio.elapsed() < Duration::from_secs(10), "voltou em {:?}: ficou preso no cano", inicio.elapsed());
+        let pid: u32 = fs::read_to_string(dir.join("neto.pid")).unwrap().trim().parse().unwrap();
+        let limite = Instant::now() + Duration::from_secs(2);
+        while viva(pid) && Instant::now() < limite {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!viva(pid), "o neto {pid} continua vivo depois do tempo limite");
+    }
+
+    #[test]
+    fn dentro_do_prazo_o_resultado_e_o_de_sempre() {
+        let (_dir, bin) = falso(BOM);
+        let saida = ler_com_prazo(&bin, "inventory", (0, 1, 0), Duration::from_secs(30)).unwrap();
+        assert_eq!(saida.trim(), r#"{"ok":true}"#);
+    }
+
+    #[test]
+    fn o_prazo_de_cada_comando_e_de_30_segundos() {
+        assert_eq!(Allowed::Inventory.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::Repos.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::Dotfiles.timeout(), Duration::from_secs(30));
     }
 
     #[test]
