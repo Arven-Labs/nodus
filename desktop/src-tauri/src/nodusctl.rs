@@ -64,7 +64,7 @@ impl Allowed {
             "repos" => Some(Self::Repos),
             "dotfiles" => Some(Self::Dotfiles),
             "updates" => Some(Self::Updates),
-            "workspace" => Some(Self::Workspace),
+            name if name.starts_with("workspace") => Some(Self::Workspace),
             _ => None,
         }
     }
