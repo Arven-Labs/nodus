@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-18 — Sessão 21 (continuação 16), GUI desktop: aba Histórico (PR #95)
+
+- **Pedido**: seguir com a próxima tela de leitura (`history`), mecânica, sem plan mode.
+- **Feito**: `Allowed::History` (`["history","--json"]`, 30 s; `history undo <n>` fica de fora: roda `sudo pacman -Rs` ou escreve no HOME); `src/lib/history.ts` (parser estrito: `action`, `manager` e `result.status` só os valores conhecidos, `failed` exige `code` inteiro ou `null`, `undoes` e `dir` ausentes viram `null`; `formatUtc` na mesma forma da CLI); `HistoryScreen` (lista do mais novo para o mais antigo, mantendo o número da CLI, o mesmo do `undo`; ação, resultado, reversão, data em UTC, pedidos, comando exato, pasta-fonte e a nota de que só o pedido é registrado). Um teste antigo (`allowlist_recusa_tudo...`) listava `history` como recusado e foi atualizado.
+- **Testes primeiro**: commit só com os testes: CI Desktop frontend **vermelho** (`Cannot find module history.ts`). O vermelho do Rust **não foi observado**: o job travou no `apt` (de novo) e implementei antes de ele fechar; depois, tudo verde.
+- **Mutação** (duas, em commits separados): (A) allowlist por prefixo (`starts_with("history")`) derrubou **1 teste Rust** (`history_so_a_listagem_sem_undo`; 33 passaram); (B) `action` aceitando qualquer texto derrubou **1 teste do parser**. Ambas revertidas com `git revert`.
+- **Não verificado**: a aba na janela real (nem a Workspace, do PR #94); `history --json` real no Arch (formato lido de `HistoryEntry` e do teste, não medido); histórico com entradas v1 e v2 (a CLI as lê e as grava de volta como estão, a GUI só vê o resultado do `--json`); o vermelho do Rust antes da implementação.
+- **Fica**: ver as abas Workspace e Histórico na janela; telas `preset plan` e `preset suggest`; ADR das ações privilegiadas; lentidão do `apt` no CI Desktop; P-02; P-14; P-17.
+
 ### 2026-11-18 — Sessão 21 (continuação 15), GUI desktop: aba Workspace (PR #94)
 
 - **Pedido**: depois de ver a GUI na janela real, fazer a tela `workspace` (mecânica, sem plan mode, autorizado pelo dono).
