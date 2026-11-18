@@ -51,6 +51,8 @@ pub enum Allowed {
     Updates,
     /// Só o relatório. `workspace set` e `workspace unset` gravam no `config.toml` e ficam de fora (ADR 0026).
     Workspace,
+    /// Só a listagem. `history undo <n>` roda `sudo pacman -Rs` ou escreve no HOME e fica de fora (ADR 0026).
+    History,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -65,6 +67,7 @@ impl Allowed {
             "dotfiles" => Some(Self::Dotfiles),
             "updates" => Some(Self::Updates),
             "workspace" => Some(Self::Workspace),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
@@ -76,13 +79,14 @@ impl Allowed {
             Self::Dotfiles => ["dotfiles", "--json"],
             Self::Updates => ["updates", "--json"],
             Self::Workspace => ["workspace", "--json"],
+            Self::History => ["history", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace => DEFAULT_TIMEOUT,
+            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
