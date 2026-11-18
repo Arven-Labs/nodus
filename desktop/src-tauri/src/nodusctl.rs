@@ -67,7 +67,7 @@ impl Allowed {
             "dotfiles" => Some(Self::Dotfiles),
             "updates" => Some(Self::Updates),
             "workspace" => Some(Self::Workspace),
-            name if name.starts_with("history") => Some(Self::History),
+            "history" => Some(Self::History),
             _ => None,
         }
     }
