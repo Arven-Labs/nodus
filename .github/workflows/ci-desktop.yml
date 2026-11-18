@@ -93,3 +93,19 @@ jobs:
 
       - name: Tests
         run: cargo test --locked
+
+  # Licenças, avisos do RustSec, bans e fontes do `Cargo.lock` do src-tauri (política própria em `desktop/src-tauri/deny.toml`;
+  # a da CLI está na raiz). Não é obrigatório no ruleset: os avisos vêm da base do RustSec baixada na hora.
+  cargo-deny:
+    name: Desktop cargo-deny
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: desktop/src-tauri/Cargo.toml
+          # `--config` é opção global do cargo-deny (vem antes do `check`), então entra em `arguments`; o padrão `--all-features` é mantido.
+          arguments: --all-features --config desktop/src-tauri/deny.toml
