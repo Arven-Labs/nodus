@@ -19,6 +19,4 @@ allow = [
 ]
 
 [advisories]
-ignore = [
-    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4 sem manutenção, vem de glib-macros (gtk-rs 0.18) que o Tauri exige no Linux; é macro de compilação, sem versão segura. Aceito pelo dono em 2026-11-18. Reabrir quando o Tauri sair do gtk-rs 0.18." },
-]
+ignore = []
