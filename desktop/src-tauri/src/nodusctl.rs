@@ -71,7 +71,7 @@ impl Allowed {
             "updates" => Some(Self::Updates),
             "workspace" => Some(Self::Workspace),
             "history" => Some(Self::History),
-            "preset_plan" => Some(Self::PresetPlan),
+            n if n.starts_with("preset_plan") => Some(Self::PresetPlan),
             _ => None,
         }
     }
@@ -125,7 +125,7 @@ pub fn resolve_preset(env_value: Option<OsString>) -> Result<PathBuf, CmdError> 
         ));
     };
     let path = PathBuf::from(value);
-    if path.is_absolute() {
+    if !path.as_os_str().is_empty() {
         Ok(path)
     } else {
         Err(CmdError::new(

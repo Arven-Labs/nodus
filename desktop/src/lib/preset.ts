@@ -45,7 +45,7 @@ function parsePresetPlanFields(jsonText: string): PresetPlan {
   const root = object(raw, "(raiz)");
   return {
     pacmanMissing: names(root, "pacman_missing"),
-    pacmanPresent: count(field(root, "pacman_present", ""), "pacman_present"),
+    pacmanPresent: Number(field(root, "pacman_present", "")),
     pacmanUnavailable: names(root, "pacman_unavailable"),
     flatpakMissing: names(root, "flatpak_missing"),
     flatpakPresent: count(field(root, "flatpak_present", ""), "flatpak_present"),
