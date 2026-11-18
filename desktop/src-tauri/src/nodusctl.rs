@@ -596,10 +596,40 @@ wait
     }
 
     #[test]
-    fn o_prazo_de_cada_comando_e_de_30_segundos() {
+    fn o_prazo_dos_comandos_locais_e_de_30_segundos() {
         assert_eq!(Allowed::Inventory.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Repos.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Dotfiles.timeout(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn o_updates_usa_a_rede_e_tem_120_segundos() {
+        assert_eq!(Allowed::Updates.timeout(), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn updates_so_o_relatorio_sem_argumento() {
+        assert_eq!(Allowed::parse("updates"), Some(Allowed::Updates));
+        assert_eq!(Allowed::Updates.args(), ["updates", "--json"]);
+        for nome in [
+            "updates --json", "updates --fetch", "updates /tmp", "Updates", "UPDATES", "updates ", " updates", "updates\n",
+            "updates;ls", "update", "updatesx",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar");
+        }
+    }
+
+    #[test]
+    fn le_o_json_de_updates() {
+        let corpo = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+if [ "$1" = "updates" ] && [ "$2" = "--json" ]; then echo '{"pacman":[]}'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+        let (dir, bin) = falso(corpo);
+        let saida = ler(&bin, "updates", (0, 1, 0)).unwrap();
+        assert_eq!(saida.trim(), r#"{"pacman":[]}"#);
+        assert_eq!(chamadas(&dir), ["--version", "updates --json"]);
     }
 
     #[test]
