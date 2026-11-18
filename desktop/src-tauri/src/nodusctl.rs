@@ -49,6 +49,8 @@ pub enum Allowed {
     Dotfiles,
     /// Só o relatório (`checkupdates` e `flatpak remote-ls`, que usam a rede); nada é instalado nem atualizado.
     Updates,
+    /// Só o relatório. `workspace set` e `workspace unset` gravam no `config.toml` e ficam de fora (ADR 0026).
+    Workspace,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -62,6 +64,7 @@ impl Allowed {
             "repos" => Some(Self::Repos),
             "dotfiles" => Some(Self::Dotfiles),
             "updates" => Some(Self::Updates),
+            "workspace" => Some(Self::Workspace),
             _ => None,
         }
     }
@@ -72,13 +75,14 @@ impl Allowed {
             Self::Repos => ["repos", "--json"],
             Self::Dotfiles => ["dotfiles", "--json"],
             Self::Updates => ["updates", "--json"],
+            Self::Workspace => ["workspace", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles => DEFAULT_TIMEOUT,
+            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
@@ -343,7 +347,7 @@ mod tests {
     fn allowlist_recusa_tudo_o_que_nao_esta_na_lista() {
         for nome in [
             "", " ", "Inventory", "INVENTORY", "inventory ", " inventory", "inventory --json", "inventory;ls",
-            "inventory\n", "inventory\0", "apply", "undo", "adopt", "link", "preset", "history", "workspace",
+            "inventory\n", "inventory\0", "apply", "undo", "adopt", "link", "preset", "history",
             "--version", "--help", "../inventory", "/bin/sh", "-c", "sudo",
         ] {
             assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar");
@@ -608,6 +612,19 @@ wait
         assert_eq!(Allowed::Inventory.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Repos.timeout(), Duration::from_secs(30));
         assert_eq!(Allowed::Dotfiles.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::Workspace.timeout(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn workspace_so_o_relatorio_sem_set_nem_unset() {
+        assert_eq!(Allowed::parse("workspace"), Some(Allowed::Workspace));
+        assert_eq!(Allowed::Workspace.args(), ["workspace", "--json"]);
+        for nome in [
+            "workspace set", "workspace set /tmp", "workspace unset", "workspace --json", "workspace /tmp", "Workspace", "WORKSPACE",
+            "workspace ", " workspace", "workspace\n", "workspace;ls", "workspaces", "workspac",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: set e unset gravam no config.toml");
+        }
     }
 
     #[test]

@@ -1,0 +1,7 @@
+{
+  "chosen": { "path": "/home/exemplo/ws", "source": "detected", "repo_count": 3 },
+  "candidates": [
+    { "path": "/home/exemplo/ws", "repo_count": 3 },
+    { "path": "/home/exemplo/Projects", "repo_count": 0 }
+  ]
+}
