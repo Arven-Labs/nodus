@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BackendError, readNodusctl, type Command } from "./lib/backend";
 import { type Dotfile, parseDotfiles } from "./lib/dotfiles";
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parseRepos, type Repo } from "./lib/repos";
+import { parseUpdates, type Updates } from "./lib/updates";
 import "./App.css";
 
 type State<T> =
@@ -197,12 +198,97 @@ function DotfilesScreen() {
   );
 }
 
-type Tab = "inventory" | "repos" | "dotfiles";
+/** Como `useLoad`, mas só roda quando a tela pede (`run`): o comando usa a rede e não deve disparar ao abrir a aba. */
+function useRunOnDemand<T>(command: Command, parse: (text: string) => T): { state: State<T> | { status: "idle" }; run: () => void } {
+  const [state, setState] = useState<State<T> | { status: "idle" }>({ status: "idle" });
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const run = () => {
+    setState({ status: "loading" });
+    readNodusctl(command)
+      .then((text): State<T> => ({ status: "ok", data: parse(text) }))
+      .catch(toError)
+      .then((next) => {
+        if (alive.current) setState(next);
+      });
+  };
+  return { state, run };
+}
+
+function UpdatesScreen() {
+  const { state, run } = useRunOnDemand("updates", parseUpdates);
+  const loading = state.status === "loading";
+
+  return (
+    <section>
+      <h1>Atualizações</h1>
+      <button type="button" data-testid="updates-verificar" disabled={loading} onClick={run}>
+        {state.status === "idle" ? "Verificar" : "Verificar de novo"}
+      </button>
+      {state.status === "idle" && <p>Consulta a rede (espelhos do pacman e Flathub). Clique em Verificar.</p>}
+      {loading && <p data-testid="updates-carregando">Verificando… pode levar até 2 minutos.</p>}
+      {state.status === "error" && <ErrorView {...state} what="as atualizações" />}
+      {state.status === "ok" && <UpdatesResult updates={state.data} />}
+    </section>
+  );
+}
+
+function UpdatesResult({ updates }: { updates: Updates }) {
+  return (
+    <div data-testid="updates-resultado">
+      {updates.pacmanSource === "pacman-qu" && (
+        <p data-testid="updates-aviso-desatualizado">
+          Pode estar desatualizado: `checkupdates` não foi encontrado, usei `pacman -Qu` (banco local).
+        </p>
+      )}
+      <h2>{`Pacman (${updates.pacman.length})`}</h2>
+      <div data-testid="updates-pacman">
+        {updates.pacman.length === 0 ? (
+          <p>Nenhuma atualização.</p>
+        ) : (
+          <ul className="repos">
+            {updates.pacman.map((p, i) => (
+              <li key={i} data-testid="update-pacman">
+                <strong>{p.name}</strong>
+                {` ${p.oldVersion} → ${p.newVersion}`}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <h2>{updates.flatpak === null ? "Flatpak" : `Flatpak (${updates.flatpak.length})`}</h2>
+      <div data-testid="updates-flatpak">
+        {updates.flatpak === null ? (
+          <p>Flatpak não instalado.</p>
+        ) : updates.flatpak.length === 0 ? (
+          <p>Nenhuma atualização.</p>
+        ) : (
+          <ul className="repos">
+            {updates.flatpak.map((f, i) => (
+              <li key={i} data-testid="update-flatpak">
+                <strong>{f.application}</strong>
+                {` ${f.version ?? "(sem versão)"} · ${f.branch}`}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles" | "updates";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "inventory", label: "Inventário" },
   { id: "repos", label: "Repositórios" },
   { id: "dotfiles", label: "Dotfiles" },
+  { id: "updates", label: "Atualizações" },
 ];
 
 export default function App() {
@@ -219,6 +305,7 @@ export default function App() {
       {tab === "inventory" && <InventoryScreen />}
       {tab === "repos" && <ReposScreen />}
       {tab === "dotfiles" && <DotfilesScreen />}
+      {tab === "updates" && <UpdatesScreen />}
     </main>
   );
 }

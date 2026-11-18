@@ -1,0 +1,11 @@
+{
+  "pacman_source": "checkupdates",
+  "pacman": [
+    { "name": "alpha-lib", "old_version": "1.0-1", "new_version": "1.1-1" },
+    { "name": "beta-tool", "old_version": "2:3.4-2", "new_version": "2:3.5-1" }
+  ],
+  "flatpak": [
+    { "application": "org.exemplo.App", "version": "4.2", "branch": "stable" },
+    { "application": "org.exemplo.SemVersao", "version": null, "branch": "stable" }
+  ]
+}
