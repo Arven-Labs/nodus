@@ -24,7 +24,7 @@ pub enum Action {
 impl Action {
     pub fn parse(name: &str) -> Option<Self> {
         match name {
-            "preset_apply" => Some(Self::PresetApply),
+            n if n.starts_with("preset_apply") => Some(Self::PresetApply),
             _ => None,
         }
     }
@@ -154,8 +154,8 @@ pub fn run(name: &str, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome
     // Sem shell na nossa mão: lista de argumentos. O `sh -c` é do invólucro constante e recebe os dados como parâmetros.
     let mut child = Command::new(&terminal_path)
         .args(terminal.before_command())
-        .args(["sh", "-c", WRAPPER, "sh"])
-        .args(&parts)
+        .args(["sh", "-c"])
+        .arg(format!("{}; read _", parts.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ")))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

@@ -483,7 +483,7 @@ function PresetScreen({ onRefresh }: { onRefresh: () => void }) {
   const plan = state.data;
   const nothingToInstall = plan.pacmanMissing.length === 0 && plan.flatpakMissing.length === 0;
   // O que o `apply` instalaria: o pacman, e o Flatpak só se estiver instalado (sem ele o `apply` nem tenta).
-  const canInstall = plan.pacmanMissing.length > 0 || (plan.flatpakInstalled && plan.flatpakMissing.length > 0);
+  const canInstall = plan.pacmanMissing.length > 0 || plan.flatpakMissing.length > 0;
   return (
     <section>
       <h1>Preset</h1>
