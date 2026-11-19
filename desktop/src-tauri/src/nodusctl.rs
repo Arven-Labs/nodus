@@ -732,7 +732,8 @@ echo "argumentos inesperados: $*" >&2; exit 64
         assert_eq!(Allowed::PresetPlan.timeout(), Duration::from_secs(30));
         for nome in [
             "preset plan", "preset_plan /tmp/p.toml", "preset_plan --json", "preset apply", "preset_apply", "preset adopt",
-            "preset_adopt", "preset init", "preset_init", "preset suggest", "preset_suggest", "preset ignored", "preset unignore",
+            "preset_adopt", "preset init", "preset_init", "preset suggest", "preset ignored", "preset unignore", "preset_ignored",
+            "preset_unignore", "preset_suggest /tmp/p.toml", "preset_suggest --all", "Preset_suggest", "preset_suggest ", "preset-suggest",
             "Preset_plan", "PRESET_PLAN", "preset_plan ", " preset_plan", "preset_plan\n", "preset_plan;ls", "preset-plan", "preset_plans",
         ] {
             assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: apply instala e adopt escreve no preset");
@@ -780,6 +781,50 @@ echo "argumentos inesperados: $*" >&2; exit 64
         assert_eq!(resolve_preset(Some("/home/x/preset.toml".into())).unwrap(), PathBuf::from("/home/x/preset.toml"));
         assert_eq!(resolve_preset(None).unwrap_err().kind, "preset_not_set");
         assert_eq!(resolve_preset(Some("preset.toml".into())).unwrap_err().kind, "invalid_preset");
+    }
+
+    // --- preset suggest: mesmo mecanismo do plan (arquivo vindo de NODUS_PRESET); sem `--all`, sem adopt/ignore ---
+
+    const SUGESTAO_FALSA: &str = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+if [ "$1" = "preset" ] && [ "$2" = "suggest" ] && [ "$3" = "--json" ] && [ -n "$4" ] && [ -z "$5" ]; then echo '{"sugestao":true}'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+
+    #[test]
+    fn preset_suggest_so_a_sugestao_sem_all_adopt_nem_ignore() {
+        assert_eq!(Allowed::parse("preset_suggest"), Some(Allowed::PresetSuggest));
+        assert_eq!(Allowed::PresetSuggest.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::PresetSuggest.args(), vec!["preset", "suggest", "--json"]);
+    }
+
+    #[test]
+    fn preset_suggest_roda_com_o_arquivo_da_variavel() {
+        let (dir, bin) = falso(SUGESTAO_FALSA);
+        let saida = ler_preset(&bin, "preset_suggest", (0, 1, 0), Some("/tmp/minha pasta/p.toml")).unwrap();
+        assert_eq!(saida.trim(), r#"{"sugestao":true}"#);
+        assert_eq!(chamadas(&dir), ["--version", "preset suggest --json /tmp/minha pasta/p.toml"]);
+    }
+
+    #[test]
+    fn preset_suggest_sem_caminho_valido_nada_executa() {
+        let (dir, bin) = falso(SUGESTAO_FALSA);
+        let erro = ler_preset(&bin, "preset_suggest", (0, 1, 0), None).unwrap_err();
+        assert_eq!(erro.kind, "preset_not_set");
+        assert!(erro.message.contains("NODUS_PRESET"), "{}", erro.message);
+        for valor in ["", "p.toml", "./p.toml", "../p.toml", "~/p.toml", "-p.toml", "--all"] {
+            let erro = ler_preset(&bin, "preset_suggest", (0, 1, 0), Some(valor)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_preset", "{valor:?}");
+        }
+        assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
+    }
+
+    #[test]
+    fn a_variavel_nao_vira_argumento_do_inventario_nem_do_plan_por_causa_do_suggest() {
+        // O plan continua com o seu argv próprio: o suggest não pode ter vazado para ele.
+        let (dir, bin) = falso(PLANO_FALSO);
+        ler_preset(&bin, "preset_plan", (0, 1, 0), Some("/tmp/p.toml")).unwrap();
+        assert_eq!(chamadas(&dir), ["--version", "preset plan --json /tmp/p.toml"]);
     }
 
     #[test]
