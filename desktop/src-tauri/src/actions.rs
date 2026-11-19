@@ -439,7 +439,7 @@ mod tests {
         let dir = pasta();
         let bin = nodusctl_falso(&dir, "0.1.4");
         let term = terminal_que_grava(&dir);
-        for nome in ["preset_apply --yes", "history_undo", "inventory", "Preset_apply", ""] {
+        for nome in ["preset_apply --yes", "history_undo 3", "history undo", "inventory", "Preset_apply", ""] {
             let erro = chamar(nome, env(&bin, Some("/tmp/p.toml"), Some(&term), None)).unwrap_err();
             assert_eq!(erro.kind, "not_allowed", "{nome:?}");
         }
