@@ -26,17 +26,21 @@ pub enum Action {
     /// `nodusctl preset adopt <NODUS_PRESET>`: a CLI pergunta item a item (`s/N/i/q`) dentro do terminal e só então acrescenta ao
     /// preset (e ao `config.toml`, no `i`). Escrita sem root.
     PresetAdopt,
+    /// `nodusctl workspace unset`: apaga a escolha gravada no `config.toml` (escrita sem root, sem preset). A CLI **não pergunta**
+    /// nada; o terminal só mostra o resultado. É reversível com `workspace set`.
+    WorkspaceUnset,
 }
 
 impl Action {
-    /// Nome exato mais o argumento numérico: `history_undo` exige `n >= 1`, e `preset_apply` e `preset_adopt` recusam qualquer `n`
-    /// (argumento que a ação não definiu é recusado, não ignorado).
+    /// Nome exato mais o argumento numérico: `history_undo` exige `n >= 1`, e as demais recusam qualquer `n` (argumento que a ação
+    /// não definiu é recusado, não ignorado).
     pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
         match (name, n) {
             ("preset_apply", None) => Ok(Self::PresetApply),
             ("preset_adopt", None) => Ok(Self::PresetAdopt),
+            ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
-            ("preset_apply" | "preset_adopt" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -49,6 +53,7 @@ impl Action {
             Self::PresetApply => vec!["preset".into(), "apply".into()],
             Self::HistoryUndo(n) => vec!["history".into(), "undo".into(), n.to_string()],
             Self::PresetAdopt => vec!["preset".into(), "adopt".into()],
+            Self::WorkspaceUnset => vec!["workspace".into(), "unset".into()],
         }
     }
 }
@@ -157,7 +162,7 @@ pub fn run(name: &str, n: Option<u32>, env: Env, gui_version: (u64, u64, u64)) -
     match action {
         Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
-        Action::HistoryUndo(_) => {}
+        Action::HistoryUndo(_) | Action::WorkspaceUnset => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?;

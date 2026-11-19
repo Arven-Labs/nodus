@@ -298,7 +298,7 @@ function repoCountText(n: number): string {
   return `${n} ${n === 1 ? "repositório" : "repositórios"}`;
 }
 
-function WorkspaceScreen() {
+function WorkspaceScreen({ onRefresh }: { onRefresh: () => void }) {
   const state = useLoad("workspace", parseWorkspace);
 
   if (state.status === "loading") return <p>Lendo o workspace…</p>;
@@ -329,6 +329,19 @@ function WorkspaceScreen() {
           </ul>
         </>
       )}
+      {/* O `unset` só tem o que apagar na escolha gravada; as outras origens (HOME, NODUS_WORKSPACE, argumento) ele não muda. */}
+      {chosen?.source === "stored" && (
+        <TerminalAction
+          prefix="workspace"
+          buttonId="workspace-esquecer"
+          label="Esquecer no terminal"
+          run={() => runAction("workspace_unset")}
+          onRefresh={onRefresh}
+        />
+      )}
+      <p data-testid="workspace-nota" className="detail">
+        Esta janela não esquece nada: o botão abre um terminal e lá roda `nodusctl workspace unset`, que remove a escolha gravada.
+      </p>
     </section>
   );
 }
@@ -473,7 +486,8 @@ function TerminalAction({
   prefix: string;
   buttonId: string;
   label: string;
-  confirmWhat: string;
+  /** O que a CLI pede para confirmar. Sem isto (comando que não pergunta nada), o texto não promete confirmação. */
+  confirmWhat?: string;
   run: () => Promise<unknown>;
   onRefresh: () => void;
 }) {
@@ -486,7 +500,9 @@ function TerminalAction({
       {state.status === "launched" && (
         <>
           <p data-testid={`${prefix}-acao-ok`}>
-            {`Terminal aberto. Confirme ${confirmWhat} lá: o nodusctl mostra o comando e pergunta antes. Quando terminar, clique em Atualizar.`}
+            {confirmWhat === undefined
+              ? "Terminal aberto. O nodusctl roda lá e mostra o resultado. Quando terminar, clique em Atualizar."
+              : `Terminal aberto. Confirme ${confirmWhat} lá: o nodusctl mostra o comando e pergunta antes. Quando terminar, clique em Atualizar.`}
           </p>
           <button type="button" data-testid={`${prefix}-atualizar`} onClick={onRefresh}>
             Atualizar
@@ -645,6 +661,8 @@ export default function App() {
   const [historyKey, setHistoryKey] = useState(0);
   // E para as Sugestões (depois de a CLI adotar algo no terminal).
   const [suggestKey, setSuggestKey] = useState(0);
+  // E para o Workspace (depois de a CLI esquecer a escolha no terminal).
+  const [workspaceKey, setWorkspaceKey] = useState(0);
   return (
     <main>
       <nav className="tabs">
@@ -658,7 +676,7 @@ export default function App() {
       {tab === "repos" && <ReposScreen />}
       {tab === "dotfiles" && <DotfilesScreen />}
       {tab === "updates" && <UpdatesScreen />}
-      {tab === "workspace" && <WorkspaceScreen />}
+      {tab === "workspace" && <WorkspaceScreen key={workspaceKey} onRefresh={() => setWorkspaceKey((k) => k + 1)} />}
       {tab === "history" && <HistoryScreen key={historyKey} onRefresh={() => setHistoryKey((k) => k + 1)} />}
       {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
       {tab === "suggest" && <SuggestScreen key={suggestKey} onRefresh={() => setSuggestKey((k) => k + 1)} />}
