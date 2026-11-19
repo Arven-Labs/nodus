@@ -2,6 +2,18 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 2), GUI desktop: primeira ação, "Instalar no terminal" (PR #99)
+
+- **Pedido**: a primeira ação de verdade do ADR 0027 (`preset apply`). Plan mode; o dono escolheu só o terminal medido (`konsole`) mais o fallback.
+- **Medido antes do código** (`konsole` 26.08.3, scripts no scratchpad): `konsole -e sh -c <script> sh a b` entrega os argumentos intactos (espaço e aspa simples), com tty e `PATH`, `HOME`, `DISPLAY` e `WAYLAND_DISPLAY` herdados; o processo do `konsole` **não** retorna cedo (ficou 2,2 s para um comando de 2 s), então a GUI não pode esperar por ele: `spawn` mais uma thread com `wait()`.
+- **Feito**: `actions.rs` (lista fechada `Action::PresetApply`, separada de `Allowed`; tabela `Terminal` só com `Konsole`; `NODUS_TERMINAL` absoluto ou busca no `PATH` só dos nomes da tabela; `WRAPPER` constante de uma linha, com os dados como parâmetros posicionais; sem terminal devolve `launched: false` e o comando para colar); `check_version` extraída de `read_with` (reuso, comportamento igual); comando Tauri `run_action`; `action.ts` (parser estrito); botão "Instalar no terminal" na aba Preset (só com algo que o `apply` instalaria), "Atualizar" (remonta a aba), fallback com Copiar e nota nova. Nenhuma dependência nova, nenhum plugin Tauri, CLI intacta.
+- **Testes primeiro**: commit só com os testes: **os dois vermelhos observados e lidos**. Rust: erros de compilação (`Action`, `Env`, `Outcome`, `run`, `WRAPPER`, `display_command` ausentes); frontend: `action.test.mjs` sem o módulo. Um teste usa um terminal falso que executa o comando de verdade, então o `sh -c` real recebe um caminho hostil (`a'; touch PWNED; echo '.toml`) e o `nodusctl` falso o recebe byte a byte, sem criar o `PWNED`.
+- **Tropeço**: o CI reprovou um `if` aninhado no helper de teste (`clippy::collapsible_if`, `-D warnings`); corrigido num commit à parte.
+- **Mutação** (três, num commit, revertido com `git revert --no-edit`): (A) `parse` por prefixo derrubou 2 testes Rust; (B) script do `sh -c` montado com o caminho sem aspas derrubou 4 (argv, espaço, invólucro constante e o do `PWNED`); (C) botão ignorando `flatpakInstalled` derrubou 1 e2e. Rust: 55 passaram, 6 falharam; frontend: 94 passaram, 1 falhou.
+- **CI final** (estado revertido): verde em tudo (Desktop Rust, frontend com e2e, `cargo-deny`, Rust da CLI, `guard`).
+- **Não verificado**: o botão na janela real (`npm run tauri dev`): abrir o `konsole`, ver o `[s/N]`, responder `n`, "Atualizar"; o `konsole` como filho de um app Tauri (a medição usou o terminal do Claude Code, não a GUI); a janela esperar o Enter e fechar em seguida; o fallback na janela; outros terminais (só o `konsole` foi medido). O `cargo fmt --check` aponta diferenças em `lib.rs` que já existiam antes.
+- **Fica**: o dono rodar a verificação na janela (`NODUS_PRESET=/abs/preset.toml NODUSCTL=/abs/nodusctl npm run tauri dev`, com um preset que tenha um item faltando, e responder `n`); próximas ações (`history undo` etc.), cada uma em PR próprio com o tipo estrito do seu argumento; ver as abas de leitura na janela; lentidão do `apt` no CI Desktop (esta rodada chegou a 14 min); P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 1), ADR 0027: ações na GUI
 
 - **Pedido**: o ADR das ações privilegiadas, antes de qualquer botão que escreva (pendência da sessão 22). Plan mode, só documentação.

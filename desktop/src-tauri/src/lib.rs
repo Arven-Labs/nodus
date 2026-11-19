@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod nodusctl;
 
 use nodusctl::CmdError;
@@ -13,7 +14,7 @@ fn binary() -> Result<PathBuf, CmdError> {
     nodusctl::resolve_binary(std::env::var_os("NODUSCTL"))
 }
 
-/// Único comando que a janela expõe: roda um comando de **leitura** da lista (`nodusctl::Allowed`) e devolve o JSON bruto.
+/// Comando de leitura da janela: roda um comando de **leitura** da lista (`nodusctl::Allowed`) e devolve o JSON bruto.
 /// O frontend manda só o nome; argumentos e versão são conferidos em `nodusctl::read` (ADR 0026).
 #[tauri::command]
 async fn read_nodusctl(command: String) -> Result<String, CmdError> {
@@ -24,9 +25,25 @@ async fn read_nodusctl(command: String) -> Result<String, CmdError> {
         .map_err(|e| CmdError { kind: "failed", message: format!("a leitura foi interrompida: {e}") })?
 }
 
+/// Segundo comando da janela, e o único que lança algo que escreve (ADR 0027): abre um terminal rodando `nodusctl <ação>`, da lista
+/// fechada de `actions::Action`. O frontend manda só o nome; o arquivo do preset, o terminal e o `PATH` são lidos aqui, no Rust.
+/// A GUI não confirma, não pede senha e não roda `sudo`: isso é da CLI, no terminal.
+#[tauri::command]
+async fn run_action(command: String) -> Result<actions::Outcome, CmdError> {
+    let env = actions::Env {
+        binary: binary()?,
+        preset: std::env::var_os("NODUS_PRESET"),
+        terminal: std::env::var_os("NODUS_TERMINAL"),
+        path: std::env::var_os("PATH"),
+    };
+    tauri::async_runtime::spawn_blocking(move || actions::run(&command, env, gui_version()))
+        .await
+        .map_err(|e| CmdError { kind: "failed", message: format!("a ação foi interrompida: {e}") })?
+}
+
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![read_nodusctl])
+        .invoke_handler(tauri::generate_handler![read_nodusctl, run_action])
         .run(tauri::generate_context!())
         .expect("erro ao rodar a aplicação Tauri");
 }

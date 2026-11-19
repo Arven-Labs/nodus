@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { BackendError, readNodusctl, type Command } from "./lib/backend";
+import { parseActionOutcome } from "./lib/action";
+import { BackendError, readNodusctl, runAction, type Command } from "./lib/backend";
 import { type Dotfile, parseDotfiles } from "./lib/dotfiles";
 import { formatUtc, type HistoryEntry, parseHistory } from "./lib/history";
 import { parseInventory } from "./lib/inventory";
@@ -401,7 +402,79 @@ function NameList({ items, testId }: { items: string[]; testId: string }) {
   );
 }
 
-function PresetScreen() {
+type ActionState =
+  | { status: "idle" }
+  | { status: "running" }
+  | { status: "launched" }
+  | { status: "fallback"; command: string }
+  | { status: "error"; message: string };
+
+/**
+ * O botão que abre um terminal rodando `nodusctl preset apply` (ADR 0027). A janela não instala nada, não confirma e não vê senha:
+ * manda só o nome da ação, e o plano, o `[s/N]` e o `sudo` são da CLI, no terminal. Sem terminal conhecido, mostra o comando.
+ */
+function PresetAction({ onRefresh }: { onRefresh: () => void }) {
+  const [state, setState] = useState<ActionState>({ status: "idle" });
+  const [copyFailed, setCopyFailed] = useState(false);
+  // O estado só muda na renderização seguinte; o `ref` barra o segundo clique de um clique duplo (uma janela só).
+  const inFlight = useRef(false);
+  const busy = state.status === "running" || state.status === "launched";
+
+  async function start() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setState({ status: "running" });
+    setCopyFailed(false);
+    try {
+      const outcome = parseActionOutcome(await runAction("preset_apply"));
+      setState(outcome.launched ? { status: "launched" } : { status: "fallback", command: outcome.command });
+    } catch (error) {
+      setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
+  async function copy(command: string) {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopyFailed(false);
+    } catch {
+      setCopyFailed(true);
+    }
+  }
+
+  return (
+    <div data-testid="preset-acao">
+      <button type="button" data-testid="preset-instalar" disabled={busy} onClick={start}>
+        Instalar no terminal
+      </button>
+      {state.status === "launched" && (
+        <>
+          <p data-testid="preset-acao-ok">
+            Terminal aberto. Confirme a instalação lá: o nodusctl mostra o comando e pergunta antes. Quando terminar, clique em Atualizar.
+          </p>
+          <button type="button" data-testid="preset-atualizar" onClick={onRefresh}>
+            Atualizar
+          </button>
+        </>
+      )}
+      {state.status === "fallback" && (
+        <div data-testid="preset-sem-terminal">
+          <p>Nenhum terminal conhecido foi encontrado. Cole este comando num terminal:</p>
+          <pre data-testid="preset-comando">{state.command}</pre>
+          <button type="button" data-testid="preset-copiar" onClick={() => copy(state.command)}>
+            Copiar
+          </button>
+          {copyFailed && <p data-testid="preset-copiar-erro">Não consegui copiar: selecione o texto acima e copie à mão.</p>}
+        </div>
+      )}
+      {state.status === "error" && <p data-testid="preset-acao-erro">{state.message}</p>}
+    </div>
+  );
+}
+
+function PresetScreen({ onRefresh }: { onRefresh: () => void }) {
   const state = useLoad("preset_plan", parsePresetPlan);
 
   if (state.status === "loading") return <p>Comparando o preset com esta máquina…</p>;
@@ -409,6 +482,8 @@ function PresetScreen() {
 
   const plan = state.data;
   const nothingToInstall = plan.pacmanMissing.length === 0 && plan.flatpakMissing.length === 0;
+  // O que o `apply` instalaria: o pacman, e o Flatpak só se estiver instalado (sem ele o `apply` nem tenta).
+  const canInstall = plan.pacmanMissing.length > 0 || (plan.flatpakInstalled && plan.flatpakMissing.length > 0);
   return (
     <section>
       <h1>Preset</h1>
@@ -437,8 +512,9 @@ function PresetScreen() {
             : "Nada a instalar: só restam itens indisponíveis nos repositórios."}
         </p>
       )}
+      {canInstall && <PresetAction onRefresh={onRefresh} />}
       <p data-testid="preset-nota" className="detail">
-        Só leitura: nada foi executado. Para instalar, use `nodusctl preset apply` no terminal.
+        Esta janela não instala nada: o botão abre um terminal, e lá o `nodusctl preset apply` mostra o comando e pede a sua confirmação.
       </p>
     </section>
   );
@@ -500,6 +576,8 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("inventory");
+  // Muda para remontar a aba Preset e reler o plano (depois de a CLI instalar algo no terminal).
+  const [presetKey, setPresetKey] = useState(0);
   return (
     <main>
       <nav className="tabs">
@@ -515,7 +593,7 @@ export default function App() {
       {tab === "updates" && <UpdatesScreen />}
       {tab === "workspace" && <WorkspaceScreen />}
       {tab === "history" && <HistoryScreen />}
-      {tab === "preset" && <PresetScreen />}
+      {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
       {tab === "suggest" && <SuggestScreen />}
     </main>
   );

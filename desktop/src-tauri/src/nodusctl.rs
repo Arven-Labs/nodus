@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 const MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Prazo padrão de uma chamada ao `nodusctl`: os comandos de leitura locais levam de milissegundos a poucos segundos.
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// De quanto em quanto tempo a espera olha se o processo terminou, se a saída passou do limite ou se o prazo acabou.
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -34,7 +34,7 @@ pub struct CmdError {
 }
 
 impl CmdError {
-    fn new(kind: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: &'static str, message: impl Into<String>) -> Self {
         Self { kind, message: message.into() }
     }
 }
@@ -283,6 +283,25 @@ fn run<S: AsRef<std::ffi::OsStr>>(binary: &Path, args: &[S], timeout: Duration) 
     Ok((status, String::from_utf8_lossy(&bytes).into_owned(), stderr))
 }
 
+/// Confere `nodusctl --version` contra a da GUI. Vale para as leituras e para as ações (`actions.rs`): o plano que a tela mostrou
+/// e o que o terminal vai executar precisam vir da mesma versão da CLI.
+pub(crate) fn check_version(binary: &Path, gui_version: (u64, u64, u64), timeout: Duration) -> Result<(), CmdError> {
+    let (status, out, _) = run(binary, &["--version"], timeout)?;
+    let cli_version = parse_version(&out).filter(|_| status.success()).ok_or_else(|| {
+        CmdError::new("version_unknown", "não consegui ler a versão do nodusctl (saída de --version inesperada)")
+    })?;
+    if !compatible(gui_version, cli_version) {
+        return Err(CmdError::new(
+            "version_mismatch",
+            format!(
+                "nodusctl {}.{}.{} não é compatível com esta interface ({}.{}.x)",
+                cli_version.0, cli_version.1, cli_version.2, gui_version.0, gui_version.1
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Roda um comando de leitura e devolve o JSON bruto (texto). Ordem: lista, versão, comando. O prazo é o do comando.
 /// `preset` é o valor cru de `NODUS_PRESET`; só o `preset_plan` o usa.
 pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64), preset: Option<OsString>) -> Result<String, CmdError> {
@@ -307,19 +326,7 @@ pub fn read_with(
         argv.push(resolve_preset(preset)?.into_os_string());
     }
 
-    let (status, out, _) = run(binary, &["--version"], timeout)?;
-    let cli_version = parse_version(&out).filter(|_| status.success()).ok_or_else(|| {
-        CmdError::new("version_unknown", "não consegui ler a versão do nodusctl (saída de --version inesperada)")
-    })?;
-    if !compatible(gui_version, cli_version) {
-        return Err(CmdError::new(
-            "version_mismatch",
-            format!(
-                "nodusctl {}.{}.{} não é compatível com esta interface ({}.{}.x)",
-                cli_version.0, cli_version.1, cli_version.2, gui_version.0, gui_version.1
-            ),
-        ));
-    }
+    check_version(binary, gui_version, timeout)?;
 
     let (status, out, err) = run(binary, argv.as_slice(), timeout)?;
     if !status.success() {
@@ -333,7 +340,7 @@ pub fn read_with(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
@@ -344,7 +351,7 @@ mod tests {
 
     /// Serializa "criar o script" e "executá-lo". Sem isso, o `fork` de um teste herda o descritor de escrita ainda aberto do
     /// script de outro teste, e o `exec` desse outro recebe ETXTBSY ("text file busy"): falha intermitente, que já derrubou o CI da main.
-    static EXEC: Mutex<()> = Mutex::new(());
+    pub(crate) static EXEC: Mutex<()> = Mutex::new(());
 
     fn ler(binary: &Path, name: &str, gui: (u64, u64, u64)) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());

@@ -33,6 +33,9 @@ Escolhas do dono em 2026-11-19.
 ## Medido em 2026-11-19 (nesta máquina, sem lançar nada)
 - Terminal instalado: só `konsole` 26.08.3, com `-e <cmd>` ("catches all" os argumentos seguintes) e `--hold`/`--noclose`. `xdg-terminal-exec` não está instalado; `$TERMINAL` está vazio.
 
+## Emenda (2026-11-19): medido antes da primeira ação (PR #99)
+`konsole` 26.08.3, `konsole -e sh -c <script> sh a "b c" "x'y"`: os argumentos chegam intactos, um por parâmetro; `$0` é o `sh` do próprio comando; há tty; `PATH`, `HOME`, `DISPLAY` e `WAYLAND_DISPLAY` são herdados. O processo do `konsole` **não** retorna cedo: um comando de 2 s manteve o `konsole` vivo por 2,2 s. Consequência: a GUI não espera por ele (`spawn` mais uma thread com `wait()`, sem zumbi). O invólucro é uma constante de uma linha (`"$@"; …; read _`) que mostra o código de saída e espera o Enter, então não depende de `--hold`, que é do `konsole`. Implementado só para `preset apply` e só para o `konsole`; cada terminal novo entra depois de medido. Medição feita no terminal do Claude Code, não a partir do app Tauri.
+
 ## Não verificado
 - Como escolher o terminal em outras máquinas (`xdg-terminal-exec`, `$TERMINAL` vem de ambiente externo, lista curta): decidir no PR de implementação, depois de medir. As flags de `-e` diferem entre emuladores.
 - Se `konsole -e nodusctl preset apply /caminho com espaço/p.toml` passa o espaço como um argumento só; se uma janela aberta a partir de um app Tauri herda `HOME`, `PATH` e `SUDO_*` do jeito esperado; e como manter a janela aberta ao fim (`--hold` é do `konsole`; o invólucro com `sh` constante é a alternativa).

@@ -3,6 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 /** Os comandos de leitura que a GUI pede (a lista fechada vive no Rust, `Allowed` em `src-tauri/src/nodusctl.rs`). */
 export type Command = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset_plan" | "preset_suggest";
 
+/** As ações que ESCREVEM, em lista fechada (ADR 0027; a lista de verdade vive no Rust, `Action` em `src-tauri/src/actions.rs`). */
+export type Action = "preset_apply";
+
 /** Erro do backend Rust (`CmdError`): `kind` é um código estável e `message` é para pessoas. */
 export class BackendError extends Error {
   kind: string;
@@ -28,6 +31,18 @@ function toBackendError(raw: unknown): BackendError {
 export async function readNodusctl(command: Command): Promise<string> {
   try {
     return await invoke<string>("read_nodusctl", { command });
+  } catch (raw) {
+    throw toBackendError(raw);
+  }
+}
+
+/**
+ * Pede ao backend uma ação da lista fechada: ele abre um terminal rodando o `nodusctl` (ADR 0027). O frontend manda só o NOME da
+ * ação; o arquivo, o terminal e a confirmação não passam por aqui. O resultado é cru: quem chama o passa por `parseActionOutcome`.
+ */
+export async function runAction(action: Action): Promise<unknown> {
+  try {
+    return await invoke<unknown>("run_action", { command: action });
   } catch (raw) {
     throw toBackendError(raw);
   }
