@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /** Os comandos de leitura que a GUI pede (a lista fechada vive no Rust, `Allowed` em `src-tauri/src/nodusctl.rs`). */
-export type Command = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history";
+export type Command = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset_plan";
 
 /** Erro do backend Rust (`CmdError`): `kind` é um código estável e `message` é para pessoas. */
 export class BackendError extends Error {

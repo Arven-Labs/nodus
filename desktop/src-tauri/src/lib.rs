@@ -17,7 +17,9 @@ fn binary() -> Result<PathBuf, CmdError> {
 /// O frontend manda só o nome; argumentos e versão são conferidos em `nodusctl::read` (ADR 0026).
 #[tauri::command]
 async fn read_nodusctl(command: String) -> Result<String, CmdError> {
-    tauri::async_runtime::spawn_blocking(move || nodusctl::read(&binary()?, &command, gui_version()))
+    // `NODUS_PRESET` só é lida aqui, no Rust: o frontend nunca fornece caminho (e só o `preset_plan` a usa).
+    let preset = std::env::var_os("NODUS_PRESET");
+    tauri::async_runtime::spawn_blocking(move || nodusctl::read(&binary()?, &command, gui_version(), preset))
         .await
         .map_err(|e| CmdError { kind: "failed", message: format!("a leitura foi interrompida: {e}") })?
 }
