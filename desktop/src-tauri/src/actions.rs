@@ -306,7 +306,10 @@ mod tests {
             "preset apply", "preset_apply /tmp/p.toml", "preset_apply --yes", "preset_apply --noconfirm", "Preset_apply", "PRESET_APPLY",
             "preset_apply ", " preset_apply", "preset_apply\n", "preset_apply;ls", "preset-apply", "preset_applyx", "preset_applys",
             "history undo 1", "history_undo 1", "history_undo;ls", "History_undo", "history-undo", "history_undos", "history_undo ",
-            "dotfiles_adopt", "workspace_set", "preset_adopt", "preset_plan", "history", "inventory", "",
+            "dotfiles_adopt", "workspace_set", "preset_plan", "history", "inventory", "",
+            "preset adopt", "preset_adopt /tmp/p.toml", "preset_adopt --yes", "Preset_adopt", "PRESET_ADOPT", "preset_adopt ", " preset_adopt",
+            "preset_adopt\n", "preset_adopt;ls", "preset-adopt", "preset_adoptx", "preset_adopts", "preset_ignore", "preset_unignore",
+            "preset_suggest",
         ] {
             let erro = Action::parse(nome, None).unwrap_err();
             assert_eq!(erro.kind, "not_allowed", "{nome:?} não pode passar: a lista de ações é fechada");
@@ -317,6 +320,8 @@ mod tests {
     fn a_lista_de_leitura_e_a_de_acoes_nao_se_misturam() {
         assert_eq!(crate::nodusctl::Allowed::parse("preset_apply"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(crate::nodusctl::Allowed::parse("history_undo"), None, "ação não pode entrar pela porta da leitura");
+        assert_eq!(crate::nodusctl::Allowed::parse("preset_adopt"), None, "ação não pode entrar pela porta da leitura");
+        assert_eq!(Action::parse("preset_suggest", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
         assert_eq!(Action::parse("preset_plan", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
         assert_eq!(Action::parse("history", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
     }
@@ -340,7 +345,15 @@ mod tests {
         for n in [0, 1, 3] {
             let erro = Action::parse("preset_apply", Some(n)).unwrap_err();
             assert_eq!(erro.kind, "invalid_argument", "{n}");
+            let erro = Action::parse("preset_adopt", Some(n)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_argument", "preset_adopt {n}");
         }
+    }
+
+    #[test]
+    fn preset_adopt_e_uma_acao_da_lista_com_argumentos_fixos() {
+        assert_eq!(Action::parse("preset_adopt", None), Ok(Action::PresetAdopt));
+        assert_eq!(Action::PresetAdopt.args(), vec!["preset", "adopt"]);
     }
 
     // --- o que vira processo ---
@@ -615,6 +628,97 @@ mod tests {
         let saida = chamar_n("history_undo", Some(4), env(&bin, None, None, Some(&vazio))).unwrap();
         assert!(!saida.launched);
         assert_eq!(saida.command, format!("{} history undo 4", bin.display()));
+        nada_lancado(&dir);
+    }
+
+    // --- preset adopt: escrita sem root (acrescenta ao preset e ao config), mesmo mecanismo, sem argumento vindo da tela ---
+
+    #[test]
+    fn preset_adopt_lanca_o_terminal_com_o_argv_exato() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let saida = chamar("preset_adopt", env(&bin, Some("/tmp/p.toml"), Some(&term), None)).unwrap();
+        assert!(saida.launched);
+        assert_eq!(
+            argumentos_do_terminal(&dir),
+            ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "preset", "adopt", "/tmp/p.toml"]
+        );
+        assert_eq!(saida.command, format!("{} preset adopt /tmp/p.toml", bin.display()));
+        assert_eq!(chamadas(&dir), ["--version"], "a GUI só confere a versão; o `adopt` pergunta dentro do terminal");
+    }
+
+    #[test]
+    fn preset_adopt_caminho_com_espaco_vai_como_um_argumento_so() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let saida = chamar("preset_adopt", env(&bin, Some("/tmp/minha pasta/p.toml"), Some(&term), None)).unwrap();
+        let args = argumentos_do_terminal(&dir);
+        assert_eq!(args.len(), 9);
+        assert_eq!(args[8], "/tmp/minha pasta/p.toml");
+        assert!(saida.command.ends_with("preset adopt '/tmp/minha pasta/p.toml'"), "{}", saida.command);
+    }
+
+    #[test]
+    fn preset_adopt_caminho_hostil_chega_ao_nodusctl_como_dado_pelo_involucro_real() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_executa(&dir);
+        let hostil = format!("{d}/a'; touch {d}/PWNED; echo '.toml", d = dir.display());
+        chamar("preset_adopt", env(&bin, Some(&hostil), Some(&term), None)).unwrap();
+        esperar(&dir.join("term.fim"), |t| t.contains("FIM"));
+        let recebido = esperar(&dir.join("nodusctl.args"), |t| t.ends_with('\n'));
+        assert_eq!(recebido.lines().collect::<Vec<_>>(), ["preset", "adopt", hostil.as_str()]);
+        assert!(!dir.join("PWNED").exists(), "o texto do caminho virou comando");
+    }
+
+    #[test]
+    fn preset_adopt_sem_preset_valido_nada_executa() {
+        // Diferente do `history_undo`, o `adopt` usa o arquivo do preset: ausente ou ruim, nada roda (nem o `--version`).
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar("preset_adopt", env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "preset_not_set");
+        for valor in ["", "p.toml", "./p.toml", "../p.toml", "~/p.toml", "-p.toml", "--yes"] {
+            let erro = chamar("preset_adopt", env(&bin, Some(valor), Some(&term), None)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_preset", "{valor:?}");
+        }
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn preset_adopt_com_n_solto_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar_n("preset_adopt", Some(1), env(&bin, Some("/tmp/p.toml"), Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn preset_adopt_segue_as_mesmas_regras_de_terminal_versao_e_fallback() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.2.0");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar("preset_adopt", env(&bin, Some("/tmp/p.toml"), Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch");
+        nada_lancado(&dir);
+
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let erro = chamar("preset_adopt", env(&bin, Some("/tmp/p.toml"), Some(Path::new("/bin/sh")), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_terminal");
+        assert!(chamadas(&dir).is_empty());
+
+        let vazio = pasta();
+        let saida = chamar("preset_adopt", env(&bin, Some("/tmp/p.toml"), None, Some(&vazio))).unwrap();
+        assert!(!saida.launched);
+        assert_eq!(saida.command, format!("{} preset adopt /tmp/p.toml", bin.display()));
         nada_lancado(&dir);
     }
 }
