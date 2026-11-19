@@ -2,6 +2,18 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 3), GUI desktop: segunda ação, "Desfazer no terminal" (PR #100)
+
+- **Pedido**: "as próximas ações". Plan mode; o dono escolheu `history undo <n>` primeiro (as demais ficam para PRs seguintes, uma por PR). Primeira ação com **argumento vindo da tela**.
+- **Feito**: `Action::HistoryUndo(u32)`; `Action::parse(nome, n)` agora devolve `Result` e recusa `invalid_argument` (`history_undo` sem `n` ou com `n = 0`; `preset_apply` com qualquer `n`); `run_action(command, n: Option<u32>)` (o Tauri já recusa o que não é `u32` ao desserializar); `NODUS_PRESET` só é lida no `preset_apply`. Frontend: `runAction(action, n?)` (sem `n`, o campo nem é enviado, então o `preset_apply` segue mandando só `{command}`); `canUndo` em `history.ts` (pacman install e dotfile adopt/link, nunca reversão, Flatpak nem o já desfeito com sucesso; reversão que falhou deixa tentar de novo); botão "Desfazer no terminal" por entrada; "Atualizar" relê o histórico. Extração de `useTerminalAction` e `TerminalAction` do botão do Preset (agora 2 usos), coberta pelo e2e do Preset que já existia.
+- **Regra do argumento** (emenda ao ADR 0027): só inteiro `u32`, o mesmo tipo da CLI; texto e caminho vindos da tela continuam fora (dotfiles e `workspace set` pedem desenho próprio).
+- **Testes primeiro**: commit só com os testes: **os dois vermelhos observados e lidos** (Rust: 18 erros de compilação por `Action::HistoryUndo` e os novos argumentos; frontend: e2e do botão estourando o prazo por falta do botão).
+- **Tropeços**: (1) um teste antigo meu (`nome_fora_da_lista_nada_executa`) tratava `history_undo` como nome desconhecido; ficou vermelho no CI depois da implementação e foi ajustado (a mudança de comportamento é intencional). (2) Na primeira rodada de mutação, as mutações A e B do Rust foram barradas pelo **compilador** (`unreachable pattern`, `-D warnings`), então o Rust nem rodou os testes: só C e D tinham sido provadas. Refeitas numa forma que compila. (3) Reverti com `git revert HEAD~1..HEAD`, que exclui o primeiro commit; só a segunda mutação saiu. Percebi pelos `grep -c` das linhas mutadas, reverti o commit certo e confirmei com `git diff` vazio contra o commit anterior às mutações.
+- **Mutação** (quatro): (A) `n = 0` aceito derrubou 2 testes Rust; (B) `preset_apply` aceitando `n` derrubou 2 testes Rust (Rust: 64 passaram, 4 falharam); (C) clique mandando `n - 1` derrubou 2 e2e; (D) `canUndo` sem "já desfeito" e aceitando Flatpak derrubou 3 e2e (frontend: 102 passaram, 5 falharam).
+- **CI final** (estado revertido, `7a7ee48`): verde em tudo (Desktop Rust, frontend com e2e, `cargo-deny`, Rust da CLI, `guard`).
+- **Não verificado**: o botão na janela real, com o `sudo pacman -Rs` de verdade; o que acontece com um histórico editado à mão (o `n` da tela deixaria de bater com o do terminal; a defesa é o plano que a CLI mostra antes de confirmar); a reversão de dotfile pela GUI; o botão em entrada de dotfile que falhou (a CLI decide e recusa no terminal, não foi exercitado).
+- **Fica**: o dono verificar na janela (instalar um pacote de teste pela aba Preset, ir ao Histórico, "Desfazer no terminal", conferir simulação e `[s/N]`, responder `n`); próximas ações, uma por PR: `preset adopt` e `workspace unset` (sem argumento novo), depois as de caminho (dotfiles adopt/link, `workspace set`) com desenho prévio; lentidão do `apt` no CI Desktop; P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 2), GUI desktop: primeira ação, "Instalar no terminal" (PR #99)
 
 - **Pedido**: a primeira ação de verdade do ADR 0027 (`preset apply`). Plan mode; o dono escolheu só o terminal medido (`konsole`) mais o fallback.

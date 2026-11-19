@@ -13,26 +13,37 @@ use std::process::{Command, Stdio};
 /// nunca no texto do script. Um caminho como `x'; rm -rf ~; '` é, para o `sh`, um valor de `$1`, não código.
 pub const WRAPPER: &str = r#""$@"; code=$?; printf '\nFim (código %s). Enter para fechar.' "$code"; read _"#;
 
-/// As ações que escrevem, em lista fechada. Só o nome exato entra; cada uma tem os argumentos fixos. Argumento vindo da tela não
-/// existe: o arquivo do preset vem de `NODUS_PRESET`, lido no Rust.
+/// As ações que escrevem, em lista fechada. Só o nome exato entra; cada uma tem os argumentos fixos. O único argumento que a tela
+/// pode mandar é **numérico** (`u32`, o mesmo tipo da CLI): um inteiro não tem sintaxe para escapar de nada. Texto e caminho vindos da
+/// tela não existem aqui; o arquivo do preset vem de `NODUS_PRESET`, lido no Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     /// `nodusctl preset apply <NODUS_PRESET>`: roda `sudo pacman -S` e `flatpak install` dentro do terminal, com a confirmação da CLI.
     PresetApply,
+    /// `nodusctl history undo <n>`, `n >= 1`: o `sudo pacman -Rs` (ou a reversão de dotfile) é da CLI, que simula, mostra o plano e
+    /// confirma dentro do terminal. O histórico só acrescenta, então o número de uma entrada não muda.
+    HistoryUndo(u32),
 }
 
 impl Action {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "preset_apply" => Some(Self::PresetApply),
-            _ => None,
+    /// Nome exato mais o argumento numérico: `history_undo` exige `n >= 1`, e `preset_apply` recusa qualquer `n` (argumento que a
+    /// ação não definiu é recusado, não ignorado).
+    pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
+        match (name, n) {
+            ("preset_apply", None) => Ok(Self::PresetApply),
+            ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
+            ("preset_apply" | "history_undo", _) => {
+                Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
+            }
+            _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
         }
     }
 
     /// Os argumentos fixos. No `PresetApply`, o caminho do arquivo é acrescentado depois, por `run`.
-    pub fn args(self) -> Vec<&'static str> {
+    pub fn args(self) -> Vec<String> {
         match self {
-            Self::PresetApply => vec!["preset", "apply"],
+            Self::PresetApply => vec!["preset".into(), "apply".into()],
+            Self::HistoryUndo(n) => vec!["history".into(), "undo".into(), n.to_string()],
         }
     }
 }
@@ -135,11 +146,13 @@ pub fn display_command(parts: &[OsString]) -> String {
 
 /// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
 /// existir). Ordem: lista, arquivo do preset, terminal, versão da CLI, e só então o processo. Falta de terminal devolve o comando.
-pub fn run(name: &str, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome, CmdError> {
-    let action = Action::parse(name).ok_or_else(|| CmdError::new("not_allowed", format!("ação não permitida: {name:?}")))?;
+pub fn run(name: &str, n: Option<u32>, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome, CmdError> {
+    let action = Action::parse(name, n)?;
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match action {
         Action::PresetApply => args.push(resolve_preset(env.preset)?.into_os_string()),
+        // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
+        Action::HistoryUndo(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?;
@@ -272,30 +285,62 @@ mod tests {
         }
     }
 
+    /// Ação sem argumento vindo da tela (`preset_apply`).
     fn chamar(name: &str, env: Env) -> Result<Outcome, crate::nodusctl::CmdError> {
+        chamar_n(name, None, env)
+    }
+
+    /// Ação com o argumento numérico da tela (`history_undo`).
+    fn chamar_n(name: &str, n: Option<u32>, env: Env) -> Result<Outcome, crate::nodusctl::CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
-        run(name, env, GUI)
+        run(name, n, env, GUI)
     }
 
     // --- a lista de ações ---
 
     #[test]
     fn so_o_nome_exato_da_lista_fechada() {
-        assert_eq!(Action::parse("preset_apply"), Some(Action::PresetApply));
+        assert_eq!(Action::parse("preset_apply", None), Ok(Action::PresetApply));
         assert_eq!(Action::PresetApply.args(), vec!["preset", "apply"]);
         for nome in [
             "preset apply", "preset_apply /tmp/p.toml", "preset_apply --yes", "preset_apply --noconfirm", "Preset_apply", "PRESET_APPLY",
             "preset_apply ", " preset_apply", "preset_apply\n", "preset_apply;ls", "preset-apply", "preset_applyx", "preset_applys",
-            "history_undo", "history undo 1", "dotfiles_adopt", "workspace_set", "preset_adopt", "preset_plan", "inventory", "",
+            "history undo 1", "history_undo 1", "history_undo;ls", "History_undo", "history-undo", "history_undos", "history_undo ",
+            "dotfiles_adopt", "workspace_set", "preset_adopt", "preset_plan", "history", "inventory", "",
         ] {
-            assert_eq!(Action::parse(nome), None, "{nome:?} não pode passar: a lista de ações tem só o `preset_apply`");
+            let erro = Action::parse(nome, None).unwrap_err();
+            assert_eq!(erro.kind, "not_allowed", "{nome:?} não pode passar: a lista de ações é fechada");
         }
     }
 
     #[test]
     fn a_lista_de_leitura_e_a_de_acoes_nao_se_misturam() {
         assert_eq!(crate::nodusctl::Allowed::parse("preset_apply"), None, "ação não pode entrar pela porta da leitura");
-        assert_eq!(Action::parse("preset_plan"), None, "leitura não pode entrar pela porta das ações");
+        assert_eq!(crate::nodusctl::Allowed::parse("history_undo"), None, "ação não pode entrar pela porta da leitura");
+        assert_eq!(Action::parse("preset_plan", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
+        assert_eq!(Action::parse("history", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
+    }
+
+    // --- o argumento numérico vindo da tela (a única forma de argumento que a tela pode mandar) ---
+
+    #[test]
+    fn history_undo_so_com_n_inteiro_a_partir_de_1() {
+        assert_eq!(Action::parse("history_undo", Some(1)), Ok(Action::HistoryUndo(1)));
+        assert_eq!(Action::parse("history_undo", Some(u32::MAX)), Ok(Action::HistoryUndo(u32::MAX)));
+        assert_eq!(Action::HistoryUndo(7).args(), vec!["history", "undo", "7"]);
+        for n in [None, Some(0)] {
+            let erro = Action::parse("history_undo", n).unwrap_err();
+            assert_eq!(erro.kind, "invalid_argument", "{n:?}: o `undo` sem número válido nem chega à CLI");
+        }
+    }
+
+    #[test]
+    fn so_o_history_undo_aceita_argumento() {
+        // Um `n` solto num `preset_apply` seria argumento que a ação não definiu: recusado, não ignorado.
+        for n in [0, 1, 3] {
+            let erro = Action::parse("preset_apply", Some(n)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_argument", "{n}");
+        }
     }
 
     // --- o que vira processo ---
@@ -394,7 +439,7 @@ mod tests {
         let dir = pasta();
         let bin = nodusctl_falso(&dir, "0.1.4");
         let term = terminal_que_grava(&dir);
-        for nome in ["preset_apply --yes", "history_undo", "inventory", "Preset_apply", ""] {
+        for nome in ["preset_apply --yes", "history_undo 3", "history undo", "inventory", "Preset_apply", ""] {
             let erro = chamar(nome, env(&bin, Some("/tmp/p.toml"), Some(&term), None)).unwrap_err();
             assert_eq!(erro.kind, "not_allowed", "{nome:?}");
         }
@@ -490,5 +535,86 @@ mod tests {
         assert_eq!(display_command(&partes(&["nodusctl", "/tmp/minha pasta/p.toml"])), "nodusctl '/tmp/minha pasta/p.toml'");
         assert_eq!(display_command(&partes(&["nodusctl", "a'b"])), "nodusctl 'a'\\''b'");
         assert_eq!(display_command(&partes(&["nodusctl", "x;y", "$HOME", "`ls`", "a&b", "", "*"])), "nodusctl 'x;y' '$HOME' '`ls`' 'a&b' '' '*'");
+    }
+
+    // --- history undo: privilegiada (`sudo pacman -Rs`), argumento `n` vindo da tela ---
+
+    #[test]
+    fn history_undo_lanca_o_terminal_com_o_argv_exato() {
+        for n in [1_u32, 3, u32::MAX] {
+            let dir = pasta();
+            let bin = nodusctl_falso(&dir, "0.1.4");
+            let term = terminal_que_grava(&dir);
+            let saida = chamar_n("history_undo", Some(n), env(&bin, None, Some(&term), None)).unwrap();
+            assert!(saida.launched);
+            assert_eq!(
+                argumentos_do_terminal(&dir),
+                ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "history", "undo", &n.to_string()]
+            );
+            assert_eq!(saida.command, format!("{} history undo {n}", bin.display()), "o número em decimal canônico");
+            assert_eq!(chamadas(&dir), ["--version"], "a GUI só confere a versão; o `undo` roda dentro do terminal");
+        }
+    }
+
+    #[test]
+    fn history_undo_nao_precisa_nem_le_o_preset() {
+        // `NODUS_PRESET` ausente ou ruim não pode atrapalhar uma ação que não usa preset.
+        for preset in [None, Some("relativo.toml"), Some("")] {
+            let dir = pasta();
+            let bin = nodusctl_falso(&dir, "0.1.4");
+            let term = terminal_que_grava(&dir);
+            let saida = chamar_n("history_undo", Some(2), env(&bin, preset, Some(&term), None)).unwrap();
+            assert!(saida.launched, "{preset:?}");
+            assert_eq!(argumentos_do_terminal(&dir)[5..], [bin.to_str().unwrap(), "history", "undo", "2"]);
+        }
+    }
+
+    #[test]
+    fn history_undo_sem_n_valido_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        for n in [None, Some(0)] {
+            let erro = chamar_n("history_undo", n, env(&bin, Some("/tmp/p.toml"), Some(&term), None)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_argument", "{n:?}");
+        }
+        assert!(chamadas(&dir).is_empty(), "nem o `--version` pode rodar");
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn preset_apply_com_n_solto_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar_n("preset_apply", Some(1), env(&bin, Some("/tmp/p.toml"), Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn history_undo_segue_as_mesmas_regras_de_terminal_versao_e_fallback() {
+        // Versão incompatível: nada é lançado.
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.2.0");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar_n("history_undo", Some(1), env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch");
+        nada_lancado(&dir);
+
+        // NODUS_TERMINAL fora da tabela: recusado antes de qualquer processo.
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let erro = chamar_n("history_undo", Some(1), env(&bin, None, Some(Path::new("/bin/sh")), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_terminal");
+        assert!(chamadas(&dir).is_empty());
+
+        // Sem terminal: o comando para colar, e nada lançado.
+        let vazio = pasta();
+        let saida = chamar_n("history_undo", Some(4), env(&bin, None, None, Some(&vazio))).unwrap();
+        assert!(!saida.launched);
+        assert_eq!(saida.command, format!("{} history undo 4", bin.display()));
+        nada_lancado(&dir);
     }
 }

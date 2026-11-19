@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type Command = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset_plan" | "preset_suggest";
 
 /** As ações que ESCREVEM, em lista fechada (ADR 0027; a lista de verdade vive no Rust, `Action` em `src-tauri/src/actions.rs`). */
-export type Action = "preset_apply";
+export type Action = "preset_apply" | "history_undo";
 
 /** Erro do backend Rust (`CmdError`): `kind` é um código estável e `message` é para pessoas. */
 export class BackendError extends Error {
@@ -37,12 +37,13 @@ export async function readNodusctl(command: Command): Promise<string> {
 }
 
 /**
- * Pede ao backend uma ação da lista fechada: ele abre um terminal rodando o `nodusctl` (ADR 0027). O frontend manda só o NOME da
- * ação; o arquivo, o terminal e a confirmação não passam por aqui. O resultado é cru: quem chama o passa por `parseActionOutcome`.
+ * Pede ao backend uma ação da lista fechada: ele abre um terminal rodando o `nodusctl` (ADR 0027). O frontend manda o NOME da
+ * ação e, só na `history_undo`, o número `n` da entrada (inteiro: o único argumento que a tela pode mandar); o arquivo, o terminal e
+ * a confirmação não passam por aqui. Sem `n`, o campo nem é enviado. O resultado é cru: quem chama o passa por `parseActionOutcome`.
  */
-export async function runAction(action: Action): Promise<unknown> {
+export async function runAction(action: Action, n?: number): Promise<unknown> {
   try {
-    return await invoke<unknown>("run_action", { command: action });
+    return await invoke<unknown>("run_action", n === undefined ? { command: action } : { command: action, n });
   } catch (raw) {
     throw toBackendError(raw);
   }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { parseActionOutcome } from "./lib/action";
 import { BackendError, readNodusctl, runAction, type Command } from "./lib/backend";
 import { type Dotfile, parseDotfiles } from "./lib/dotfiles";
-import { formatUtc, type HistoryEntry, parseHistory } from "./lib/history";
+import { canUndo, formatUtc, type HistoryEntry, parseHistory } from "./lib/history";
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parsePresetPlan } from "./lib/preset";
@@ -345,7 +345,7 @@ function resultText(result: HistoryEntry["result"]): string {
   return result.code === null ? "falhou" : `falhou (código ${result.code})`;
 }
 
-function HistoryItem({ entry, n }: { entry: HistoryEntry; n: number }) {
+function HistoryItem({ entry, n, canUndo, onRefresh }: { entry: HistoryEntry; n: number; canUndo: boolean; onRefresh: () => void }) {
   const undoes = entry.undoes === null ? "" : ` · desfez #${entry.undoes}`;
   const where = entry.dir === null ? "" : ` · pasta-fonte ${entry.dir}`;
   return (
@@ -355,11 +355,21 @@ function HistoryItem({ entry, n }: { entry: HistoryEntry; n: number }) {
       <div className="detail">{`${formatUtc(entry.atUnix)} · ${entry.manager}${where}`}</div>
       <div className="detail">{entry.requested.join(", ")}</div>
       <div className="detail">{entry.command.join(" ")}</div>
+      {canUndo && (
+        <TerminalAction
+          prefix="history"
+          buttonId="history-desfazer"
+          label="Desfazer no terminal"
+          confirmWhat="a remoção"
+          run={() => runAction("history_undo", n)}
+          onRefresh={onRefresh}
+        />
+      )}
     </li>
   );
 }
 
-function HistoryScreen() {
+function HistoryScreen({ onRefresh }: { onRefresh: () => void }) {
   const state = useLoad("history", parseHistory);
 
   if (state.status === "loading") return <p>Lendo o histórico…</p>;
@@ -377,7 +387,7 @@ function HistoryScreen() {
         <>
           <ul data-testid="history-list" className="repos">
             {newestFirst.map(({ entry, n }) => (
-              <HistoryItem key={n} entry={entry} n={n} />
+              <HistoryItem key={n} entry={entry} n={n} canUndo={canUndo(entries, n)} onRefresh={onRefresh} />
             ))}
           </ul>
           <p data-testid="history-nota">
@@ -410,10 +420,10 @@ type ActionState =
   | { status: "error"; message: string };
 
 /**
- * O botão que abre um terminal rodando `nodusctl preset apply` (ADR 0027). A janela não instala nada, não confirma e não vê senha:
- * manda só o nome da ação, e o plano, o `[s/N]` e o `sudo` são da CLI, no terminal. Sem terminal conhecido, mostra o comando.
+ * A máquina de estados de uma ação que abre um terminal (ADR 0027), compartilhada pelo Preset e pelo Histórico. `run` pede a ação ao
+ * backend; aqui só se cuida do que a tela mostra: rodando, terminal aberto, sem terminal (o comando para colar) ou erro.
  */
-function PresetAction({ onRefresh }: { onRefresh: () => void }) {
+function useTerminalAction(run: () => Promise<unknown>) {
   const [state, setState] = useState<ActionState>({ status: "idle" });
   const [copyFailed, setCopyFailed] = useState(false);
   // O estado só muda na renderização seguinte; o `ref` barra o segundo clique de um clique duplo (uma janela só).
@@ -426,7 +436,7 @@ function PresetAction({ onRefresh }: { onRefresh: () => void }) {
     setState({ status: "running" });
     setCopyFailed(false);
     try {
-      const outcome = parseActionOutcome(await runAction("preset_apply"));
+      const outcome = parseActionOutcome(await run());
       setState(outcome.launched ? { status: "launched" } : { status: "fallback", command: outcome.command });
     } catch (error) {
       setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
@@ -444,33 +454,70 @@ function PresetAction({ onRefresh }: { onRefresh: () => void }) {
     }
   }
 
+  return { state, copyFailed, busy, start, copy };
+}
+
+/**
+ * O botão que abre um terminal rodando um comando da CLI que escreve (ADR 0027). A janela não instala nem remove nada, não confirma e
+ * não vê senha: manda só o nome da ação (e o número, no desfazer), e o plano, o `[s/N]` e o `sudo` são da CLI, no terminal. Sem
+ * terminal conhecido, mostra o comando. `prefix` dá os `data-testid` (`<prefix>-acao-ok` etc.); `buttonId` é o do botão.
+ */
+function TerminalAction({
+  prefix,
+  buttonId,
+  label,
+  confirmWhat,
+  run,
+  onRefresh,
+}: {
+  prefix: string;
+  buttonId: string;
+  label: string;
+  confirmWhat: string;
+  run: () => Promise<unknown>;
+  onRefresh: () => void;
+}) {
+  const { state, copyFailed, busy, start, copy } = useTerminalAction(run);
   return (
-    <div data-testid="preset-acao">
-      <button type="button" data-testid="preset-instalar" disabled={busy} onClick={start}>
-        Instalar no terminal
+    <div data-testid={`${prefix}-acao`}>
+      <button type="button" data-testid={buttonId} disabled={busy} onClick={start}>
+        {label}
       </button>
       {state.status === "launched" && (
         <>
-          <p data-testid="preset-acao-ok">
-            Terminal aberto. Confirme a instalação lá: o nodusctl mostra o comando e pergunta antes. Quando terminar, clique em Atualizar.
+          <p data-testid={`${prefix}-acao-ok`}>
+            {`Terminal aberto. Confirme ${confirmWhat} lá: o nodusctl mostra o comando e pergunta antes. Quando terminar, clique em Atualizar.`}
           </p>
-          <button type="button" data-testid="preset-atualizar" onClick={onRefresh}>
+          <button type="button" data-testid={`${prefix}-atualizar`} onClick={onRefresh}>
             Atualizar
           </button>
         </>
       )}
       {state.status === "fallback" && (
-        <div data-testid="preset-sem-terminal">
+        <div data-testid={`${prefix}-sem-terminal`}>
           <p>Nenhum terminal conhecido foi encontrado. Cole este comando num terminal:</p>
-          <pre data-testid="preset-comando">{state.command}</pre>
-          <button type="button" data-testid="preset-copiar" onClick={() => copy(state.command)}>
+          <pre data-testid={`${prefix}-comando`}>{state.command}</pre>
+          <button type="button" data-testid={`${prefix}-copiar`} onClick={() => copy(state.command)}>
             Copiar
           </button>
-          {copyFailed && <p data-testid="preset-copiar-erro">Não consegui copiar: selecione o texto acima e copie à mão.</p>}
+          {copyFailed && <p data-testid={`${prefix}-copiar-erro`}>Não consegui copiar: selecione o texto acima e copie à mão.</p>}
         </div>
       )}
-      {state.status === "error" && <p data-testid="preset-acao-erro">{state.message}</p>}
+      {state.status === "error" && <p data-testid={`${prefix}-acao-erro`}>{state.message}</p>}
     </div>
+  );
+}
+
+function PresetAction({ onRefresh }: { onRefresh: () => void }) {
+  return (
+    <TerminalAction
+      prefix="preset"
+      buttonId="preset-instalar"
+      label="Instalar no terminal"
+      confirmWhat="a instalação"
+      run={() => runAction("preset_apply")}
+      onRefresh={onRefresh}
+    />
   );
 }
 
@@ -578,6 +625,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("inventory");
   // Muda para remontar a aba Preset e reler o plano (depois de a CLI instalar algo no terminal).
   const [presetKey, setPresetKey] = useState(0);
+  // O mesmo para o Histórico (depois de a CLI desfazer algo no terminal).
+  const [historyKey, setHistoryKey] = useState(0);
   return (
     <main>
       <nav className="tabs">
@@ -592,7 +641,7 @@ export default function App() {
       {tab === "dotfiles" && <DotfilesScreen />}
       {tab === "updates" && <UpdatesScreen />}
       {tab === "workspace" && <WorkspaceScreen />}
-      {tab === "history" && <HistoryScreen />}
+      {tab === "history" && <HistoryScreen key={historyKey} onRefresh={() => setHistoryKey((k) => k + 1)} />}
       {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
       {tab === "suggest" && <SuggestScreen />}
     </main>
