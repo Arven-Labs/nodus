@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod nodusctl;
 
 use nodusctl::CmdError;

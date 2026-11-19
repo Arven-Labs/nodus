@@ -125,12 +125,12 @@ test("Flatpak não instalado: avisa, e os apps do preset aparecem como pendentes
   await close();
 });
 
-test("a aba diz que é só leitura e que instalar é com o terminal", async () => {
+test("a aba diz que a janela não instala e que a confirmação é no terminal (ADR 0027)", async () => {
   const { page, close } = await openApp(browser, app, { handlers: handlers() });
   await abrirAba(page);
   await page.getByTestId("preset-nota").waitFor();
   const texto = await page.getByTestId("preset-nota").innerText();
-  assert.match(texto, /nada foi executado/i);
+  assert.match(texto, /não instala nada/i);
   assert.match(texto, /preset apply/);
   await close();
 });

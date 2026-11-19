@@ -333,7 +333,7 @@ pub fn read_with(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
@@ -344,7 +344,7 @@ mod tests {
 
     /// Serializa "criar o script" e "executá-lo". Sem isso, o `fork` de um teste herda o descritor de escrita ainda aberto do
     /// script de outro teste, e o `exec` desse outro recebe ETXTBSY ("text file busy"): falha intermitente, que já derrubou o CI da main.
-    static EXEC: Mutex<()> = Mutex::new(());
+    pub(crate) static EXEC: Mutex<()> = Mutex::new(());
 
     fn ler(binary: &Path, name: &str, gui: (u64, u64, u64)) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
