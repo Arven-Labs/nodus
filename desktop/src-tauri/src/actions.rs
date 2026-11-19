@@ -34,7 +34,7 @@ impl Action {
     pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
         match (name, n) {
             ("preset_apply", None) => Ok(Self::PresetApply),
-            ("preset_adopt", None) => Ok(Self::PresetAdopt),
+            ("preset_adopt", _) => Ok(Self::PresetAdopt),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
             ("preset_apply" | "preset_adopt" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
@@ -155,9 +155,9 @@ pub fn run(name: &str, n: Option<u32>, env: Env, gui_version: (u64, u64, u64)) -
     let action = Action::parse(name, n)?;
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match action {
-        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
+        Action::PresetApply => args.push(resolve_preset(env.preset)?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
-        Action::HistoryUndo(_) => {}
+        Action::HistoryUndo(_) | Action::PresetAdopt => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?;

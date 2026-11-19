@@ -589,7 +589,7 @@ function SuggestScreen({ onRefresh }: { onRefresh: () => void }) {
   const s = state.data;
   const nothing = s.pacmanExtra.length === 0 && s.foreignExtra.length === 0 && s.flatpakExtra.length === 0;
   // O `adopt` só pergunta pacman e Flatpak; os de fora dos repositórios ele só informa.
-  const canAdopt = s.pacmanExtra.length > 0 || s.flatpakExtra.length > 0;
+  const canAdopt = !nothing;
   return (
     <section>
       <h1>Sugestões</h1>
