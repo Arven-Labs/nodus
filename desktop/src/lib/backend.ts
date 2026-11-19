@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type Command = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset_plan" | "preset_suggest";
 
 /** As ações que ESCREVEM, em lista fechada (ADR 0027; a lista de verdade vive no Rust, `Action` em `src-tauri/src/actions.rs`). */
-export type Action = "preset_apply" | "history_undo";
+export type Action = "preset_apply" | "history_undo" | "preset_adopt";
 
 /** Erro do backend Rust (`CmdError`): `kind` é um código estável e `message` é para pessoas. */
 export class BackendError extends Error {
