@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22, GUI desktop: aba Sugestões (PR #97)
+
+- **Pedido**: seguir com a tela `preset suggest` (recomendação minha, aprovada pelo dono), mecânica, sem plan mode. Antes, limpeza do disco: `rm -rf desktop/src-tauri/target` (3,1 GB; o `nodus` foi de 3,3 GB para 205 MB, `/home` de 75% para 73%), com confirmação do dono.
+- **Decisões do dono (2026-11-19)**: aba separada ("Sugestões"), sem `--all` (só conta os ignorados), prazo de 30 s, sem o trecho para colar no preset (a nota manda usar `preset adopt` no terminal). Nesta sessão, estas quatro foram assumidas por mim e o dono aprovou a tabela de testes ("tudo certo").
+- **Feito**: `Allowed::PresetSuggest` (nome `preset_suggest`, `["preset","suggest","--json"]` mais o arquivo de `NODUS_PRESET`, mesma conferência do `preset_plan`; `--all`, `adopt`, `ignored` e `unignore` fora da lista); `src/lib/presetSuggest.ts` (parser estrito, 4 listas de texto e `flatpak_installed`); `SuggestScreen` (Pacman, "de fora dos repositórios, o `apply` não instala", Flatpak, "nada fora do preset", contagem de ignorados, nota só leitura).
+- **Testes primeiro**: commit só com os testes: CI Desktop frontend **vermelho** (falhou em 14 s; o motivo não foi lido). O vermelho do Rust **não foi observado**: o job ainda estava pendente quando implementei. Depois, `tsc` pegou `preset_suggest` fora do tipo `Command` de `backend.ts` (corrigido num commit à parte).
+- **Mutação** (duas, num commit, revertido com `git revert`): (A) allowlist por prefixo derrubou `preset_plan_so_o_plano_sem_apply_nem_adopt` (Rust: 45 passaram, 1 falhou); (B) "nada fora do preset" ignorando os de fora dos repositórios derrubou 1 teste e2e (`só restam os de fora dos repositórios`). Tropeço repetido: `git revert -q` não existe, a primeira tentativa não reverteu nada; refeita sem `-q`.
+- **CI final** (estado revertido): verde em tudo (Desktop Rust em 10 min por causa do `apt`, frontend, `cargo-deny`, Rust da CLI, `guard`).
+- **Não verificado**: a aba na janela real (`npm run tauri dev`); `preset suggest` com o `config.toml` real do dono (contagem de ignorados); o prazo de 30 s no pior caso; o vermelho do Rust antes da implementação. `cargo fmt --check` aponta diferenças em `lib.rs`, que já existiam e não foram tocadas.
+- **Fica**: ver as abas Workspace, Histórico, Preset e Sugestões na janela (`NODUS_PRESET=/abs/preset.toml NODUSCTL=/abs/nodusctl npm run tauri dev`; a primeira compilação é longa, o `target` foi apagado); ADR das ações privilegiadas (antes de qualquer botão que escreva, em plan mode); lentidão do `apt` no CI Desktop; P-02; P-14; P-17.
+
 ### 2026-11-18 — Sessão 21 (continuação 17), GUI desktop: aba Preset (PR #96)
 
 - **Pedido**: seguir para a tela `preset plan`. Diferente das telas anteriores, ela precisa de um **argumento** (o arquivo), e o contrato do ADR 0026 manda só o nome do comando; por isso a escolha do caminho foi perguntada.

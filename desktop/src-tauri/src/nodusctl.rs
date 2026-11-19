@@ -56,6 +56,9 @@ pub enum Allowed {
     /// Só o plano (`preset plan`; nada é instalado). O arquivo do preset é o único argumento que não é fixo, e vem de
     /// `NODUS_PRESET` lido aqui no Rust, nunca do frontend. `preset apply` e `preset adopt` instalam ou escrevem e ficam de fora.
     PresetPlan,
+    /// Só a sugestão (`preset suggest`, sem `--all`; só lê o pacman, o Flatpak e o `config.toml`). Mesmo arquivo de `NODUS_PRESET`.
+    /// `preset adopt`, `ignored` e `unignore` escrevem e ficam de fora.
+    PresetSuggest,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -72,6 +75,7 @@ impl Allowed {
             "workspace" => Some(Self::Workspace),
             "history" => Some(Self::History),
             "preset_plan" => Some(Self::PresetPlan),
+            "preset_suggest" => Some(Self::PresetSuggest),
             _ => None,
         }
     }
@@ -86,13 +90,16 @@ impl Allowed {
             Self::Workspace => vec!["workspace", "--json"],
             Self::History => vec!["history", "--json"],
             Self::PresetPlan => vec!["preset", "plan", "--json"],
+            Self::PresetSuggest => vec!["preset", "suggest", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History | Self::PresetPlan => DEFAULT_TIMEOUT,
+            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History | Self::PresetPlan | Self::PresetSuggest => {
+                DEFAULT_TIMEOUT
+            }
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
@@ -296,7 +303,7 @@ pub fn read_with(
         .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
     // O caminho é conferido antes de executar qualquer coisa. Um argumento só (sem shell), então espaço não separa nada.
     let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
-    if allowed == Allowed::PresetPlan {
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest) {
         argv.push(resolve_preset(preset)?.into_os_string());
     }
 
@@ -732,7 +739,8 @@ echo "argumentos inesperados: $*" >&2; exit 64
         assert_eq!(Allowed::PresetPlan.timeout(), Duration::from_secs(30));
         for nome in [
             "preset plan", "preset_plan /tmp/p.toml", "preset_plan --json", "preset apply", "preset_apply", "preset adopt",
-            "preset_adopt", "preset init", "preset_init", "preset suggest", "preset_suggest", "preset ignored", "preset unignore",
+            "preset_adopt", "preset init", "preset_init", "preset suggest", "preset ignored", "preset unignore", "preset_ignored",
+            "preset_unignore", "preset_suggest /tmp/p.toml", "preset_suggest --all", "Preset_suggest", "preset_suggest ", "preset-suggest",
             "Preset_plan", "PRESET_PLAN", "preset_plan ", " preset_plan", "preset_plan\n", "preset_plan;ls", "preset-plan", "preset_plans",
         ] {
             assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: apply instala e adopt escreve no preset");
@@ -780,6 +788,50 @@ echo "argumentos inesperados: $*" >&2; exit 64
         assert_eq!(resolve_preset(Some("/home/x/preset.toml".into())).unwrap(), PathBuf::from("/home/x/preset.toml"));
         assert_eq!(resolve_preset(None).unwrap_err().kind, "preset_not_set");
         assert_eq!(resolve_preset(Some("preset.toml".into())).unwrap_err().kind, "invalid_preset");
+    }
+
+    // --- preset suggest: mesmo mecanismo do plan (arquivo vindo de NODUS_PRESET); sem `--all`, sem adopt/ignore ---
+
+    const SUGESTAO_FALSA: &str = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+if [ "$1" = "preset" ] && [ "$2" = "suggest" ] && [ "$3" = "--json" ] && [ -n "$4" ] && [ -z "$5" ]; then echo '{"sugestao":true}'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+
+    #[test]
+    fn preset_suggest_so_a_sugestao_sem_all_adopt_nem_ignore() {
+        assert_eq!(Allowed::parse("preset_suggest"), Some(Allowed::PresetSuggest));
+        assert_eq!(Allowed::PresetSuggest.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::PresetSuggest.args(), vec!["preset", "suggest", "--json"]);
+    }
+
+    #[test]
+    fn preset_suggest_roda_com_o_arquivo_da_variavel() {
+        let (dir, bin) = falso(SUGESTAO_FALSA);
+        let saida = ler_preset(&bin, "preset_suggest", (0, 1, 0), Some("/tmp/minha pasta/p.toml")).unwrap();
+        assert_eq!(saida.trim(), r#"{"sugestao":true}"#);
+        assert_eq!(chamadas(&dir), ["--version", "preset suggest --json /tmp/minha pasta/p.toml"]);
+    }
+
+    #[test]
+    fn preset_suggest_sem_caminho_valido_nada_executa() {
+        let (dir, bin) = falso(SUGESTAO_FALSA);
+        let erro = ler_preset(&bin, "preset_suggest", (0, 1, 0), None).unwrap_err();
+        assert_eq!(erro.kind, "preset_not_set");
+        assert!(erro.message.contains("NODUS_PRESET"), "{}", erro.message);
+        for valor in ["", "p.toml", "./p.toml", "../p.toml", "~/p.toml", "-p.toml", "--all"] {
+            let erro = ler_preset(&bin, "preset_suggest", (0, 1, 0), Some(valor)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_preset", "{valor:?}");
+        }
+        assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
+    }
+
+    #[test]
+    fn a_variavel_nao_vira_argumento_do_inventario_nem_do_plan_por_causa_do_suggest() {
+        // O plan continua com o seu argv próprio: o suggest não pode ter vazado para ele.
+        let (dir, bin) = falso(PLANO_FALSO);
+        ler_preset(&bin, "preset_plan", (0, 1, 0), Some("/tmp/p.toml")).unwrap();
+        assert_eq!(chamadas(&dir), ["--version", "preset plan --json /tmp/p.toml"]);
     }
 
     #[test]

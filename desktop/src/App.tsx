@@ -5,6 +5,7 @@ import { formatUtc, type HistoryEntry, parseHistory } from "./lib/history";
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parsePresetPlan } from "./lib/preset";
+import { parsePresetSuggest } from "./lib/presetSuggest";
 import { parseRepos, type Repo } from "./lib/repos";
 import { parseUpdates, type Updates } from "./lib/updates";
 import { parseWorkspace, type WorkspaceSource } from "./lib/workspace";
@@ -443,7 +444,48 @@ function PresetScreen() {
   );
 }
 
-type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset";
+function SuggestScreen() {
+  const state = useLoad("preset_suggest", parsePresetSuggest);
+
+  if (state.status === "loading") return <p>Procurando o que está instalado e fora do preset…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="as sugestões do preset" />;
+
+  const s = state.data;
+  const nothing = s.pacmanExtra.length === 0 && s.foreignExtra.length === 0 && s.flatpakExtra.length === 0;
+  return (
+    <section>
+      <h1>Sugestões</h1>
+      <div data-testid="suggest-pacman">
+        <h2>{`Pacman (${s.pacmanExtra.length})`}</h2>
+        <NameList items={s.pacmanExtra} testId="suggest-pacman-item" />
+      </div>
+      {s.foreignExtra.length > 0 && (
+        <div data-testid="suggest-foreign">
+          <h2>{`De fora dos repositórios (AUR ou locais), o \`apply\` não instala (${s.foreignExtra.length})`}</h2>
+          <NameList items={s.foreignExtra} testId="suggest-foreign-item" />
+        </div>
+      )}
+      <div data-testid="suggest-flatpak">
+        <h2>{s.flatpakInstalled ? `Flatpak (${s.flatpakExtra.length})` : "Flatpak não instalado"}</h2>
+        {!s.flatpakInstalled && <p>Os apps Flatpak não foram conferidos.</p>}
+        <NameList items={s.flatpakExtra} testId="suggest-flatpak-item" />
+      </div>
+      {nothing && (
+        <p data-testid="suggest-nada">Nada fora do preset: tudo o que foi instalado de propósito já está nele.</p>
+      )}
+      {s.ignored.length > 0 && (
+        <p data-testid="suggest-ignorados" className="detail">
+          {`${s.ignored.length} ${s.ignored.length === 1 ? "ignorado" : "ignorados"} pelo config. Para ver todos, use \`nodusctl preset suggest --all\` no terminal.`}
+        </p>
+      )}
+      <p data-testid="suggest-nota" className="detail">
+        Só leitura: nada foi alterado. Para adotar, use `nodusctl preset adopt` no terminal.
+      </p>
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset" | "suggest";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "inventory", label: "Inventário" },
@@ -453,6 +495,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "workspace", label: "Workspace" },
   { id: "history", label: "Histórico" },
   { id: "preset", label: "Preset" },
+  { id: "suggest", label: "Sugestões" },
 ];
 
 export default function App() {
@@ -473,6 +516,7 @@ export default function App() {
       {tab === "workspace" && <WorkspaceScreen />}
       {tab === "history" && <HistoryScreen />}
       {tab === "preset" && <PresetScreen />}
+      {tab === "suggest" && <SuggestScreen />}
     </main>
   );
 }

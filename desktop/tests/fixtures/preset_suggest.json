@@ -1,0 +1,7 @@
+{
+  "pacman_extra": ["neovim", "tmux"],
+  "foreign_extra": ["brave-bin"],
+  "flatpak_extra": ["org.mozilla.firefox"],
+  "flatpak_installed": true,
+  "ignored": ["cmatrix", "sl"]
+}
