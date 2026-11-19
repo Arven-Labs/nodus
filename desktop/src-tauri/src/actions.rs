@@ -23,16 +23,20 @@ pub enum Action {
     /// `nodusctl history undo <n>`, `n >= 1`: o `sudo pacman -Rs` (ou a reversão de dotfile) é da CLI, que simula, mostra o plano e
     /// confirma dentro do terminal. O histórico só acrescenta, então o número de uma entrada não muda.
     HistoryUndo(u32),
+    /// `nodusctl preset adopt <NODUS_PRESET>`: a CLI pergunta item a item (`s/N/i/q`) dentro do terminal e só então acrescenta ao
+    /// preset (e ao `config.toml`, no `i`). Escrita sem root.
+    PresetAdopt,
 }
 
 impl Action {
-    /// Nome exato mais o argumento numérico: `history_undo` exige `n >= 1`, e `preset_apply` recusa qualquer `n` (argumento que a
-    /// ação não definiu é recusado, não ignorado).
+    /// Nome exato mais o argumento numérico: `history_undo` exige `n >= 1`, e `preset_apply` e `preset_adopt` recusam qualquer `n`
+    /// (argumento que a ação não definiu é recusado, não ignorado).
     pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
         match (name, n) {
             ("preset_apply", None) => Ok(Self::PresetApply),
+            ("preset_adopt", None) => Ok(Self::PresetAdopt),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
-            ("preset_apply" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -44,6 +48,7 @@ impl Action {
         match self {
             Self::PresetApply => vec!["preset".into(), "apply".into()],
             Self::HistoryUndo(n) => vec!["history".into(), "undo".into(), n.to_string()],
+            Self::PresetAdopt => vec!["preset".into(), "adopt".into()],
         }
     }
 }
@@ -150,7 +155,7 @@ pub fn run(name: &str, n: Option<u32>, env: Env, gui_version: (u64, u64, u64)) -
     let action = Action::parse(name, n)?;
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match action {
-        Action::PresetApply => args.push(resolve_preset(env.preset)?.into_os_string()),
+        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
         Action::HistoryUndo(_) => {}
     }

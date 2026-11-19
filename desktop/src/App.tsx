@@ -567,7 +567,20 @@ function PresetScreen({ onRefresh }: { onRefresh: () => void }) {
   );
 }
 
-function SuggestScreen() {
+function SuggestAction({ onRefresh }: { onRefresh: () => void }) {
+  return (
+    <TerminalAction
+      prefix="suggest"
+      buttonId="suggest-adotar"
+      label="Adotar no terminal"
+      confirmWhat="a adoção"
+      run={() => runAction("preset_adopt")}
+      onRefresh={onRefresh}
+    />
+  );
+}
+
+function SuggestScreen({ onRefresh }: { onRefresh: () => void }) {
   const state = useLoad("preset_suggest", parsePresetSuggest);
 
   if (state.status === "loading") return <p>Procurando o que está instalado e fora do preset…</p>;
@@ -575,6 +588,8 @@ function SuggestScreen() {
 
   const s = state.data;
   const nothing = s.pacmanExtra.length === 0 && s.foreignExtra.length === 0 && s.flatpakExtra.length === 0;
+  // O `adopt` só pergunta pacman e Flatpak; os de fora dos repositórios ele só informa.
+  const canAdopt = s.pacmanExtra.length > 0 || s.flatpakExtra.length > 0;
   return (
     <section>
       <h1>Sugestões</h1>
@@ -601,8 +616,9 @@ function SuggestScreen() {
           {`${s.ignored.length} ${s.ignored.length === 1 ? "ignorado" : "ignorados"} pelo config. Para ver todos, use \`nodusctl preset suggest --all\` no terminal.`}
         </p>
       )}
+      {canAdopt && <SuggestAction onRefresh={onRefresh} />}
       <p data-testid="suggest-nota" className="detail">
-        Só leitura: nada foi alterado. Para adotar, use `nodusctl preset adopt` no terminal.
+        Esta janela não adota nada e nada foi alterado: o botão abre um terminal, e lá o `nodusctl preset adopt` pergunta item a item.
       </p>
     </section>
   );
@@ -627,6 +643,8 @@ export default function App() {
   const [presetKey, setPresetKey] = useState(0);
   // O mesmo para o Histórico (depois de a CLI desfazer algo no terminal).
   const [historyKey, setHistoryKey] = useState(0);
+  // E para as Sugestões (depois de a CLI adotar algo no terminal).
+  const [suggestKey, setSuggestKey] = useState(0);
   return (
     <main>
       <nav className="tabs">
@@ -643,7 +661,7 @@ export default function App() {
       {tab === "workspace" && <WorkspaceScreen />}
       {tab === "history" && <HistoryScreen key={historyKey} onRefresh={() => setHistoryKey((k) => k + 1)} />}
       {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
-      {tab === "suggest" && <SuggestScreen />}
+      {tab === "suggest" && <SuggestScreen key={suggestKey} onRefresh={() => setSuggestKey((k) => k + 1)} />}
     </main>
   );
 }
