@@ -56,6 +56,9 @@ pub enum Allowed {
     /// Só o plano (`preset plan`; nada é instalado). O arquivo do preset é o único argumento que não é fixo, e vem de
     /// `NODUS_PRESET` lido aqui no Rust, nunca do frontend. `preset apply` e `preset adopt` instalam ou escrevem e ficam de fora.
     PresetPlan,
+    /// Só a sugestão (`preset suggest`, sem `--all`; só lê o pacman, o Flatpak e o `config.toml`). Mesmo arquivo de `NODUS_PRESET`.
+    /// `preset adopt`, `ignored` e `unignore` escrevem e ficam de fora.
+    PresetSuggest,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -72,6 +75,7 @@ impl Allowed {
             "workspace" => Some(Self::Workspace),
             "history" => Some(Self::History),
             "preset_plan" => Some(Self::PresetPlan),
+            "preset_suggest" => Some(Self::PresetSuggest),
             _ => None,
         }
     }
@@ -86,13 +90,16 @@ impl Allowed {
             Self::Workspace => vec!["workspace", "--json"],
             Self::History => vec!["history", "--json"],
             Self::PresetPlan => vec!["preset", "plan", "--json"],
+            Self::PresetSuggest => vec!["preset", "suggest", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History | Self::PresetPlan => DEFAULT_TIMEOUT,
+            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History | Self::PresetPlan | Self::PresetSuggest => {
+                DEFAULT_TIMEOUT
+            }
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
@@ -296,7 +303,7 @@ pub fn read_with(
         .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
     // O caminho é conferido antes de executar qualquer coisa. Um argumento só (sem shell), então espaço não separa nada.
     let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
-    if allowed == Allowed::PresetPlan {
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest) {
         argv.push(resolve_preset(preset)?.into_os_string());
     }
 
