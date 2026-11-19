@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 1), ADR 0027: ações na GUI
+
+- **Pedido**: o ADR das ações privilegiadas, antes de qualquer botão que escreva (pendência da sessão 22). Plan mode, só documentação.
+- **Decisões do dono (2026-11-19, via `AskUserQuestion`)**: (1) a GUI **abre um terminal** já rodando `nodusctl <comando>`, e a CLI segue dona do plano, do `[s/N]` e do `sudo`; (2) **tudo ou nada**: as escritas sem root (`dotfiles adopt/link/undo`, `workspace set/unset`, `preset adopt/ignore`) usam o mesmo mecanismo. Descartadas: só mostrar o comando (vira fallback), confirmar na GUI com polkit (custo de reverter difícil), regra por classe.
+- **Feito**: `adr/0027-acoes-na-gui.md` e uma linha em `SECURITY.md` §4. Nenhum código, nenhum botão, `Allowed` intacto.
+- **Medido (sem lançar nada)**: só o `konsole` 26.08.3 está instalado (`-e`, `--hold`); `xdg-terminal-exec` não; `$TERMINAL` vazio. Não existe índice de ADRs a atualizar.
+- **Não verificado**: tudo o que depende de lançar o terminal (espaço no caminho, ambiente herdado, manter a janela aberta, Wayland versus X11); a escolha do terminal em outras máquinas.
+- **Fica**: primeira ação de verdade (`preset apply`) num PR próprio, com plan mode para escolher o terminal depois de medir; ver as quatro abas de leitura na janela real; lentidão do `apt` no CI Desktop; P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22, GUI desktop: aba Sugestões (PR #97)
 
 - **Pedido**: seguir com a tela `preset suggest` (recomendação minha, aprovada pelo dono), mecânica, sem plan mode. Antes, limpeza do disco: `rm -rf desktop/src-tauri/target` (3,1 GB; o `nodus` foi de 3,3 GB para 205 MB, `/home` de 75% para 73%), com confirmação do dono.
