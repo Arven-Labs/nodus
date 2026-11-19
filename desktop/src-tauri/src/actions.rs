@@ -241,10 +241,10 @@ mod tests {
     fn esperar(path: &Path, pronto: impl Fn(&str) -> bool) -> String {
         let limite = Instant::now() + Duration::from_secs(5);
         loop {
-            if let Ok(texto) = fs::read_to_string(path) {
-                if pronto(&texto) {
-                    return texto;
-                }
+            if let Ok(texto) = fs::read_to_string(path)
+                && pronto(&texto)
+            {
+                return texto;
             }
             assert!(Instant::now() < limite, "{} não ficou pronto em 5 s", path.display());
             std::thread::sleep(Duration::from_millis(20));
