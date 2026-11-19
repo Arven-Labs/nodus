@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-18 — Sessão 21 (continuação 17), GUI desktop: aba Preset (PR #96)
+
+- **Pedido**: seguir para a tela `preset plan`. Diferente das telas anteriores, ela precisa de um **argumento** (o arquivo), e o contrato do ADR 0026 manda só o nome do comando; por isso a escolha do caminho foi perguntada.
+- **Decisões do dono (2026-11-18)**: o caminho vem da variável `NODUS_PRESET` (absoluto, lido no Rust, como o `NODUSCTL`), uma tela por PR (só `preset plan`). Descartadas: chave `preset_file` no `config.toml` (muda a CLI, ADR novo) e seletor de arquivo (o webview passaria a escolher caminho; plugin novo). Prazo de 30 s mantido por padrão minha (o dono não respondeu a pergunta).
+- **Feito**: `Allowed::PresetPlan` (nome `preset_plan`; `preset apply`, `adopt`, `suggest` e variantes com espaço ou argumento recusados); `resolve_preset` (ausente: `preset_not_set`; relativo ou vazio: `invalid_preset`; conferido **antes** de executar qualquer coisa e só para o `preset_plan`, então uma `NODUS_PRESET` ruim não derruba as outras abas); `run` aceita `OsString`; `read` e `read_with` recebem o valor cru da variável; `src/lib/preset.ts` (parser estrito do `Plan`); `PresetScreen` (pacman a instalar e presentes, indisponíveis em seção própria, Flatpak ausente, "nada a fazer" vs "nada a instalar", nota de só leitura).
+- **Testes primeiro**: commit só com os testes: CI Desktop frontend **vermelho** (o job falhou em 17 s; o motivo não foi lido, porque os logs só abrem com a rodada inteira). O vermelho do Rust **não foi observado**: o job travou no `apt` e implementei antes. Depois, tudo verde (Desktop Rust precisou de cancelar e rerodar por causa do `apt`).
+- **Mutação** (três, num commit, revertido com `git revert`): (A) allowlist por prefixo derrubou `preset_plan_so_o_plano_sem_apply_nem_adopt`; (B) caminho relativo aceito derrubou `caminho_relativo_ou_vazio_e_recusado_e_nada_executa` e `resolve_preset_so_aceita_caminho_absoluto`; (C) contagem frouxa (`Number`) derrubou 1 teste do parser. Rust: 39 passaram, 3 falharam. Tropeço meu: `git revert -q` não existe e falhou em silêncio; o `--amend` seguinte reescreveu só a mensagem da mutação; o push foi recusado, resetei para o remoto e refiz o revert. A árvore final é idêntica à do commit da implementação.
+- **CI final** (estado revertido): verde em tudo (Desktop Rust, frontend, `cargo-deny`, Rust da CLI, `guard`).
+- **Não verificado**: a aba na janela real; `preset plan --json <caminho absoluto>` real no Arch (flag antes do posicional: é suposição minha sobre o `clap`, não rodei; não há `nodusctl` instalado nesta máquina); `NODUS_PRESET` relativa ou ausente na janela real; o prazo de 30 s no pior caso (máquina nova, muitos itens faltando, `pacman --print` item a item); o vermelho do Rust antes da implementação.
+- **Fica**: ver as abas Workspace, Histórico e Preset na janela (`NODUS_PRESET=/abs/preset.toml NODUSCTL=/abs/nodusctl npm run tauri dev`); tela `preset suggest` (reaproveita o mecanismo do caminho); ADR das ações privilegiadas; lentidão do `apt` no CI Desktop; P-02; P-14; P-17.
+
 ### 2026-11-18 — Sessão 21 (continuação 16), GUI desktop: aba Histórico (PR #95)
 
 - **Pedido**: seguir com a próxima tela de leitura (`history`), mecânica, sem plan mode.
