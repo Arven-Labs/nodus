@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 5), GUI desktop: quarta ação, "Esquecer no terminal" (PR #102)
+
+- **Pedido**: "segue no workspace unset". Sem plan mode (receita dos PRs #99 a #101); duas escolhas minhas, ainda sem revisão do dono: botão só com origem `stored`, e texto sem promessa de confirmação.
+- **Feito**: `Action::WorkspaceUnset` (sem `n`, sem preset); `runAction("workspace_unset")`; botão na aba Workspace (que agora relê ao "Atualizar") e nota da aba; `confirmWhat` de `TerminalAction` virou opcional; emenda ao ADR 0027.
+- **Achado**: o `workspace unset` da CLI **não pergunta**. Pelo ADR 0027 a confirmação seria da CLI, mas aqui o clique já esquece a escolha (reversível com `workspace set`). Registrado na emenda; reabre se o dono quiser uma pergunta na CLI.
+- **Testes primeiro**: commit só com os testes, **vermelho observado e lido**: Rust com `no variant WorkspaceUnset` (E0599), e2e com 11 falhas esperando `workspace-esquecer` e `workspace-nota`.
+- **Mutação** (quatro, todas compilando, lição da sessão anterior): (A) `workspace_unset` fora do braço `invalid_argument`; (B) `unset` exigindo preset; (C) botão sempre que há workspace; (D) botão com `confirmWhat`. Rust: 75 passaram, 5 falharam; e2e: 126 passaram, 3 falharam. Revertidas com `git revert`; estado final idêntico ao `dbc921f`.
+- **CI** (implementação, `dbc921f`): verde em tudo.
+- **Não verificado**: o botão na janela real (com um `workspace set` feito antes; a origem `stored` só aparece assim); a variável `NODUS_WORKSPACE` ligada, que esconde a escolha gravada e portanto o botão.
+- **Fica**: o dono verificar na janela; próximas ações, uma por PR: as de caminho (dotfiles adopt/link, `workspace set`), com desenho prévio; P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 4), GUI desktop: terceira ação, "Adotar no terminal" (PR #101)
 
 - **Pedido**: "próxima ação da GUI: preset adopt". Sem plan mode (receita já feita nos PRs #99 e #100); o dono aprovou as duas decisões de produto: botão só com pacman ou Flatpak fora do preset, e nota nova na aba.
