@@ -324,6 +324,14 @@ function WorkspaceScreen({ onRefresh }: { onRefresh: () => void }) {
               <li key={i} data-testid="workspace-candidato">
                 <strong>{c.path}</strong>
                 <div className="detail">{repoCountText(c.repoCount)}</div>
+                {/* O caminho do candidato é o que a CLI acabou de listar; o Rust o confere de novo antes de abrir o terminal (ADR 0028). */}
+                <TerminalAction
+                  prefix="workspace-usar"
+                  buttonId="workspace-usar"
+                  label="Usar no terminal"
+                  run={() => runAction("workspace_set", c.path)}
+                  onRefresh={onRefresh}
+                />
               </li>
             ))}
           </ul>

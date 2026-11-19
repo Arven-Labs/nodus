@@ -26,18 +26,19 @@ async fn read_nodusctl(command: String) -> Result<String, CmdError> {
 }
 
 /// Segundo comando da janela, e o único que lança algo que escreve (ADR 0027): abre um terminal rodando `nodusctl <ação>`, da lista
-/// fechada de `actions::Action`. O frontend manda o nome e, só na `history_undo`, o número `n` (inteiro `u32`: o Tauri já recusa texto,
-/// negativo e fracionário ao desserializar); o arquivo do preset, o terminal e o `PATH` são lidos aqui, no Rust.
+/// fechada de `actions::Action`. O frontend manda o nome e, no máximo, um argumento: o número `n` da `history_undo` (inteiro `u32`: o
+/// Tauri já recusa texto, negativo e fracionário ao desserializar) ou o `path` da `workspace_set`, que o Rust só aceita se for idêntico
+/// a um item que a CLI lista na hora (ADR 0028). O arquivo do preset, o terminal e o `PATH` são lidos aqui, no Rust.
 /// A GUI não confirma, não pede senha e não roda `sudo`: isso é da CLI, no terminal.
 #[tauri::command]
-async fn run_action(command: String, n: Option<u32>) -> Result<actions::Outcome, CmdError> {
+async fn run_action(command: String, n: Option<u32>, path: Option<String>) -> Result<actions::Outcome, CmdError> {
     let env = actions::Env {
         binary: binary()?,
         preset: std::env::var_os("NODUS_PRESET"),
         terminal: std::env::var_os("NODUS_TERMINAL"),
         path: std::env::var_os("PATH"),
     };
-    tauri::async_runtime::spawn_blocking(move || actions::run(&command, n, env, gui_version()))
+    tauri::async_runtime::spawn_blocking(move || actions::run(&command, n, path, env, gui_version()))
         .await
         .map_err(|e| CmdError { kind: "failed", message: format!("a ação foi interrompida: {e}") })?
 }

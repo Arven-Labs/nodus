@@ -13,10 +13,10 @@ use std::process::{Command, Stdio};
 /// nunca no texto do script. Um caminho como `x'; rm -rf ~; '` é, para o `sh`, um valor de `$1`, não código.
 pub const WRAPPER: &str = r#""$@"; code=$?; printf '\nFim (código %s). Enter para fechar.' "$code"; read _"#;
 
-/// As ações que escrevem, em lista fechada. Só o nome exato entra; cada uma tem os argumentos fixos. O único argumento que a tela
-/// pode mandar é **numérico** (`u32`, o mesmo tipo da CLI): um inteiro não tem sintaxe para escapar de nada. Texto e caminho vindos da
-/// tela não existem aqui; o arquivo do preset vem de `NODUS_PRESET`, lido no Rust.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// As ações que escrevem, em lista fechada. Só o nome exato entra; cada uma tem os argumentos fixos. A tela pode mandar um número
+/// (`u32`, o mesmo tipo da CLI: um inteiro não tem sintaxe para escapar de nada) ou um **caminho**, e este só vale se for idêntico a
+/// um item da lista que a própria CLI produz na hora (ADR 0028). O arquivo do preset vem de `NODUS_PRESET`, lido no Rust.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     /// `nodusctl preset apply <NODUS_PRESET>`: roda `sudo pacman -S` e `flatpak install` dentro do terminal, com a confirmação da CLI.
     PresetApply,
@@ -29,9 +29,25 @@ pub enum Action {
     /// `nodusctl workspace unset`: apaga a escolha gravada no `config.toml` (escrita sem root, sem preset). A CLI **não pergunta**
     /// nada; o terminal só mostra o resultado. É reversível com `workspace set`.
     WorkspaceUnset,
+    /// `nodusctl workspace set -- <pasta>`: grava a pasta no `config.toml` (escrita sem root, sem preset). A pasta vem da tela e só
+    /// chega aqui depois de `run` conferir que ela é um dos `candidates` de `nodusctl workspace --json` (ADR 0028). A CLI **não
+    /// pergunta** nada.
+    WorkspaceSet(String),
 }
 
 impl Action {
+    /// Nome exato mais o caminho vindo da tela. Só `workspace_set` define argumento de caminho; nas outras ações um caminho é
+    /// recusado, não ignorado. Esta função só confere a forma: quem confere o caminho contra a lista da CLI é `run`.
+    pub fn parse_path(name: &str, path: String) -> Result<Self, CmdError> {
+        match name {
+            "workspace_set" => Ok(Self::WorkspaceSet(path)),
+            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" => {
+                Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
+            }
+            _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
+        }
+    }
+
     /// Nome exato mais o argumento numérico: `history_undo` exige `n >= 1`, e as demais recusam qualquer `n` (argumento que a ação
     /// não definiu é recusado, não ignorado).
     pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
@@ -40,7 +56,8 @@ impl Action {
             ("preset_adopt", None) => Ok(Self::PresetAdopt),
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
-            ("preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo", _) => {
+            // `workspace_set` sem caminho (ou com `n`): a ação não existe sem o caminho, que entra por `parse_path`.
+            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -48,12 +65,14 @@ impl Action {
     }
 
     /// Os argumentos fixos. No `PresetApply`, o caminho do arquivo é acrescentado depois, por `run`.
-    pub fn args(self) -> Vec<String> {
+    pub fn args(&self) -> Vec<String> {
         match self {
             Self::PresetApply => vec!["preset".into(), "apply".into()],
             Self::HistoryUndo(n) => vec!["history".into(), "undo".into(), n.to_string()],
             Self::PresetAdopt => vec!["preset".into(), "adopt".into()],
             Self::WorkspaceUnset => vec!["workspace".into(), "unset".into()],
+            // O `--` encerra as opções: uma pasta chamada `-x` é a pasta, não uma flag.
+            Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
         }
     }
 }
@@ -154,18 +173,45 @@ pub fn display_command(parts: &[OsString]) -> String {
     parts.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ")
 }
 
+/// Confere que `path` é idêntico (texto exato) a um `candidates[].path` de `nodusctl workspace --json`, relido agora. Lista que não
+/// tem a forma esperada é erro (`bad_list`), nunca "sem candidatos". A leitura já confere a versão da CLI.
+fn require_workspace_candidate(binary: &Path, gui_version: (u64, u64, u64), path: &str) -> Result<(), CmdError> {
+    let bad = |why: &str| CmdError::new("bad_list", format!("a lista de candidatos do nodusctl não tem a forma esperada: {why}"));
+    let text = crate::nodusctl::read(binary, "workspace", gui_version, None)?;
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| bad("não é JSON"))?;
+    let candidates = json.get("candidates").and_then(|c| c.as_array()).ok_or_else(|| bad("falta `candidates`"))?;
+    let paths = candidates
+        .iter()
+        .map(|c| c.get("path").and_then(|p| p.as_str()).ok_or_else(|| bad("candidato sem `path` de texto")))
+        .collect::<Result<Vec<&str>, CmdError>>()?;
+    if paths.contains(&path) {
+        Ok(())
+    } else {
+        Err(CmdError::new("not_in_list", "o caminho não está entre os candidatos que o nodusctl lista agora (use o botão de um candidato da tela, ou o terminal)"))
+    }
+}
+
 /// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
-/// existir). Ordem: lista, arquivo do preset, terminal, versão da CLI, e só então o processo. Falta de terminal devolve o comando.
-pub fn run(name: &str, n: Option<u32>, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome, CmdError> {
-    let action = Action::parse(name, n)?;
+/// existir). Ordem: lista, arquivo do preset, terminal, versão da CLI (e, para um caminho da tela, a lista da CLI), e só então o
+/// processo. Falta de terminal devolve o comando.
+pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome, CmdError> {
+    let action = match (n, path) {
+        (Some(_), Some(_)) => return Err(CmdError::new("invalid_argument", "número e caminho juntos")),
+        (n, None) => Action::parse(name, n)?,
+        (None, Some(path)) => Action::parse_path(name, path)?,
+    };
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
-    match action {
+    match &action {
         Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
-        Action::HistoryUndo(_) | Action::WorkspaceUnset => {}
+        Action::HistoryUndo(_) | Action::WorkspaceUnset | Action::WorkspaceSet(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
-    check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?;
+    match &action {
+        // A leitura da lista já confere a versão da CLI (um `--version` só).
+        Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
+        _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
+    }
 
     let mut parts = vec![env.binary.clone().into_os_string()];
     parts.extend(args.iter().cloned());
