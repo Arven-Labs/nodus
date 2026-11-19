@@ -13,26 +13,37 @@ use std::process::{Command, Stdio};
 /// nunca no texto do script. Um caminho como `x'; rm -rf ~; '` é, para o `sh`, um valor de `$1`, não código.
 pub const WRAPPER: &str = r#""$@"; code=$?; printf '\nFim (código %s). Enter para fechar.' "$code"; read _"#;
 
-/// As ações que escrevem, em lista fechada. Só o nome exato entra; cada uma tem os argumentos fixos. Argumento vindo da tela não
-/// existe: o arquivo do preset vem de `NODUS_PRESET`, lido no Rust.
+/// As ações que escrevem, em lista fechada. Só o nome exato entra; cada uma tem os argumentos fixos. O único argumento que a tela
+/// pode mandar é **numérico** (`u32`, o mesmo tipo da CLI): um inteiro não tem sintaxe para escapar de nada. Texto e caminho vindos da
+/// tela não existem aqui; o arquivo do preset vem de `NODUS_PRESET`, lido no Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     /// `nodusctl preset apply <NODUS_PRESET>`: roda `sudo pacman -S` e `flatpak install` dentro do terminal, com a confirmação da CLI.
     PresetApply,
+    /// `nodusctl history undo <n>`, `n >= 1`: o `sudo pacman -Rs` (ou a reversão de dotfile) é da CLI, que simula, mostra o plano e
+    /// confirma dentro do terminal. O histórico só acrescenta, então o número de uma entrada não muda.
+    HistoryUndo(u32),
 }
 
 impl Action {
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "preset_apply" => Some(Self::PresetApply),
-            _ => None,
+    /// Nome exato mais o argumento numérico: `history_undo` exige `n >= 1`, e `preset_apply` recusa qualquer `n` (argumento que a
+    /// ação não definiu é recusado, não ignorado).
+    pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
+        match (name, n) {
+            ("preset_apply", None) => Ok(Self::PresetApply),
+            ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
+            ("preset_apply" | "history_undo", _) => {
+                Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
+            }
+            _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
         }
     }
 
     /// Os argumentos fixos. No `PresetApply`, o caminho do arquivo é acrescentado depois, por `run`.
-    pub fn args(self) -> Vec<&'static str> {
+    pub fn args(self) -> Vec<String> {
         match self {
-            Self::PresetApply => vec!["preset", "apply"],
+            Self::PresetApply => vec!["preset".into(), "apply".into()],
+            Self::HistoryUndo(n) => vec!["history".into(), "undo".into(), n.to_string()],
         }
     }
 }
@@ -135,11 +146,13 @@ pub fn display_command(parts: &[OsString]) -> String {
 
 /// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
 /// existir). Ordem: lista, arquivo do preset, terminal, versão da CLI, e só então o processo. Falta de terminal devolve o comando.
-pub fn run(name: &str, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome, CmdError> {
-    let action = Action::parse(name).ok_or_else(|| CmdError::new("not_allowed", format!("ação não permitida: {name:?}")))?;
+pub fn run(name: &str, n: Option<u32>, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome, CmdError> {
+    let action = Action::parse(name, n)?;
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match action {
         Action::PresetApply => args.push(resolve_preset(env.preset)?.into_os_string()),
+        // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
+        Action::HistoryUndo(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?;
