@@ -32,7 +32,7 @@ impl Action {
         match (name, n) {
             ("preset_apply", _) => Ok(Self::PresetApply),
             ("history_undo", Some(n)) => Ok(Self::HistoryUndo(n)),
-            ("preset_apply" | "history_undo", _) => {
+            ("history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
