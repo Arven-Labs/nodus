@@ -2,6 +2,16 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 4), GUI desktop: terceira ação, "Adotar no terminal" (PR #101)
+
+- **Pedido**: "próxima ação da GUI: preset adopt". Sem plan mode (receita já feita nos PRs #99 e #100); o dono aprovou as duas decisões de produto: botão só com pacman ou Flatpak fora do preset, e nota nova na aba.
+- **Feito**: `Action::PresetAdopt` (sem `n`, preset obrigatório de `NODUS_PRESET`); `runAction("preset_adopt")`; `SuggestAction` na aba Sugestões, que agora relê ao "Atualizar" (`suggestKey`); nota da aba trocada; emenda ao ADR 0027.
+- **Testes primeiro**: commit só com os testes, **vermelho observado e lido**: Rust com `no variant PresetAdopt` (2 erros E0599), e2e estourando 30 s esperando `suggest-adotar`.
+- **Mutação** (três): (A) `preset_adopt` fora do braço `invalid_argument` derrubou 7 testes Rust (68 passaram, 7 falharam); (B) preset ignorado no `adopt` entrou no mesmo commit, e os testes do argv falham junto (não isolada da A); (C) botão com `!nothing` (inclui "de fora dos repositórios") derrubou 1 e2e (117 passaram, 1 falhou). **Tropeço repetido**: a primeira forma da A (`("preset_adopt", _)` antes do braço de erro) foi barrada pelo compilador (`unreachable pattern`, `-D warnings`), então o Rust nem rodou os testes; a A foi refeita de forma que compila. Revertidas com `git revert`; o estado final é idêntico ao `a6ae6e8`.
+- **CI** (implementação, `a6ae6e8`): verde em tudo.
+- **Não verificado**: o botão na janela real (abrir o `konsole`, responder `s`/`i`/`q`, "Atualizar"); a escrita no preset e no `config.toml` a partir da GUI; o `adopt` com Flatpak.
+- **Fica**: o dono verificar na janela (`NODUS_PRESET=/abs/preset.toml NODUSCTL=/abs/nodusctl npm run tauri dev`, aba Sugestões, responder `q` ou `N` para não mexer); próximas ações, uma por PR: `workspace unset` (sem argumento), depois as de caminho com desenho prévio; P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 3), GUI desktop: segunda ação, "Desfazer no terminal" (PR #100)
 
 - **Pedido**: "as próximas ações". Plan mode; o dono escolheu `history undo <n>` primeiro (as demais ficam para PRs seguintes, uma por PR). Primeira ação com **argumento vindo da tela**.
