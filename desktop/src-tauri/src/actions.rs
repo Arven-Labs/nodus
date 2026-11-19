@@ -315,6 +315,9 @@ mod tests {
             "preset adopt", "preset_adopt /tmp/p.toml", "preset_adopt --yes", "Preset_adopt", "PRESET_ADOPT", "preset_adopt ", " preset_adopt",
             "preset_adopt\n", "preset_adopt;ls", "preset-adopt", "preset_adoptx", "preset_adopts", "preset_ignore", "preset_unignore",
             "preset_suggest",
+            "workspace unset", "workspace_unset /tmp/ws", "workspace_unset --yes", "Workspace_unset", "WORKSPACE_UNSET", "workspace_unset ",
+            " workspace_unset", "workspace_unset\n", "workspace_unset;ls", "workspace-unset", "workspace_unsetx", "workspace_unsets",
+            "workspace",
         ] {
             let erro = Action::parse(nome, None).unwrap_err();
             assert_eq!(erro.kind, "not_allowed", "{nome:?} não pode passar: a lista de ações é fechada");
@@ -327,6 +330,8 @@ mod tests {
         assert_eq!(crate::nodusctl::Allowed::parse("history_undo"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(crate::nodusctl::Allowed::parse("preset_adopt"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(Action::parse("preset_suggest", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
+        assert_eq!(crate::nodusctl::Allowed::parse("workspace_unset"), None, "ação não pode entrar pela porta da leitura");
+        assert_eq!(Action::parse("workspace", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
         assert_eq!(Action::parse("preset_plan", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
         assert_eq!(Action::parse("history", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
     }
@@ -352,7 +357,15 @@ mod tests {
             assert_eq!(erro.kind, "invalid_argument", "{n}");
             let erro = Action::parse("preset_adopt", Some(n)).unwrap_err();
             assert_eq!(erro.kind, "invalid_argument", "preset_adopt {n}");
+            let erro = Action::parse("workspace_unset", Some(n)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_argument", "workspace_unset {n}");
         }
+    }
+
+    #[test]
+    fn workspace_unset_e_uma_acao_da_lista_com_argumentos_fixos() {
+        assert_eq!(Action::parse("workspace_unset", None), Ok(Action::WorkspaceUnset));
+        assert_eq!(Action::WorkspaceUnset.args(), vec!["workspace", "unset"]);
     }
 
     #[test]
@@ -724,6 +737,69 @@ mod tests {
         let saida = chamar("preset_adopt", env(&bin, Some("/tmp/p.toml"), None, Some(&vazio))).unwrap();
         assert!(!saida.launched);
         assert_eq!(saida.command, format!("{} preset adopt /tmp/p.toml", bin.display()));
+        nada_lancado(&dir);
+    }
+
+    // --- workspace unset: escrita sem root (apaga a escolha do `config.toml`), sem argumento e sem preset ---
+
+    #[test]
+    fn workspace_unset_lanca_o_terminal_com_o_argv_exato() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let saida = chamar("workspace_unset", env(&bin, None, Some(&term), None)).unwrap();
+        assert!(saida.launched);
+        assert_eq!(
+            argumentos_do_terminal(&dir),
+            ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "workspace", "unset"]
+        );
+        assert_eq!(saida.command, format!("{} workspace unset", bin.display()));
+        assert_eq!(chamadas(&dir), ["--version"], "a GUI só confere a versão; o `unset` roda dentro do terminal");
+    }
+
+    #[test]
+    fn workspace_unset_nao_precisa_nem_le_o_preset() {
+        // `NODUS_PRESET` ausente ou ruim não pode atrapalhar uma ação que não usa preset, e nada dele vai para o argv.
+        for preset in [None, Some("relativo.toml"), Some(""), Some("/tmp/p.toml")] {
+            let dir = pasta();
+            let bin = nodusctl_falso(&dir, "0.1.4");
+            let term = terminal_que_grava(&dir);
+            let saida = chamar("workspace_unset", env(&bin, preset, Some(&term), None)).unwrap();
+            assert!(saida.launched, "{preset:?}");
+            assert_eq!(argumentos_do_terminal(&dir)[5..], [bin.to_str().unwrap(), "workspace", "unset"]);
+        }
+    }
+
+    #[test]
+    fn workspace_unset_com_n_solto_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar_n("workspace_unset", Some(1), env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn workspace_unset_segue_as_mesmas_regras_de_terminal_versao_e_fallback() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.2.0");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar("workspace_unset", env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch");
+        nada_lancado(&dir);
+
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let erro = chamar("workspace_unset", env(&bin, None, Some(Path::new("/bin/sh")), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_terminal");
+        assert!(chamadas(&dir).is_empty());
+
+        let vazio = pasta();
+        let saida = chamar("workspace_unset", env(&bin, None, None, Some(&vazio))).unwrap();
+        assert!(!saida.launched);
+        assert_eq!(saida.command, format!("{} workspace unset", bin.display()));
         nada_lancado(&dir);
     }
 }
