@@ -305,6 +305,20 @@ mod tests {
     }
 
     #[test]
+    fn workspace_set_aceita_pasta_depois_do_duplo_hifen() {
+        // A GUI (ADR 0028) sempre manda `--` antes do caminho: um nome que começa com `-` é a pasta, não uma opção.
+        let cli = Cli::try_parse_from(["nodus", "workspace", "set", "--", "-x"]).unwrap();
+        match cli.command {
+            Command::Workspace { action: Some(WorkspaceAction::Set { dir }), .. } => {
+                assert_eq!(dir, std::path::PathBuf::from("-x"));
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let erro = Cli::try_parse_from(["nodus", "workspace", "set", "-x"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::UnknownArgument, "sem o `--`, `-x` é uma opção");
+    }
+
+    #[test]
     fn workspace_set_exige_a_pasta() {
         let erro = Cli::try_parse_from(["nodus", "workspace", "set"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
