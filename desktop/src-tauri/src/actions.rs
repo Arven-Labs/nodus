@@ -1,7 +1,172 @@
 // Ações que ESCREVEM, lançadas pela GUI (ADR 0027): nenhuma roda no processo da GUI. O botão abre um terminal já rodando
 // `nodusctl <comando>`, e a CLI segue dona do plano, do `[s/N]` e do `sudo`. Lista fechada e separada da de leitura (`Allowed`).
-//
-// Este commit só tem os testes (esperado vermelho: o módulo ainda não tem implementação).
+
+use crate::nodusctl::{check_version, resolve_preset, CmdError, DEFAULT_TIMEOUT};
+use serde::Serialize;
+use std::ffi::{OsStr, OsString};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+/// O script do `sh -c`: roda o comando (`"$@"`), mostra o código de saída e espera o Enter, para a janela não fechar e levar o
+/// resultado junto. É uma **constante de uma linha**: os dados (o `nodusctl`, o preset) entram só como parâmetros posicionais,
+/// nunca no texto do script. Um caminho como `x'; rm -rf ~; '` é, para o `sh`, um valor de `$1`, não código.
+pub const WRAPPER: &str = r#""$@"; code=$?; printf '\nFim (código %s). Enter para fechar.' "$code"; read _"#;
+
+/// As ações que escrevem, em lista fechada. Só o nome exato entra; cada uma tem os argumentos fixos. Argumento vindo da tela não
+/// existe: o arquivo do preset vem de `NODUS_PRESET`, lido no Rust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// `nodusctl preset apply <NODUS_PRESET>`: roda `sudo pacman -S` e `flatpak install` dentro do terminal, com a confirmação da CLI.
+    PresetApply,
+}
+
+impl Action {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "preset_apply" => Some(Self::PresetApply),
+            _ => None,
+        }
+    }
+
+    /// Os argumentos fixos. No `PresetApply`, o caminho do arquivo é acrescentado depois, por `run`.
+    pub fn args(self) -> Vec<&'static str> {
+        match self {
+            Self::PresetApply => vec!["preset", "apply"],
+        }
+    }
+}
+
+/// Os terminais que a GUI sabe abrir: só o que foi **medido** (ADR 0027). As flags de `-e` diferem entre emuladores, então cada
+/// um novo entra aqui depois de medido; qualquer outro cai no fallback (mostrar o comando).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Terminal {
+    /// Medido em 2026-11-19 (konsole 26.08.3): `-e <cmd> <args...>` entrega os argumentos intactos, com tty e o ambiente herdado;
+    /// o processo do `konsole` só termina quando a janela fecha.
+    Konsole,
+}
+
+impl Terminal {
+    const ALL: [Terminal; 1] = [Terminal::Konsole];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Konsole => "konsole",
+        }
+    }
+
+    fn from_file_name(name: Option<&OsStr>) -> Option<Self> {
+        let name = name?.to_str()?;
+        Self::ALL.into_iter().find(|t| t.name() == name)
+    }
+
+    /// O que vem antes do comando a executar.
+    fn before_command(self) -> &'static [&'static str] {
+        match self {
+            Self::Konsole => &["-e"],
+        }
+    }
+}
+
+/// Arquivo comum com bit de execução (segue symlink).
+fn is_executable_file(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// `NODUS_TERMINAL` (caminho absoluto, de um arquivo executável cujo nome está na tabela) ou, sem ela, a busca no `PATH` só dos
+/// nomes da tabela (entradas relativas do `PATH` são ignoradas: apontariam para o diretório atual). `Ok(None)` é o fallback.
+fn find_terminal(env_value: Option<OsString>, path: Option<OsString>) -> Result<Option<(PathBuf, Terminal)>, CmdError> {
+    if let Some(value) = env_value {
+        let candidate = PathBuf::from(value);
+        let known = Terminal::from_file_name(candidate.file_name());
+        return match known {
+            Some(terminal) if candidate.is_absolute() && is_executable_file(&candidate) => Ok(Some((candidate, terminal))),
+            _ => Err(CmdError::new(
+                "invalid_terminal",
+                format!(
+                    "NODUS_TERMINAL precisa ser o caminho absoluto de um terminal conhecido ({}) que exista e seja executável (recebi {:?})",
+                    Terminal::ALL.map(Terminal::name).join(", "),
+                    candidate.as_os_str()
+                ),
+            )),
+        };
+    }
+    let Some(path) = path else { return Ok(None) };
+    for dir in std::env::split_paths(&path).filter(|d| d.is_absolute()) {
+        for terminal in Terminal::ALL {
+            let candidate = dir.join(terminal.name());
+            if is_executable_file(&candidate) {
+                return Ok(Some((candidate, terminal)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// O que o backend lê do ambiente (só aqui, no Rust; o frontend nunca fornece nada disto).
+#[derive(Debug)]
+pub struct Env {
+    pub binary: PathBuf,
+    /// Valor cru de `NODUS_PRESET`.
+    pub preset: Option<OsString>,
+    /// Valor cru de `NODUS_TERMINAL`.
+    pub terminal: Option<OsString>,
+    /// Valor cru de `PATH`.
+    pub path: Option<OsString>,
+}
+
+/// O resultado de uma ação. `launched: false` não é erro: não há terminal conhecido, e `command` é o que o dono cola num terminal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Outcome {
+    pub launched: bool,
+    pub command: String,
+}
+
+/// Escreve o comando para **mostrar** ao dono, com aspas simples quando preciso. Nunca é executado: o que roda é o `argv`.
+pub fn display_command(parts: &[OsString]) -> String {
+    fn quote(part: &OsStr) -> String {
+        let text = part.to_string_lossy();
+        let plain = !text.is_empty()
+            && text.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | ':' | '=' | '@' | '%' | '+' | ',' | '-'));
+        if plain { text.into_owned() } else { format!("'{}'", text.replace('\'', "'\\''")) }
+    }
+    parts.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ")
+}
+
+/// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
+/// existir). Ordem: lista, arquivo do preset, terminal, versão da CLI, e só então o processo. Falta de terminal devolve o comando.
+pub fn run(name: &str, env: Env, gui_version: (u64, u64, u64)) -> Result<Outcome, CmdError> {
+    let action = Action::parse(name).ok_or_else(|| CmdError::new("not_allowed", format!("ação não permitida: {name:?}")))?;
+    let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
+    match action {
+        Action::PresetApply => args.push(resolve_preset(env.preset)?.into_os_string()),
+    }
+    let terminal = find_terminal(env.terminal, env.path)?;
+    check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?;
+
+    let mut parts = vec![env.binary.clone().into_os_string()];
+    parts.extend(args.iter().cloned());
+    let command = display_command(&parts);
+    let Some((terminal_path, terminal)) = terminal else {
+        return Ok(Outcome { launched: false, command });
+    };
+
+    // Sem shell na nossa mão: lista de argumentos. O `sh -c` é do invólucro constante e recebe os dados como parâmetros.
+    let mut child = Command::new(&terminal_path)
+        .args(terminal.before_command())
+        .args(["sh", "-c", WRAPPER, "sh"])
+        .args(&parts)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| CmdError::new("launch_failed", format!("não consegui abrir o terminal {}: {e}", terminal_path.display())))?;
+    // Recolhe o processo quando a janela fechar (sem zumbi), sem segurar a GUI.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(Outcome { launched: true, command })
+}
 
 #[cfg(test)]
 mod tests {
