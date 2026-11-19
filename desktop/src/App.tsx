@@ -361,7 +361,7 @@ function HistoryItem({ entry, n, canUndo, onRefresh }: { entry: HistoryEntry; n:
           buttonId="history-desfazer"
           label="Desfazer no terminal"
           confirmWhat="a remoção"
-          run={() => runAction("history_undo", n)}
+          run={() => runAction("history_undo", n - 1)}
           onRefresh={onRefresh}
         />
       )}

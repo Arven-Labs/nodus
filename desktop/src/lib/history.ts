@@ -108,9 +108,9 @@ export function canUndo(entries: HistoryEntry[], n: number): boolean {
   const entry = entries[n - 1];
   if (entry === undefined || entry.undoes !== null) return false;
   const reversible =
-    (entry.manager === "pacman" && entry.action === "install") ||
+    entry.action === "install" ||
     (entry.manager === "dotfiles" && (entry.action === "adopt" || entry.action === "link"));
-  return reversible && !entries.some((other) => other.undoes === n && other.result.status === "ok");
+  return reversible;
 }
 
 /** `2023-11-14 22:13:20 UTC`: a mesma forma do `nodusctl history`, sem fuso local. */

@@ -30,8 +30,8 @@ impl Action {
     /// ação não definiu é recusado, não ignorado).
     pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
         match (name, n) {
-            ("preset_apply", None) => Ok(Self::PresetApply),
-            ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
+            ("preset_apply", _) => Ok(Self::PresetApply),
+            ("history_undo", Some(n)) => Ok(Self::HistoryUndo(n)),
             ("preset_apply" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
