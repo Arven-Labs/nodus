@@ -330,11 +330,12 @@ function WorkspaceScreen({ onRefresh }: { onRefresh: () => void }) {
         </>
       )}
       {/* O `unset` só tem o que apagar na escolha gravada; as outras origens (HOME, NODUS_WORKSPACE, argumento) ele não muda. */}
-      {chosen?.source === "stored" && (
+      {chosen !== null && (
         <TerminalAction
           prefix="workspace"
           buttonId="workspace-esquecer"
           label="Esquecer no terminal"
+          confirmWhat="a remoção"
           run={() => runAction("workspace_unset")}
           onRefresh={onRefresh}
         />

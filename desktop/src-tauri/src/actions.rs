@@ -40,7 +40,7 @@ impl Action {
             ("preset_adopt", None) => Ok(Self::PresetAdopt),
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
-            ("preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -160,9 +160,9 @@ pub fn run(name: &str, n: Option<u32>, env: Env, gui_version: (u64, u64, u64)) -
     let action = Action::parse(name, n)?;
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match action {
-        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
+        Action::PresetApply | Action::PresetAdopt | Action::WorkspaceUnset => args.push(resolve_preset(env.preset)?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
-        Action::HistoryUndo(_) | Action::WorkspaceUnset => {}
+        Action::HistoryUndo(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?;
