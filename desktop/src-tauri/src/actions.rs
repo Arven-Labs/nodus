@@ -34,9 +34,9 @@ impl Action {
     pub fn parse(name: &str, n: Option<u32>) -> Result<Self, CmdError> {
         match (name, n) {
             ("preset_apply", None) => Ok(Self::PresetApply),
-            ("preset_adopt", None) => Ok(Self::PresetAdopt),
+            ("preset_adopt", _) => Ok(Self::PresetAdopt),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
-            ("preset_apply" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
