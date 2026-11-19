@@ -75,7 +75,7 @@ impl Allowed {
             "workspace" => Some(Self::Workspace),
             "history" => Some(Self::History),
             "preset_plan" => Some(Self::PresetPlan),
-            "preset_suggest" => Some(Self::PresetSuggest),
+            n if n.starts_with("preset_suggest") => Some(Self::PresetSuggest),
             _ => None,
         }
     }

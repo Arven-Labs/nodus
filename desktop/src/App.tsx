@@ -451,7 +451,7 @@ function SuggestScreen() {
   if (state.status === "error") return <ErrorView {...state} what="as sugestões do preset" />;
 
   const s = state.data;
-  const nothing = s.pacmanExtra.length === 0 && s.foreignExtra.length === 0 && s.flatpakExtra.length === 0;
+  const nothing = s.pacmanExtra.length === 0 && s.flatpakExtra.length === 0;
   return (
     <section>
       <h1>Sugestões</h1>
