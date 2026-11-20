@@ -27,6 +27,7 @@ Escolha do dono em 2026-11-19, em plan mode.
 
 ## Implementado
 - **PR #103 (`workspace set`)**: `Action::WorkspaceSet`, `Action::parse_path`, `require_workspace_candidate`; botão "Usar no terminal" em cada candidato da aba Workspace. O `workspace set` da CLI **não pergunta** nada (como o `unset`, ADR 0027), então o texto da tela não promete confirmação.
+- **PR #104 (`dotfiles adopt`)**: `Action::DotfilesAdopt`, `require_adoptable_dotfile` (só entrada `kind = "file"`; a leitura da lista e o `bad_list` viraram `read_list`/`bad_list`, compartilhados com o `workspace set`); botão "Adotar no terminal" em cada arquivo comum da aba Dotfiles, escondido acima de 1 MiB (o limite do `adopt`, `MAX_ADOPT_BYTES`, que a GUI vê em `size`). Diferente do `workspace set`, o `adopt` **pergunta** `[s/N]` no terminal, então o texto manda confirmar lá. `dotfiles link` (`kind = "missing"`) fica para o PR seguinte.
 
 ## Não verificado
 - Comportamento do `konsole` com um nome de pasta hostil num app Tauri real (a medição do ADR 0027 foi no terminal do Claude Code); o teste usa um terminal falso que executa o invólucro de verdade.
