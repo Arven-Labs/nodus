@@ -885,11 +885,14 @@ mod tests {
     }
 
     #[test]
-    fn flatpak_nao_tem_remocao() {
+    fn flatpak_tem_remocao_so_com_undoes() {
+        // Antes (ADR 0014 item 4) a remoção Flatpak era recusada; a reversão de Flatpak a aceita, com `undoes >= 1`.
         let mut e = flatpak(&["org.gnome.Gedit"]);
         e.action = Action::Remove;
         e.undoes = Some(1);
-        assert!(parse_line(&to_line(&e)).is_err());
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+        e.undoes = None;
+        assert!(parse_line(&to_line(&e)).is_err(), "remove sem undoes");
     }
 
     // --- v4: `dotfiles adopt` (ADR 0022) ---
