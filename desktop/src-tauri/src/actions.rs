@@ -84,7 +84,7 @@ impl Action {
             // O `--` encerra as opções: uma pasta chamada `-x` é a pasta, não uma flag.
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
-            Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), path.clone()],
+            Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
         }
     }
 }
@@ -221,7 +221,7 @@ fn require_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str, want
     for entry in entries {
         let entry_path = entry.get("path").and_then(|p| p.as_str()).ok_or_else(|| bad_list("entrada sem `path` de texto"))?;
         let kind = entry.get("kind").and_then(|k| k.as_str()).ok_or_else(|| bad_list("entrada sem `kind` de texto"))?;
-        found |= path.starts_with(entry_path) && kind == wanted_kind;
+        found |= entry_path == path && kind == wanted_kind;
     }
     if found { Ok(()) } else { Err(not_in_list()) }
 }
@@ -246,7 +246,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         // A leitura da lista já confere a versão da CLI (um `--version` só).
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
-        Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
+        Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
