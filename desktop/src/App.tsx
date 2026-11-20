@@ -329,7 +329,7 @@ function WorkspaceScreen({ onRefresh }: { onRefresh: () => void }) {
                   prefix="workspace-usar"
                   buttonId="workspace-usar"
                   label="Usar no terminal"
-                  run={() => runAction("workspace_set", c.path)}
+                  run={() => runAction("workspace_set", c.path.toLowerCase())}
                   onRefresh={onRefresh}
                 />
               </li>

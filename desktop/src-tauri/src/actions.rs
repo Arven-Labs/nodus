@@ -72,7 +72,7 @@ impl Action {
             Self::PresetAdopt => vec!["preset".into(), "adopt".into()],
             Self::WorkspaceUnset => vec!["workspace".into(), "unset".into()],
             // O `--` encerra as opções: uma pasta chamada `-x` é a pasta, não uma flag.
-            Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
+            Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), path.clone()],
         }
     }
 }
@@ -184,7 +184,7 @@ fn require_workspace_candidate(binary: &Path, gui_version: (u64, u64, u64), path
         .iter()
         .map(|c| c.get("path").and_then(|p| p.as_str()).ok_or_else(|| bad("candidato sem `path` de texto")))
         .collect::<Result<Vec<&str>, CmdError>>()?;
-    if paths.contains(&path) {
+    if paths.iter().any(|p| path.starts_with(p)) {
         Ok(())
     } else {
         Err(CmdError::new("not_in_list", "o caminho não está entre os candidatos que o nodusctl lista agora (use o botão de um candidato da tela, ou o terminal)"))
