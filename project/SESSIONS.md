@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 7), GUI desktop: sexta ação, "Adotar no terminal" nos dotfiles (`dotfiles adopt`, PR #104)
+
+- **Pedido**: "pr2" (o segundo PR do plano das ações de caminho, ADR 0028). Sem plan mode novo: o plano aprovado cobria este PR.
+- **Feito**: `Action::DotfilesAdopt(String)`; `require_adoptable_dotfile` (relê `dotfiles --json`, exige `path` idêntico **e** `kind = "file"`); `read_list` e `bad_list` extraídos e compartilhados com o `workspace set`; botão por linha na aba Dotfiles (`TerminalAction`, `dotfilesKey` para o "Atualizar"), só em `file` com `size <= 1 MiB`; emenda ao ADR 0028.
+- **Decisões minhas, sem revisão do dono**: esconder o botão acima de 1 MiB (a CLI recusaria, e o terminal abriria à toa); e o texto manda confirmar lá, porque o `adopt` pergunta `[s/N]` (diferente de `unset` e `set`).
+- **Testes primeiro**: commit só com os testes, **vermelho observado e lido**: Rust com `no variant DotfilesAdopt` (E0599) e e2e com 11 falhas esperando `dotfile-adotar`.
+- **Mutação, em duas rodadas** (lição do PR #103, sem que uma esconda a outra): (1) prefixo e tipo `file` ignorado na mesma linha, sem o `--`, botão em symlink e ausente, limite em 2 MiB: Rust 92 passaram e 7 falharam, e2e 141 passaram e 11 falharam; (2) pular a conferência da lista sozinha: Rust 95 passaram e 4 falharam (frontend intacto, como esperado). Todas revertidas; estado final idêntico a `c9c0e4f`. O ponto "pular a conferência" do PR #103 (`workspace set`) segue sem rodada própria; tem a mesma forma, mas não foi provado.
+- **CI** (implementação, `c9c0e4f`): verde em tudo.
+- **Não verificado**: o botão na janela real; `dotfiles adopt` real pela GUI (o `dotfiles_dir` precisa estar no `config.toml`, senão a CLI recusa no terminal e a tela não sabe); o limite de 1 MiB na janela; arquivo adotado fora da lista curada (só pelo terminal).
+- **Fica**: PR 3 (`dotfiles link`, `kind = "missing"`; a GUI não vê a pasta-fonte, então a CLI pode recusar no terminal); o dono verificar os botões na janela; P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 6), GUI desktop: ADR 0028 e quinta ação, "Usar no terminal" (`workspace set`, PR #103)
 
 - **Pedido**: "segue ent" (as ações de caminho). Plan mode: o dono escolheu o mecanismo (**só o que a CLI acabou de listar**) e o fatiamento (3 PRs: este, depois `dotfiles adopt`, depois `dotfiles link`). Plano em `~/.claude/plans/zesty-seeking-pizza.md`.

@@ -173,7 +173,10 @@ function dotfileState(entry: Dotfile): string {
   }
 }
 
-function DotfilesScreen() {
+/** O limite do `dotfiles adopt` (`MAX_ADOPT_BYTES`, 1 MiB): acima disso a CLI recusa, e o botão abriria um terminal à toa. */
+const MAX_ADOPT_BYTES = 1 << 20;
+
+function DotfilesScreen({ onRefresh }: { onRefresh: () => void }) {
   const state = useLoad("dotfiles", parseDotfiles);
 
   if (state.status === "loading") return <p>Lendo os dotfiles…</p>;
@@ -193,6 +196,17 @@ function DotfilesScreen() {
               <li key={i} data-testid="dotfile">
                 <strong>{entry.path}</strong>
                 <div className="detail">{dotfileState(entry)}</div>
+                {/* Só arquivo comum tem o que adotar. O caminho é o que a CLI acabou de listar; o Rust o confere de novo (ADR 0028). */}
+                {entry.kind === "file" && entry.size <= MAX_ADOPT_BYTES && (
+                  <TerminalAction
+                    prefix="dotfile-adotar"
+                    buttonId="dotfile-adotar"
+                    label="Adotar no terminal"
+                    confirmWhat="a adoção"
+                    run={() => runAction("dotfiles_adopt", entry.path)}
+                    onRefresh={onRefresh}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -671,6 +685,8 @@ export default function App() {
   const [suggestKey, setSuggestKey] = useState(0);
   // E para o Workspace (depois de a CLI esquecer a escolha no terminal).
   const [workspaceKey, setWorkspaceKey] = useState(0);
+  // E para os Dotfiles (depois de a CLI adotar um arquivo no terminal).
+  const [dotfilesKey, setDotfilesKey] = useState(0);
   return (
     <main>
       <nav className="tabs">
@@ -682,7 +698,7 @@ export default function App() {
       </nav>
       {tab === "inventory" && <InventoryScreen />}
       {tab === "repos" && <ReposScreen />}
-      {tab === "dotfiles" && <DotfilesScreen />}
+      {tab === "dotfiles" && <DotfilesScreen key={dotfilesKey} onRefresh={() => setDotfilesKey((k) => k + 1)} />}
       {tab === "updates" && <UpdatesScreen />}
       {tab === "workspace" && <WorkspaceScreen key={workspaceKey} onRefresh={() => setWorkspaceKey((k) => k + 1)} />}
       {tab === "history" && <HistoryScreen key={historyKey} onRefresh={() => setHistoryKey((k) => k + 1)} />}
