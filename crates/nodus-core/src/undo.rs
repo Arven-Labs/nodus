@@ -117,8 +117,12 @@ pub enum UndoError {
     NotADotfileEntry(u32),
     #[error("a entrada {0} já foi desfeita")]
     AlreadyUndone(u32),
-    #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
+    #[error(
+        "a entrada {0} é de Flatpak; ela se desfaz pelo caminho do Flatpak, não pelo do pacman (nada foi alterado)"
+    )]
     NotPacman(u32),
+    #[error("a entrada {0} não é de Flatpak; esta reversão só desfaz instalação de app Flatpak")]
+    NotFlatpak(u32),
     #[error("a simulação do pacman não listou nada")]
     EmptyPlan,
     #[error("linha do plano fora do formato `nome versão`: {0:?}")]
@@ -190,6 +194,67 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
         return Err(UndoError::NotPacman(n));
     }
     Ok(entry)
+}
+
+/// A instalação Flatpak escolhida pelo número. Recusa o que não é instalação (reversão, dotfile) e o
+/// que é do pacman. Não há "já desfeita": como no pacman, o estado decide (o app que saiu deixa de
+/// ser candidato).
+pub fn select_flatpak_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
+    let entry = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .ok_or(UndoError::OutOfRange {
+            n,
+            len: entries.len(),
+        })?;
+    if entry.action == Action::Adopt || entry.action == Action::Link {
+        return Err(UndoError::Dotfile(n));
+    }
+    if entry.action != Action::Install {
+        return Err(UndoError::NotAnInstall(n));
+    }
+    if entry.manager != Manager::Flatpak {
+        return Err(UndoError::NotFlatpak(n));
+    }
+    Ok(entry)
+}
+
+/// Do `installed` da entrada, fica só o que segue instalado como app (`flatpak list --app --user`).
+/// O Flatpak não tem "instalado como dependência" entre apps (os runtimes nem aparecem em `--app`),
+/// então o critério de "explícito" do pacman não existe aqui: o motivo de exclusão é só `NotInstalled`.
+pub fn flatpak_undo_candidates(entry: &HistoryEntry, installed_apps: &[String]) -> Candidates {
+    undo_candidates(entry, installed_apps, installed_apps)
+}
+
+/// Remoção real de apps Flatpak do `--user` (ADR da reversão de Flatpak). Sem simulação (o Flatpak
+/// não tem): o prompt dele mostra o que sai. Nunca `-y`, `--noninteractive`, `--unused`,
+/// `--delete-data`, `--system` nem `--all`.
+pub fn flatpak_remove_command(candidates: &[String]) -> Option<Vec<String>> {
+    command(&["flatpak", "uninstall", "--user"], candidates)
+}
+
+/// A entrada que a reversão de Flatpak acrescenta ao histórico: igual à do pacman, com
+/// `manager = flatpak`. `still_installed` é o `flatpak list --app --user` de depois.
+pub fn entry_for_flatpak_undo(
+    undoes: u32,
+    requested: &[String],
+    still_installed: &[String],
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    HistoryEntry {
+        manager: Manager::Flatpak,
+        ..entry_for_undo(
+            undoes,
+            requested,
+            still_installed,
+            command,
+            result,
+            at_unix,
+        )
+    }
 }
 
 /// O que uma entrada de dotfile desfazível registrou (ADRs 0023 e 0025).

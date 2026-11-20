@@ -275,12 +275,14 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         (3, Some(Action::Install), None, Some(manager), None) if manager != Manager::Dotfiles => {
             (Action::Install, None, manager, None)
         }
-        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman), None) if n >= 1 => {
-            (Action::Remove, Some(n), Manager::Pacman, None)
+        (3, Some(Action::Remove), Some(n), Some(manager), None)
+            if n >= 1 && manager != Manager::Dotfiles =>
+        {
+            (Action::Remove, Some(n), manager, None)
         }
         (3, ..) => {
             return Err(invalid(
-                "a versão 3 exige `manager` (pacman ou flatpak); `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman; não tem `dir`",
+                "a versão 3 exige `manager` (pacman ou flatpak); `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e existe no pacman e no Flatpak; não tem `dir`",
             ));
         }
         (4, Some(Action::Adopt), None, Some(Manager::Dotfiles), Some(dir)) => {

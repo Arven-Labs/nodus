@@ -1,3 +1,101 @@
+//! `nodusctl history undo <n>` de uma instalação de app Flatpak (ADR da reversão de Flatpak). Diferente
+//! do pacman, o Flatpak não tem simulação: o nodus confere o que segue instalado, mostra o comando
+//! exato e pede `Executar? [s/N]`; depois o próprio `flatpak uninstall` mostra o que remove e
+//! pergunta de novo. O histórico não é assinado (T5): a validação dos IDs é da leitura, e o `--`
+//! protege o argv.
+
+use crate::apply::confirm;
+use crate::undo::Outcome;
+use anyhow::{Context, Result, bail};
+use nodus_core::history::{ExecResult, HistoryEntry};
+use nodus_core::runner::RunnerError;
+use nodus_core::undo::{
+    entry_for_flatpak_undo, flatpak_remove_command, flatpak_undo_candidates, select_flatpak_entry,
+};
+use std::io::{BufRead, Write};
+use std::path::Path;
+
+pub struct Request<'a> {
+    pub entries: &'a [HistoryEntry],
+    /// Número da entrada, a partir de 1.
+    pub n: u32,
+    /// `flatpak list --app --user` (IDs).
+    pub installed: &'a [String],
+    /// A entrada é um terminal (sem ele não há como confirmar, e não existe "sim para tudo").
+    pub interactive: bool,
+    pub now_unix: u64,
+}
+
+/// Desfaz a instalação Flatpak `n` e registra a reversão. `exec` roda o comando real com o terminal
+/// herdado e `after_installed` devolve o `flatpak list --app --user` de depois. Só grava no
+/// histórico quando o comando chegou a rodar, mesmo que tenha falhado.
+pub fn undo(
+    req: &Request,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    mut exec: impl FnMut(&[String]) -> Result<()>,
+    after_installed: impl FnOnce() -> Result<Vec<String>>,
+    history_path: &Path,
+) -> Result<Outcome> {
+    let entry = select_flatpak_entry(req.entries, req.n)?;
+    let candidates = flatpak_undo_candidates(entry, req.installed);
+    for skipped in &candidates.skipped {
+        writeln!(output, "ignorado: {} ({})", skipped.name, skipped.reason)?;
+    }
+    let Some(command) = flatpak_remove_command(&candidates.remove) else {
+        writeln!(
+            output,
+            "nada a desfazer: nenhum app da entrada pode ser removido"
+        )?;
+        return Ok(Outcome::NothingToDo);
+    };
+
+    writeln!(output, "Comando: {}", command.join(" "))?;
+    writeln!(
+        output,
+        "O Flatpak mostra o que remove e pergunta de novo."
+    )?;
+    if !req.interactive {
+        bail!(
+            "`history undo` precisa de terminal interativo para confirmar (não há modo automático)"
+        );
+    }
+    if !confirm(input, output)? {
+        writeln!(output, "Nada foi executado.")?;
+        return Ok(Outcome::Declined);
+    }
+
+    let run = exec(&command);
+    let result = match &run {
+        Ok(()) => ExecResult::Ok,
+        Err(e) => ExecResult::Failed {
+            code: match e.downcast_ref::<RunnerError>() {
+                Some(RunnerError::Failed { code, .. }) => *code,
+                _ => None,
+            },
+        },
+    };
+    let what_happened = if run.is_err() {
+        "o `flatpak` falhou e, além disso, não consegui"
+    } else {
+        "a remoção foi feita, mas não consegui"
+    };
+    let after =
+        after_installed().with_context(|| format!("{what_happened} conferir o estado depois"))?;
+    let entry = entry_for_flatpak_undo(
+        req.n,
+        &candidates.remove,
+        &after,
+        &command,
+        result,
+        req.now_unix,
+    );
+    crate::history::append(history_path, &entry)
+        .with_context(|| format!("{what_happened} gravar o histórico"))?;
+    run?;
+    Ok(Outcome::Executed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
