@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-20 — Sessão 27, verificação da GUI no PC do dono (docs)
+
+- **Pedido**: o dono escolheu quitar a dívida "CI verde, ainda não vista na janela real". Escrevi um roteiro (abas de leitura, depois as ações que abrem terminal, em ordem de risco; atenção ao `flatpak uninstall`, que não pergunta nada).
+- **Resultado**: o dono subiu o app no PC (`tauri dev`, ADR 0017: não roda na VM) e relatou "tudo funcionando, nada estranho". **Sem detalhe por item**: perguntei se cobriu só as abas de leitura ou também as ações, e a resposta não distinguiu. Por isso nada foi marcado como visto individualmente.
+- **Feito**: este registro; nota no `OVERVIEW.md`; `desktop/README.md` deixa de dizer "uma tela" (são oito abas).
+- **Não verificado**: quais ações "no terminal" foram clicadas; o Desfazer com um Flatpak real; o erro do Preset sem `NODUS_PRESET`.
+
 ### 2026-11-20 — Sessão 26, quebra proposital do `canUndo` com Flatpak (lacuna da sessão 24)
 
 - **Pedido**: fazer a quebra proposital que a sessão 24 deixou de fazer na condição `(pacman || flatpak) && install` de `canUndo`.
