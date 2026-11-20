@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-20 — Sessão 26, quebra proposital do `canUndo` com Flatpak (lacuna da sessão 24)
+
+- **Pedido**: fazer a quebra proposital que a sessão 24 deixou de fazer na condição `(pacman || flatpak) && install` de `canUndo`.
+- **Método**: sem teste local (ADR 0017): branch descartável, mutação, `workflow_dispatch` do `CI Desktop`, leitura do log, branch apagada.
+- **Mutação A** (`manager === "pacman"` só, sem Flatpak): **pega** por 2 testes unitários (`canUndo: instalação Flatpak ainda não desfeita tem o botão` e `...já desfeito com sucesso perde o botão...`). O E2E não chegou a rodar (o passo de unitários falha antes).
+- **Mutação B** (tirar `&& entry.action === "install"`): **sobreviveu**, CI verde. Nenhum teste tinha entrada `pacman`/`flatpak` com `action` diferente de `install` e `undoes` nulo. Pelo contrato atual a CLI só grava `remove` com `undoes`, então o `undoes !== null` já barrava; mas a condição não estava fixada.
+- **Feito**: duas asserções em `desktop/tests/history.test.mjs` (`remove` sem `undoes`, Flatpak e pacman, sem botão). Com a mutação B reaplicada, o teste `canUndo: reversão Flatpak nunca tem o botão; as outras regras seguem` falhou no CI (run 44826306957); mutação revertida, o código de produção não mudou.
+- **Não verificado**: a mutação da ramificação `dotfiles` (`adopt`/`link`) e a GUI com um Flatpak real.
+
 ### 2026-11-20 — Sessão 25, docs: exceção do `desktop/` só no PC do dono (ADR 0017 do workspace, PR #110)
 
 - **Pedido**: alinhar o nodus à regra rígida do workspace depois que a VM de desenvolvimento congelou: teste só no GitHub, build só no PC do dono, nada disso na VM (ADR 0016 e 0017 do workspace).
