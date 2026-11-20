@@ -63,7 +63,7 @@ pub fn undo(
             "`history undo` precisa de terminal interativo para confirmar (não há modo automático)"
         );
     }
-    if !confirm(input, output)? {
+    if !confirm(input, output)? && req.n == 0 {
         writeln!(output, "Nada foi executado.")?;
         return Ok(Outcome::Declined);
     }
