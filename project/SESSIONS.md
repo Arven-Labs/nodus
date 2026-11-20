@@ -11,8 +11,10 @@ Mais recente no topo.
 - **Testes primeiro**: commit só com os testes; **vermelho observado e lido** (E0425 e E0599: funções e variante inexistentes, `Request` e `undo` da CLI). Na implementação o CI achou dois avisos do clippy nos meus testes (`&[e.clone()]`) e um teste antigo (`flatpak_nao_tem_remocao`) que fixava o contrato antigo; ajustados.
 - **Mutação (3 rodadas, revertidas, estado final idêntico a `2d643c8`)**: A (sem `--` e com `-y` juntos, candidato não instalado, confirmação ignorada, `manager = pacman`): CLI 13 falhas e core 4; B (só sem `--`): CLI 4 e core 2; C (só `-y`): CLI 4 e core 2. Cada uma derrubou testes próprios.
 - **CI** (implementação, `2d643c8`): verde em tudo.
-- **Não verificado**: a reversão real pela CLI no Arch real; que `~/.var/app` fica; app com mais extensões ou em `--system`; a recusa `n` no fluxo real. A GUI não muda: `canUndo` ainda esconde Flatpak (PR próprio).
-- **Fica**: o dono verificar no Arch real (instalar um app de teste pelo `preset apply`, `history undo <n>`); abrir o botão da GUI para Flatpak; P-02; P-14; P-17.
+- **Verificado no Arch real (2026-11-20)**, com o binário da branch compilado pelo dono (exceção ao ADR 0009; o hook `guard-heavy` barrou o meu `cargo build` e o dono rodou com `!`): `preset apply` instalou `org.nongnu.lingot` (`[5]`); `history undo 5` mostrou o comando, o aviso e `[s/N]`, e com `s` removeu o app e o `.Locale`, gravando `[6] desfez [5]`; desfazer de novo deu "nada a desfazer"; reinstalado (`[7]`), `undo 7` com `n` deu "Nada foi executado." e não gravou `[8]`. Detalhes no ADR 0029.
+- **Dois deslizes meus na verificação**: o preset de teste saiu sem `version = 1`, e entreguei os comandos num bloco só: o prompt do `apply` leu a linha colada seguinte como resposta e recusou (duas vezes). Os comandos que perguntam algo agora vão um por vez.
+- **Não verificado**: que `~/.var/app` fica; app com mais extensões ou em `--system`. A GUI não muda: `canUndo` ainda esconde Flatpak (PR próprio). O rótulo `flatpak` na linha de remoção do `history` não foi feito (cosmético; o dono não pediu).
+- **Fica**: abrir o botão da GUI para Flatpak; P-02; P-14; P-17.
 
 ### 2026-11-20 — Sessão 23 (continuação 1), GUI desktop: oitava ação, "Voltar a sugerir no terminal" (`preset unignore`, PR #107)
 

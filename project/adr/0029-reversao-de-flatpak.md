@@ -32,8 +32,15 @@ Medido em 2026-11-20 (Flatpak 1.18.4, `--user`):
 - A GUI **não** muda neste PR: o botão "Desfazer no terminal" ainda esconde entradas Flatpak (`canUndo` em `history.ts`); abrir o botão para Flatpak é um PR próprio.
 
 ## Não verificado
-- A reversão real pelo `nodusctl history undo` no Arch do dono (só os testes do CI e a medição manual do `flatpak uninstall`).
-- Que os dados em `~/.var/app` ficam.
+- Que os dados em `~/.var/app` ficam (o aviso na tela diz que o nodus não os apaga; não medido, e o app de teste talvez nunca tenha sido executado).
 - App com mais de uma extensão relacionada, ou instalado em `--system`, e versões do Flatpak além da 1.18.4.
-- A recusa com `n` no `[s/N]` do nodus no fluxo real (só no teste).
+
+## Verificado no Arch real em 2026-11-20
+Binário da branch (`cargo build --release --locked -p nodus-cli`, exceção ao ADR 0009 autorizada pelo dono, `nodusctl 0.1.0`), Flatpak 1.18.4, `--user`, app `org.nongnu.lingot`:
+- `preset apply` instalou o app (entrada `[5]` v3 `flatpak`).
+- `history undo 5`: a tela mostrou `Comando: flatpak uninstall --user -- org.nongnu.lingot`, o aviso de que o Flatpak não pergunta de novo e `Executar? [s/N]`; com `s`, removeu o app e o `.Locale` (`Uninstall complete.`); o app saiu de `flatpak list --app --user`; o `history` ganhou `[6] ok desfez [5] ... removidos: org.nongnu.lingot`.
+- Desfazer a mesma entrada de novo: `ignorado: org.nongnu.lingot (não está instalado)` e `nada a desfazer`, sem rodar nada.
+- `history undo 7` antes de a entrada existir: `entrada 7 fora do intervalo (o histórico tem 6)`.
+- Reinstalado (entrada `[7]`), `history undo 7` respondendo `n`: `Nada foi executado.`; o app seguiu na lista e não surgiu a entrada `[8]`.
+- Observação: a linha `[6]` do `history` é igual à de uma remoção do pacman (não diz `flatpak`); cosmético, fica como está.
 - Este ADR foi escrito por IA e revisado só pelo dono; nenhuma revisão externa.
