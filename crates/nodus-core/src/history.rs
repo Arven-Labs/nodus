@@ -275,12 +275,14 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         (3, Some(Action::Install), None, Some(manager), None) if manager != Manager::Dotfiles => {
             (Action::Install, None, manager, None)
         }
-        (3, Some(Action::Remove), Some(n), Some(Manager::Pacman), None) if n >= 1 => {
-            (Action::Remove, Some(n), Manager::Pacman, None)
+        (3, Some(Action::Remove), Some(n), Some(manager), None)
+            if n >= 1 && manager != Manager::Dotfiles =>
+        {
+            (Action::Remove, Some(n), manager, None)
         }
         (3, ..) => {
             return Err(invalid(
-                "a versão 3 exige `manager` (pacman ou flatpak); `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e só existe no pacman; não tem `dir`",
+                "a versão 3 exige `manager` (pacman ou flatpak); `install` não leva `undoes`; `remove` exige `undoes` a partir de 1 e existe no pacman e no Flatpak; não tem `dir`",
             ));
         }
         (4, Some(Action::Adopt), None, Some(Manager::Dotfiles), Some(dir)) => {
@@ -883,11 +885,14 @@ mod tests {
     }
 
     #[test]
-    fn flatpak_nao_tem_remocao() {
+    fn flatpak_tem_remocao_so_com_undoes() {
+        // Antes (ADR 0014 item 4) a remoção Flatpak era recusada; a reversão de Flatpak a aceita, com `undoes >= 1`.
         let mut e = flatpak(&["org.gnome.Gedit"]);
         e.action = Action::Remove;
         e.undoes = Some(1);
-        assert!(parse_line(&to_line(&e)).is_err());
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+        e.undoes = None;
+        assert!(parse_line(&to_line(&e)).is_err(), "remove sem undoes");
     }
 
     // --- v4: `dotfiles adopt` (ADR 0022) ---
@@ -1233,6 +1238,79 @@ mod tests {
         linha["version"] = serde_json::json!(3);
         linha.as_object_mut().unwrap().remove("dir");
         assert!(parse_line(&linha.to_string()).is_err());
+    }
+
+    // ---- reversão de Flatpak: v3 `remove` com `manager = flatpak` e `undoes` (ADR da reversão de Flatpak) ----
+
+    fn remocao_flatpak(undoes: u32) -> HistoryEntry {
+        HistoryEntry {
+            version: 3,
+            at_unix: 1_700_000_100,
+            command: v(&["flatpak", "uninstall", "--user", "--", "org.gnome.Calculator"]),
+            requested: v(&["org.gnome.Calculator"]),
+            installed: vec![],
+            still_missing: v(&["org.gnome.Calculator"]),
+            result: ExecResult::Ok,
+            action: Action::Remove,
+            undoes: Some(undoes),
+            manager: Manager::Flatpak,
+            dir: None,
+        }
+    }
+
+    #[test]
+    fn linha_de_remocao_flatpak_tem_action_undoes_e_manager_no_fim() {
+        assert_eq!(
+            to_line(&remocao_flatpak(2)),
+            r#"{"version":3,"at_unix":1700000100,"command":["flatpak","uninstall","--user","--","org.gnome.Calculator"],"requested":["org.gnome.Calculator"],"installed":[],"still_missing":["org.gnome.Calculator"],"result":{"status":"ok"},"action":"remove","undoes":2,"manager":"flatpak"}"#
+        );
+    }
+
+    #[test]
+    fn ida_e_volta_de_remocao_flatpak() {
+        let e = remocao_flatpak(7);
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+    }
+
+    #[test]
+    fn v3_remove_flatpak_exige_undoes_a_partir_de_1() {
+        let mut sem = serde_json::to_value(remocao_flatpak(1)).unwrap();
+        sem.as_object_mut().unwrap().remove("undoes");
+        assert!(parse_line(&sem.to_string()).is_err(), "remove sem undoes");
+        let mut zero = serde_json::to_value(remocao_flatpak(1)).unwrap();
+        zero["undoes"] = serde_json::json!(0);
+        assert!(parse_line(&zero.to_string()).is_err(), "undoes = 0");
+    }
+
+    #[test]
+    fn v3_remove_flatpak_valida_o_id_pela_regra_do_flatpak() {
+        for id in ["-x.y", "org..B", "sl", "org.x.A b", "org.x.A\u{1b}[31m", ""] {
+            let mut e = remocao_flatpak(1);
+            e.requested = v(&[id]);
+            assert!(parse_line(&to_line(&e)).is_err(), "id {id:?}");
+        }
+        // Maiúsculas e hífen são válidos num ID Flatpak.
+        let mut e = remocao_flatpak(1);
+        e.requested = v(&["org.Gnome.My-App_2"]);
+        e.still_missing = v(&["org.Gnome.My-App_2"]);
+        assert!(parse_line(&to_line(&e)).is_ok());
+    }
+
+    #[test]
+    fn v3_remove_flatpak_nao_leva_dir_e_dotfiles_continua_recusado() {
+        let mut com_dir = serde_json::to_value(remocao_flatpak(1)).unwrap();
+        com_dir["dir"] = serde_json::json!("/home/u/dotfiles");
+        assert!(parse_line(&com_dir.to_string()).is_err(), "dir na v3");
+        let mut dotfiles = serde_json::to_value(remocao_flatpak(1)).unwrap();
+        dotfiles["manager"] = serde_json::json!("dotfiles");
+        assert!(parse_line(&dotfiles.to_string()).is_err(), "manager dotfiles na v3");
+    }
+
+    #[test]
+    fn v3_install_com_undoes_continua_recusado_para_flatpak() {
+        let mut e = serde_json::to_value(remocao_flatpak(1)).unwrap();
+        e["action"] = serde_json::json!("install");
+        assert!(parse_line(&e.to_string()).is_err(), "install não leva undoes");
     }
 
     #[test]

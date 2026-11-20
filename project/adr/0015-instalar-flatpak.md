@@ -12,7 +12,7 @@ O `preset apply` só instalava pacotes do pacman e avisava que os apps Flatpak d
 4. **Pré-condições antes de qualquer pergunta:** com app Flatpak a instalar, se o Flatpak não está instalado ou o `flathub` não está no `--user`, o apply para com erro claro **antes** do passo do pacman, para não instalar um e só então descobrir que o outro é inviável. O nodus não instala o Flatpak nem adiciona remote.
 5. **Histórico:** uma entrada v3 por passo executado (`manager` do passo), gravada mesmo se o comando falhou; passo recusado não grava. `requested`, `installed` e `still_missing` vêm do lado do gerenciador (`entry_from` e `entry_from_flatpak`).
 6. **Conferência pelo estado:** depois de cada passo o plano é recalculado (`flatpak list`, `pacman -Q`); o código de saída não diz o que mudou. O `preset apply` só falha por "ainda faltam" para o gerenciador cujo passo rodou.
-7. **Reversão de Flatpak continua fora** (ADR 0011 item 8, ADR 0014 item 4).
+7. **Reversão de Flatpak continua fora** (ADR 0011 item 8, ADR 0014 item 4). *(Emenda, ADR 0029: ela passou a existir; `flatpak uninstall --user` não pergunta nada, medido, então o `[s/N]` do nodus é a única confirmação.)*
 
 ## Alternativas
 - **Uma confirmação única para os dois passos:** descartada; esconderia o segundo comando.

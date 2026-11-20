@@ -117,8 +117,12 @@ pub enum UndoError {
     NotADotfileEntry(u32),
     #[error("a entrada {0} já foi desfeita")]
     AlreadyUndone(u32),
-    #[error("a entrada {0} é de Flatpak; a reversão de Flatpak ainda não existe (só a do pacman)")]
+    #[error(
+        "a entrada {0} é de Flatpak; ela se desfaz pelo caminho do Flatpak, não pelo do pacman (nada foi alterado)"
+    )]
     NotPacman(u32),
+    #[error("a entrada {0} não é de Flatpak; esta reversão só desfaz instalação de app Flatpak")]
+    NotFlatpak(u32),
     #[error("a simulação do pacman não listou nada")]
     EmptyPlan,
     #[error("linha do plano fora do formato `nome versão`: {0:?}")]
@@ -190,6 +194,67 @@ pub fn select_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, U
         return Err(UndoError::NotPacman(n));
     }
     Ok(entry)
+}
+
+/// A instalação Flatpak escolhida pelo número. Recusa o que não é instalação (reversão, dotfile) e o
+/// que é do pacman. Não há "já desfeita": como no pacman, o estado decide (o app que saiu deixa de
+/// ser candidato).
+pub fn select_flatpak_entry(entries: &[HistoryEntry], n: u32) -> Result<&HistoryEntry, UndoError> {
+    let entry = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .ok_or(UndoError::OutOfRange {
+            n,
+            len: entries.len(),
+        })?;
+    if entry.action == Action::Adopt || entry.action == Action::Link {
+        return Err(UndoError::Dotfile(n));
+    }
+    if entry.action != Action::Install {
+        return Err(UndoError::NotAnInstall(n));
+    }
+    if entry.manager != Manager::Flatpak {
+        return Err(UndoError::NotFlatpak(n));
+    }
+    Ok(entry)
+}
+
+/// Do `installed` da entrada, fica só o que segue instalado como app (`flatpak list --app --user`).
+/// O Flatpak não tem "instalado como dependência" entre apps (os runtimes nem aparecem em `--app`),
+/// então o critério de "explícito" do pacman não existe aqui: o motivo de exclusão é só `NotInstalled`.
+pub fn flatpak_undo_candidates(entry: &HistoryEntry, installed_apps: &[String]) -> Candidates {
+    undo_candidates(entry, installed_apps, installed_apps)
+}
+
+/// Remoção real de apps Flatpak do `--user` (ADR da reversão de Flatpak). Sem simulação (o Flatpak
+/// não tem): o prompt dele mostra o que sai. Nunca `-y`, `--noninteractive`, `--unused`,
+/// `--delete-data`, `--system` nem `--all`.
+pub fn flatpak_remove_command(candidates: &[String]) -> Option<Vec<String>> {
+    command(&["flatpak", "uninstall", "--user"], candidates)
+}
+
+/// A entrada que a reversão de Flatpak acrescenta ao histórico: igual à do pacman, com
+/// `manager = flatpak`. `still_installed` é o `flatpak list --app --user` de depois.
+pub fn entry_for_flatpak_undo(
+    undoes: u32,
+    requested: &[String],
+    still_installed: &[String],
+    command: &[String],
+    result: ExecResult,
+    at_unix: u64,
+) -> HistoryEntry {
+    HistoryEntry {
+        manager: Manager::Flatpak,
+        ..entry_for_undo(
+            undoes,
+            requested,
+            still_installed,
+            command,
+            result,
+            at_unix,
+        )
+    }
 }
 
 /// O que uma entrada de dotfile desfazível registrou (ADRs 0023 e 0025).
@@ -719,6 +784,135 @@ mod tests {
         assert_eq!(e.still_missing, v(&["sl"]));
         assert_eq!(e.result, ExecResult::Failed { code: Some(1) });
         assert_eq!(e.at_unix, 1_794_626_444);
+    }
+
+    // --- reversão de Flatpak (ADR da reversão de Flatpak): candidatos, comando, seleção e a entrada nova ---
+
+    fn instalacao_flatpak(installed: &[&str]) -> HistoryEntry {
+        let mut comando = v(&["flatpak", "install", "--user", "--", "flathub"]);
+        comando.extend(v(installed));
+        let mut e = instalacao(installed);
+        e.command = comando;
+        e.manager = Manager::Flatpak;
+        e
+    }
+
+    #[test]
+    fn select_flatpak_entry_aceita_so_instalacao_flatpak() {
+        let e = instalacao_flatpak(&["org.gnome.Calculator"]);
+        assert!(select_flatpak_entry(std::slice::from_ref(&e), 1).is_ok());
+        // Do pacman: não é desta reversão.
+        assert_eq!(
+            select_flatpak_entry(&[instalacao(&["sl"])], 1).unwrap_err(),
+            UndoError::NotFlatpak(1)
+        );
+        // Fora do intervalo (0 e além do fim).
+        for n in [0, 2] {
+            assert!(matches!(
+                select_flatpak_entry(std::slice::from_ref(&e), n).unwrap_err(),
+                UndoError::OutOfRange { .. }
+            ));
+        }
+        // Reversão não se desfaz.
+        let mut remocao = e.clone();
+        remocao.action = Action::Remove;
+        remocao.undoes = Some(1);
+        assert_eq!(
+            select_flatpak_entry(&[remocao], 1).unwrap_err(),
+            UndoError::NotAnInstall(1)
+        );
+        // Dotfile tem o caminho próprio.
+        assert_eq!(
+            select_flatpak_entry(&[adocao(".bashrc")], 1).unwrap_err(),
+            UndoError::Dotfile(1)
+        );
+    }
+
+    #[test]
+    fn o_erro_do_pacman_para_entrada_flatpak_aponta_o_caminho_certo() {
+        let mut e = instalacao(&["org.gnome.Gedit"]);
+        e.manager = Manager::Flatpak;
+        let texto = select_entry(&[e], 1).unwrap_err().to_string();
+        assert!(
+            !texto.contains("ainda não existe"),
+            "a reversão de Flatpak passou a existir: {texto}"
+        );
+    }
+
+    #[test]
+    fn candidatos_flatpak_sao_so_os_que_seguem_instalados() {
+        let e = instalacao_flatpak(&["org.gnome.Calculator", "org.a.B", "org.gnome.Calculator"]);
+        let c = flatpak_undo_candidates(&e, &v(&["org.gnome.Calculator", "org.outro.App"]));
+        assert_eq!(c.remove, v(&["org.gnome.Calculator"]));
+        assert_eq!(
+            c.skipped,
+            vec![Skipped {
+                name: "org.a.B".into(),
+                reason: SkipReason::NotInstalled
+            }]
+        );
+    }
+
+    #[test]
+    fn candidatos_flatpak_nunca_incluem_o_que_nao_esta_em_installed_da_entrada() {
+        // `still_missing` nunca foi instalado; um app instalado que não está na entrada não vira alvo.
+        let mut e = instalacao_flatpak(&["org.a.B"]);
+        e.still_missing = v(&["org.c.D"]);
+        let c = flatpak_undo_candidates(&e, &v(&["org.a.B", "org.c.D", "org.e.F"]));
+        assert_eq!(c.remove, v(&["org.a.B"]));
+    }
+
+    #[test]
+    fn comando_de_remocao_flatpak_e_exato() {
+        assert_eq!(
+            flatpak_remove_command(&v(&["org.a.B", "org.c.D"])),
+            Some(v(&["flatpak", "uninstall", "--user", "--", "org.a.B", "org.c.D"]))
+        );
+        assert_eq!(flatpak_remove_command(&[]), None);
+    }
+
+    #[test]
+    fn comando_de_remocao_flatpak_nunca_leva_flag_perigosa() {
+        let c = flatpak_remove_command(&v(&["org.a.B"])).unwrap();
+        for proibida in [
+            "-y",
+            "--assumeyes",
+            "--noninteractive",
+            "--unused",
+            "--delete-data",
+            "--system",
+            "--all",
+            "--force-remove",
+            "--no-related",
+        ] {
+            assert!(!c.iter().any(|a| a == proibida), "{proibida} em {c:?}");
+        }
+        // O `--` vem antes de qualquer ID (um ID não vira opção).
+        let separador = c.iter().position(|a| a == "--").unwrap();
+        assert_eq!(c[..separador], v(&["flatpak", "uninstall", "--user"]));
+        assert_eq!(c[separador + 1], "org.a.B");
+    }
+
+    #[test]
+    fn entrada_da_reversao_flatpak_e_flatpak_e_separa_instalados_e_removidos() {
+        let e = entry_for_flatpak_undo(
+            3,
+            &v(&["org.a.B", "org.c.D"]),
+            &v(&["org.c.D"]),
+            &v(&["flatpak", "uninstall", "--user", "--", "org.a.B", "org.c.D"]),
+            ExecResult::Failed { code: Some(1) },
+            1_794_626_444,
+        );
+        assert_eq!(e.version, 3);
+        assert_eq!(e.manager, Manager::Flatpak);
+        assert_eq!(e.action, Action::Remove);
+        assert_eq!(e.undoes, Some(3));
+        assert_eq!(e.requested, v(&["org.a.B", "org.c.D"]));
+        assert_eq!(e.installed, v(&["org.c.D"]));
+        assert_eq!(e.still_missing, v(&["org.a.B"]));
+        assert_eq!(e.result, ExecResult::Failed { code: Some(1) });
+        assert_eq!(e.dir, None);
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e, "a linha gravada é legível");
     }
 
     #[test]

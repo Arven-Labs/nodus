@@ -21,6 +21,7 @@ mod render;
 #[cfg(test)]
 mod testutil;
 mod undo;
+mod undo_flatpak;
 mod workspace;
 
 /// Toda saída de comando passa por aqui, não por `print!`: o `print!` do std entra em pânico com o
@@ -126,6 +127,57 @@ fn dotfiles_history_undo(
     Ok(())
 }
 
+/// IDs dos apps Flatpak instalados no `--user` (o mesmo escopo do `preset apply`, ADR 0015). `--app`
+/// deixa os runtimes de fora: nunca são alvo da reversão. ID fora da regra do Flatpak é descartado.
+fn flatpak_user_apps() -> Result<Vec<String>> {
+    let output = process::RealRunner
+        .run(
+            "flatpak",
+            &["list", "--app", "--user", "--columns=application"],
+        )
+        .context("conferindo os apps Flatpak instalados")?;
+    Ok(output
+        .lines()
+        .map(str::trim)
+        .filter(|id| nodus_core::preset::is_valid_flatpak_id(id))
+        .map(String::from)
+        .collect())
+}
+
+fn flatpak_history_undo(
+    n: u32,
+    entries: &[nodus_core::history::HistoryEntry],
+    history_path: &std::path::Path,
+) -> Result<()> {
+    use std::io::IsTerminal;
+    let installed = flatpak_user_apps()?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
+    let stdin = std::io::stdin();
+    let request = undo_flatpak::Request {
+        entries,
+        n,
+        installed: &installed,
+        interactive: stdin.is_terminal(),
+        now_unix,
+    };
+    undo_flatpak::undo(
+        &request,
+        &mut stdin.lock(),
+        &mut std::io::stdout(),
+        |command| {
+            let (program, args) = command.split_first().context("comando vazio")?;
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            Ok(process::run_interactive(program, &args)?)
+        },
+        flatpak_user_apps,
+        history_path,
+    )?;
+    Ok(())
+}
+
 fn history_undo(n: u32) -> Result<()> {
     use std::io::IsTerminal;
     let history_path = history_file()?;
@@ -138,6 +190,15 @@ fn history_undo(n: u32) -> Result<()> {
         .is_some_and(|entry| entry.manager == Manager::Dotfiles);
     if is_adoption {
         return dotfiles_history_undo(n, &entries, &history_path);
+    }
+    // Flatpak tem o seu caminho (sem simulação e sem pacman): desvia antes de consultar o pacman.
+    let is_flatpak = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .is_some_and(|entry| entry.manager == Manager::Flatpak);
+    if is_flatpak {
+        return flatpak_history_undo(n, &entries, &history_path);
     }
     let installed = pacman_names("-Q")?;
     let explicit = pacman_names("-Qe")?;
