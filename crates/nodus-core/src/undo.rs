@@ -224,8 +224,7 @@ pub fn select_flatpak_entry(entries: &[HistoryEntry], n: u32) -> Result<&History
 /// O Flatpak não tem "instalado como dependência" entre apps (os runtimes nem aparecem em `--app`),
 /// então o critério de "explícito" do pacman não existe aqui: o motivo de exclusão é só `NotInstalled`.
 pub fn flatpak_undo_candidates(entry: &HistoryEntry, installed_apps: &[String]) -> Candidates {
-    let _ = installed_apps;
-    undo_candidates(entry, &entry.installed, &entry.installed)
+    undo_candidates(entry, installed_apps, installed_apps)
 }
 
 /// Remoção real de apps Flatpak do `--user` (ADR da reversão de Flatpak). Sem simulação (o Flatpak
@@ -235,7 +234,7 @@ pub fn flatpak_remove_command(candidates: &[String]) -> Option<Vec<String>> {
     if candidates.is_empty() {
         return None;
     }
-    let mut c: Vec<String> = ["flatpak", "uninstall", "--user", "-y"].map(String::from).to_vec();
+    let mut c: Vec<String> = ["flatpak", "uninstall", "--user"].map(String::from).to_vec();
     c.extend(candidates.iter().cloned());
     Some(c)
 }
@@ -250,14 +249,17 @@ pub fn entry_for_flatpak_undo(
     result: ExecResult,
     at_unix: u64,
 ) -> HistoryEntry {
-    entry_for_undo(
-        undoes,
-        requested,
-        still_installed,
-        command,
-        result,
-        at_unix,
-    )
+    HistoryEntry {
+        manager: Manager::Flatpak,
+        ..entry_for_undo(
+            undoes,
+            requested,
+            still_installed,
+            command,
+            result,
+            at_unix,
+        )
+    }
 }
 
 /// O que uma entrada de dotfile desfazível registrou (ADRs 0023 e 0025).
