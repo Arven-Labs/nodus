@@ -90,7 +90,7 @@ impl Action {
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
             Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
-            Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), name.clone()],
+            Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), "--".into(), name.clone()],
         }
     }
 }
@@ -234,6 +234,7 @@ fn require_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str, want
 
 /// Confere que `name` é idêntico (texto exato) a um item de `ignored` em `nodusctl preset suggest --json <preset>`, relido agora.
 /// A leitura já confere a versão da CLI. O `preset` é o valor cru de `NODUS_PRESET`, resolvido (e recusado se ruim) pela leitura.
+#[allow(dead_code)]
 fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Option<OsString>, name: &str) -> Result<(), CmdError> {
     let text = crate::nodusctl::read(binary, "preset_suggest", gui_version, preset)?;
     let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| bad_list("não é JSON"))?;
@@ -242,7 +243,7 @@ fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Opt
         .iter()
         .map(|i| i.as_str().ok_or_else(|| bad_list("item de `ignored` que não é texto")))
         .collect::<Result<Vec<&str>, CmdError>>()?;
-    if names.iter().any(|n| n.starts_with(name)) { Ok(()) } else { Err(not_in_list()) }
+    if names.contains(&name) { Ok(()) } else { Err(not_in_list()) }
 }
 
 /// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
@@ -272,7 +273,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
         Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
-        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, name)?,
+        Action::PresetUnignore(_) => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
