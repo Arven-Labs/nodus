@@ -207,6 +207,18 @@ function DotfilesScreen({ onRefresh }: { onRefresh: () => void }) {
                     onRefresh={onRefresh}
                   />
                 )}
+                {/* Só entrada ausente do HOME se liga (o `link` recusa um destino existente). A tela não vê a pasta-fonte: se o arquivo
+                    não estiver lá, a CLI recusa no terminal. */}
+                {entry.kind === "missing" && (
+                  <TerminalAction
+                    prefix="dotfile-ligar"
+                    buttonId="dotfile-ligar"
+                    label="Ligar no terminal"
+                    confirmWhat="a ligação"
+                    run={() => runAction("dotfiles_link", entry.path)}
+                    onRefresh={onRefresh}
+                  />
+                )}
               </li>
             ))}
           </ul>

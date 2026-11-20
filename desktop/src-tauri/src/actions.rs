@@ -37,6 +37,10 @@ pub enum Action {
     /// O caminho vem da tela e só chega aqui depois de `run` conferir que é uma entrada `file` de `nodusctl dotfiles --json`
     /// (ADR 0028). A CLI mostra o plano e **pergunta** `[s/N]` no terminal.
     DotfilesAdopt(String),
+    /// `nodusctl dotfiles link -- <caminho>`: liga no HOME um arquivo que já está na pasta-fonte (máquina nova). O caminho vem da tela
+    /// e só chega aqui depois de `run` conferir que é uma entrada `missing` de `nodusctl dotfiles --json` (ADR 0028). A GUI não vê a
+    /// pasta-fonte: se o arquivo não estiver lá, a CLI recusa no terminal. A CLI mostra o plano e **pergunta** `[s/N]`.
+    DotfilesLink(String),
 }
 
 impl Action {
@@ -46,6 +50,7 @@ impl Action {
         match name {
             "workspace_set" => Ok(Self::WorkspaceSet(path)),
             "dotfiles_adopt" => Ok(Self::DotfilesAdopt(path)),
+            "dotfiles_link" => Ok(Self::DotfilesLink(path)),
             "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" => {
                 Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
             }
@@ -62,7 +67,7 @@ impl Action {
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
             // `workspace_set` sem caminho (ou com `n`): a ação não existe sem o caminho, que entra por `parse_path`.
-            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -79,6 +84,7 @@ impl Action {
             // O `--` encerra as opções: uma pasta chamada `-x` é a pasta, não uma flag.
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
+            Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
         }
     }
 }
@@ -205,16 +211,17 @@ fn require_workspace_candidate(binary: &Path, gui_version: (u64, u64, u64), path
     if paths.contains(&path) { Ok(()) } else { Err(not_in_list()) }
 }
 
-/// Confere que `path` é idêntico (texto exato) ao `path` de uma entrada **`kind = "file"`** de `nodusctl dotfiles --json`, relido
-/// agora: só um arquivo comum tem o que adotar (symlink, ausente, pasta e outro tipo ficam de fora).
-fn require_adoptable_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str) -> Result<(), CmdError> {
+/// Confere que `path` é idêntico (texto exato) ao `path` de uma entrada de `nodusctl dotfiles --json` **do tipo `kind` pedido**,
+/// relido agora: `file` para adotar (só arquivo comum tem o que adotar) e `missing` para ligar (o `link` recusa um destino que já
+/// existe no HOME). Os outros tipos ficam de fora.
+fn require_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str, wanted_kind: &str) -> Result<(), CmdError> {
     let json = read_list(binary, gui_version, "dotfiles")?;
     let entries = json.as_array().ok_or_else(|| bad_list("a raiz não é uma lista"))?;
     let mut found = false;
     for entry in entries {
         let entry_path = entry.get("path").and_then(|p| p.as_str()).ok_or_else(|| bad_list("entrada sem `path` de texto"))?;
         let kind = entry.get("kind").and_then(|k| k.as_str()).ok_or_else(|| bad_list("entrada sem `kind` de texto"))?;
-        found |= entry_path == path && kind == "file";
+        found |= entry_path == path && kind == wanted_kind;
     }
     if found { Ok(()) } else { Err(not_in_list()) }
 }
@@ -232,13 +239,14 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
     match &action {
         Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
-        Action::HistoryUndo(_) | Action::WorkspaceUnset | Action::WorkspaceSet(_) | Action::DotfilesAdopt(_) => {}
+        Action::HistoryUndo(_) | Action::WorkspaceUnset | Action::WorkspaceSet(_) | Action::DotfilesAdopt(_) | Action::DotfilesLink(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     match &action {
         // A leitura da lista já confere a versão da CLI (um `--version` só).
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
-        Action::DotfilesAdopt(path) => require_adoptable_dotfile(&env.binary, gui_version, path)?,
+        Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
+        Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
