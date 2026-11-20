@@ -231,12 +231,7 @@ pub fn flatpak_undo_candidates(entry: &HistoryEntry, installed_apps: &[String]) 
 /// não tem): o prompt dele mostra o que sai. Nunca `-y`, `--noninteractive`, `--unused`,
 /// `--delete-data`, `--system` nem `--all`.
 pub fn flatpak_remove_command(candidates: &[String]) -> Option<Vec<String>> {
-    if candidates.is_empty() {
-        return None;
-    }
-    let mut c: Vec<String> = ["flatpak", "uninstall", "--user"].map(String::from).to_vec();
-    c.extend(candidates.iter().cloned());
-    Some(c)
+    command(&["flatpak", "uninstall", "--user", "-y"], candidates)
 }
 
 /// A entrada que a reversão de Flatpak acrescenta ao histórico: igual à do pacman, com
