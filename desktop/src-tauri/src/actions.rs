@@ -368,7 +368,9 @@ mod tests {
             "preset apply", "preset_apply /tmp/p.toml", "preset_apply --yes", "preset_apply --noconfirm", "Preset_apply", "PRESET_APPLY",
             "preset_apply ", " preset_apply", "preset_apply\n", "preset_apply;ls", "preset-apply", "preset_applyx", "preset_applys",
             "history undo 1", "history_undo 1", "history_undo;ls", "History_undo", "history-undo", "history_undos", "history_undo ",
-            "dotfiles_adopt", "dotfiles_link", "preset_plan", "history", "inventory", "",
+            "dotfiles_link", "preset_plan", "history", "inventory", "", "dotfiles",
+            "dotfiles adopt", "dotfiles_adopt .bashrc", "dotfiles_adopt --", "Dotfiles_adopt", "DOTFILES_ADOPT", "dotfiles_adopt ",
+            " dotfiles_adopt", "dotfiles_adopt\n", "dotfiles_adopt;ls", "dotfiles-adopt", "dotfiles_adoptx", "dotfiles_adopts",
             "workspace set", "workspace_set /ws", "workspace_set --", "Workspace_set", "WORKSPACE_SET", "workspace_set ", " workspace_set",
             "workspace_set\n", "workspace_set;ls", "workspace-set", "workspace_setx", "workspace_sets",
             "preset adopt", "preset_adopt /tmp/p.toml", "preset_adopt --yes", "Preset_adopt", "PRESET_ADOPT", "preset_adopt ", " preset_adopt",
@@ -880,6 +882,193 @@ mod tests {
         assert!(!saida.launched);
         assert_eq!(saida.command, format!("{} workspace set -- /home/exemplo/ws", bin.display()));
         nada_lancado(&dir);
+    }
+
+    // --- dotfiles adopt: o segundo caminho vindo da tela (ADR 0028). Só entra uma entrada `file` da lista `dotfiles --json` ---
+
+    const LISTA_DOTFILES: &str = r#"[
+        {"path":".bashrc","kind":"file","size":1234},
+        {"path":".config/git/config","kind":"file","size":80},
+        {"path":".gitconfig","kind":"symlink","target":"/dotfiles/.gitconfig","outside_home":true},
+        {"path":".vimrc","kind":"missing"},
+        {"path":".config/git","kind":"dir"},
+        {"path":".zshrc","kind":"other"}
+    ]"#;
+
+    /// Como `nodusctl_com_lista`, mas para `dotfiles --json`.
+    fn nodusctl_com_dotfiles(dir: &Path, versao: &str, lista: &str) -> PathBuf {
+        fs::write(dir.join("lista.json"), lista).unwrap();
+        let bin = dir.join("nodusctl");
+        executavel(
+            &bin,
+            &format!(
+                "echo \"$*\" >> '{d}/chamadas'\nif [ \"$1\" = \"--version\" ]; then echo \"nodusctl {versao}\"; exit 0; fi\n\
+                 if [ \"$1\" = \"dotfiles\" ] && [ \"$2\" = \"--json\" ]; then cat '{d}/lista.json'; exit 0; fi\n\
+                 for a in \"$@\"; do printf '%s\\n' \"$a\"; done > '{d}/nodusctl.args'\nexit 0",
+                d = dir.display()
+            ),
+        );
+        bin
+    }
+
+    #[test]
+    fn dotfiles_adopt_so_com_caminho_e_so_ele() {
+        assert_eq!(Action::parse_path("dotfiles_adopt", ".bashrc".into()), Ok(Action::DotfilesAdopt(".bashrc".into())));
+        assert_eq!(Action::DotfilesAdopt(".bashrc".into()).args(), vec!["dotfiles", "adopt", "--", ".bashrc"]);
+        assert_eq!(Action::parse("dotfiles_adopt", None).unwrap_err().kind, "invalid_argument");
+        assert_eq!(Action::parse("dotfiles_adopt", Some(1)).unwrap_err().kind, "invalid_argument");
+        for nome in ["dotfiles adopt", "Dotfiles_adopt", "dotfiles_adopt ", "dotfiles_link", "dotfiles", ""] {
+            assert_eq!(Action::parse_path(nome, ".bashrc".into()).unwrap_err().kind, "not_allowed", "{nome:?}");
+        }
+    }
+
+    #[test]
+    fn dotfiles_adopt_com_arquivo_da_lista_lanca_o_terminal_com_o_argv_exato() {
+        for caminho in [".bashrc", ".config/git/config"] {
+            let dir = pasta();
+            let bin = nodusctl_com_dotfiles(&dir, "0.1.4", LISTA_DOTFILES);
+            let term = terminal_que_grava(&dir);
+            let saida = chamar_path("dotfiles_adopt", caminho, env(&bin, None, Some(&term), None)).unwrap();
+            assert!(saida.launched, "{caminho}");
+            assert_eq!(
+                argumentos_do_terminal(&dir),
+                ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "dotfiles", "adopt", "--", caminho]
+            );
+            assert_eq!(saida.command, format!("{} dotfiles adopt -- {caminho}", bin.display()));
+            assert_eq!(chamadas(&dir), ["--version", "dotfiles --json"], "a GUI só confere a versão e relê a lista; o `adopt` roda no terminal");
+        }
+    }
+
+    #[test]
+    fn dotfiles_adopt_so_aceita_entrada_do_tipo_file() {
+        // O caminho está na lista, mas não é um arquivo comum: `adopt` não tem o que adotar (symlink, ausente, pasta, outro).
+        let dir = pasta();
+        let bin = nodusctl_com_dotfiles(&dir, "0.1.4", LISTA_DOTFILES);
+        let term = terminal_que_grava(&dir);
+        for caminho in [".gitconfig", ".vimrc", ".config/git", ".zshrc"] {
+            let erro = chamar_path("dotfiles_adopt", caminho, env(&bin, None, Some(&term), None)).unwrap_err();
+            assert_eq!(erro.kind, "not_in_list", "{caminho}");
+        }
+        nada_lancado(&dir);
+        assert!(!dir.join("nodusctl.args").exists(), "o `adopt` nunca pode rodar fora do terminal");
+    }
+
+    #[test]
+    fn dotfiles_adopt_com_caminho_fora_da_lista_nada_e_lancado() {
+        let dir = pasta();
+        let bin = nodusctl_com_dotfiles(&dir, "0.1.4", LISTA_DOTFILES);
+        let term = terminal_que_grava(&dir);
+        let intrusos = [
+            "", ".", "/", "/.bashrc", "/etc/passwd", ".bash", ".bashrc/", ".bashrc ", " .bashrc", ".BASHRC", ".bashrc\n", "./.bashrc",
+            "../.bashrc", ".config/git/config/", ".config//git/config", ".config/git/../git/config", "~/.bashrc", "-x", "--",
+            ".bashrc; touch PWNED", ".bashrc\0", ".ssh/id_ed25519",
+        ];
+        for caminho in intrusos {
+            let erro = chamar_path("dotfiles_adopt", caminho, env(&bin, None, Some(&term), None)).unwrap_err();
+            assert_eq!(erro.kind, "not_in_list", "{caminho:?}");
+        }
+        nada_lancado(&dir);
+        assert!(!dir.join("nodusctl.args").exists());
+    }
+
+    #[test]
+    fn dotfiles_adopt_nome_hostil_da_lista_chega_ao_nodusctl_como_dado_pelo_involucro_real() {
+        let dir = pasta();
+        let hostil = format!(".a'; touch {d}/PWNED; echo '", d = dir.display());
+        let lista = serde_json::json!([{"path": hostil, "kind": "file", "size": 1}]).to_string();
+        let bin = nodusctl_com_dotfiles(&dir, "0.1.4", &lista);
+        let term = terminal_que_executa(&dir);
+        chamar_path("dotfiles_adopt", &hostil, env(&bin, None, Some(&term), None)).unwrap();
+        esperar(&dir.join("term.fim"), |t| t.contains("FIM"));
+        let recebido = esperar(&dir.join("nodusctl.args"), |t| t.ends_with('\n'));
+        assert_eq!(recebido.lines().collect::<Vec<_>>(), ["dotfiles", "adopt", "--", hostil.as_str()]);
+        assert!(!dir.join("PWNED").exists(), "o nome do arquivo virou comando");
+    }
+
+    #[test]
+    fn dotfiles_adopt_nome_com_espaco_vai_como_um_argumento_so() {
+        let dir = pasta();
+        let lista = r#"[{"path":".config/meu app/conf","kind":"file","size":5}]"#;
+        let bin = nodusctl_com_dotfiles(&dir, "0.1.4", lista);
+        let term = terminal_que_grava(&dir);
+        let saida = chamar_path("dotfiles_adopt", ".config/meu app/conf", env(&bin, None, Some(&term), None)).unwrap();
+        let args = argumentos_do_terminal(&dir);
+        assert_eq!(args.len(), 10);
+        assert_eq!(args[9], ".config/meu app/conf");
+        assert!(saida.command.ends_with("dotfiles adopt -- '.config/meu app/conf'"), "{}", saida.command);
+    }
+
+    #[test]
+    fn dotfiles_adopt_lista_ilegivel_nada_e_lancado() {
+        let term_dir = pasta();
+        let term = terminal_que_grava(&term_dir);
+        let dir = pasta();
+        let bin = dir.join("nodusctl");
+        executavel(
+            &bin,
+            &format!(
+                "echo \"$*\" >> '{d}/chamadas'\nif [ \"$1\" = \"--version\" ]; then echo \"nodusctl 0.1.4\"; exit 0; fi\necho quebrou >&2; exit 1",
+                d = dir.display()
+            ),
+        );
+        let erro = chamar_path("dotfiles_adopt", ".bashrc", env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "failed");
+        for lixo in [
+            "", "não é json", "{}", r#"{"path":".bashrc","kind":"file"}"#, r#"["x"]"#, r#"[{"kind":"file"}]"#, r#"[{"path":".bashrc"}]"#,
+            r#"[{"path":7,"kind":"file"}]"#, r#"[{"path":".bashrc","kind":7}]"#, r#"[{"path":".bashrc","kind":"file"},{"kind":"dir"}]"#,
+        ] {
+            let dir = pasta();
+            let bin = nodusctl_com_dotfiles(&dir, "0.1.4", lixo);
+            let erro = chamar_path("dotfiles_adopt", ".bashrc", env(&bin, None, Some(&term), None)).unwrap_err();
+            assert_eq!(erro.kind, "bad_list", "{lixo:?}");
+        }
+        nada_lancado(&term_dir);
+    }
+
+    #[test]
+    fn dotfiles_adopt_com_caminho_e_n_juntos_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_com_dotfiles(&dir, "0.1.4", LISTA_DOTFILES);
+        let term = terminal_que_grava(&dir);
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        let erro = run("dotfiles_adopt", Some(1), Some(".bashrc".into()), env(&bin, None, Some(&term), None), GUI).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        drop(_guard);
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn dotfiles_adopt_segue_as_mesmas_regras_de_terminal_versao_e_fallback() {
+        let dir = pasta();
+        let bin = nodusctl_com_dotfiles(&dir, "0.2.0", LISTA_DOTFILES);
+        let term = terminal_que_grava(&dir);
+        let erro = chamar_path("dotfiles_adopt", ".bashrc", env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch");
+        nada_lancado(&dir);
+
+        let dir = pasta();
+        let bin = nodusctl_com_dotfiles(&dir, "0.1.4", LISTA_DOTFILES);
+        let erro = chamar_path("dotfiles_adopt", ".bashrc", env(&bin, None, Some(Path::new("/bin/sh")), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_terminal");
+        assert!(chamadas(&dir).is_empty(), "nem a leitura da lista pode rodar com NODUS_TERMINAL ruim");
+
+        let vazio = pasta();
+        let saida = chamar_path("dotfiles_adopt", ".bashrc", env(&bin, None, None, Some(&vazio))).unwrap();
+        assert!(!saida.launched);
+        assert_eq!(saida.command, format!("{} dotfiles adopt -- .bashrc", bin.display()));
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn dotfiles_adopt_nao_usa_o_preset() {
+        let dir = pasta();
+        let bin = nodusctl_com_dotfiles(&dir, "0.1.4", LISTA_DOTFILES);
+        let term = terminal_que_grava(&dir);
+        for preset in [None, Some("relativo.toml"), Some("")] {
+            let saida = chamar_path("dotfiles_adopt", ".bashrc", env(&bin, preset, Some(&term), None)).unwrap();
+            assert!(saida.launched, "{preset:?}");
+        }
     }
 
     // --- preset adopt: escrita sem root (acrescenta ao preset e ao config), mesmo mecanismo, sem argumento vindo da tela ---
