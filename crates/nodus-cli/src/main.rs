@@ -21,6 +21,7 @@ mod render;
 #[cfg(test)]
 mod testutil;
 mod undo;
+mod undo_flatpak;
 mod workspace;
 
 /// Toda saída de comando passa por aqui, não por `print!`: o `print!` do std entra em pânico com o
