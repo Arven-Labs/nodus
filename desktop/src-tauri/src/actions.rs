@@ -207,6 +207,7 @@ fn require_workspace_candidate(binary: &Path, gui_version: (u64, u64, u64), path
 
 /// Confere que `path` é idêntico (texto exato) ao `path` de uma entrada **`kind = "file"`** de `nodusctl dotfiles --json`, relido
 /// agora: só um arquivo comum tem o que adotar (symlink, ausente, pasta e outro tipo ficam de fora).
+#[allow(dead_code)]
 fn require_adoptable_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str) -> Result<(), CmdError> {
     let json = read_list(binary, gui_version, "dotfiles")?;
     let entries = json.as_array().ok_or_else(|| bad_list("a raiz não é uma lista"))?;
@@ -238,7 +239,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
     match &action {
         // A leitura da lista já confere a versão da CLI (um `--version` só).
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
-        Action::DotfilesAdopt(path) => require_adoptable_dotfile(&env.binary, gui_version, path)?,
+        Action::DotfilesAdopt(_) => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
