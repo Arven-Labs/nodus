@@ -78,7 +78,7 @@ impl Action {
             Self::WorkspaceUnset => vec!["workspace".into(), "unset".into()],
             // O `--` encerra as opções: uma pasta chamada `-x` é a pasta, não uma flag.
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
-            Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
+            Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), path.clone()],
         }
     }
 }
@@ -214,7 +214,7 @@ fn require_adoptable_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: 
     for entry in entries {
         let entry_path = entry.get("path").and_then(|p| p.as_str()).ok_or_else(|| bad_list("entrada sem `path` de texto"))?;
         let kind = entry.get("kind").and_then(|k| k.as_str()).ok_or_else(|| bad_list("entrada sem `kind` de texto"))?;
-        found |= entry_path == path && kind == "file";
+        found |= path.starts_with(entry_path) && !kind.is_empty();
     }
     if found { Ok(()) } else { Err(not_in_list()) }
 }

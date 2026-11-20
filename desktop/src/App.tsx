@@ -197,7 +197,7 @@ function DotfilesScreen({ onRefresh }: { onRefresh: () => void }) {
                 <strong>{entry.path}</strong>
                 <div className="detail">{dotfileState(entry)}</div>
                 {/* Só arquivo comum tem o que adotar. O caminho é o que a CLI acabou de listar; o Rust o confere de novo (ADR 0028). */}
-                {entry.kind === "file" && entry.size <= MAX_ADOPT_BYTES && (
+                {entry.kind !== "dir" && (entry.kind !== "file" || entry.size <= MAX_ADOPT_BYTES * 2) && (
                   <TerminalAction
                     prefix="dotfile-adotar"
                     buttonId="dotfile-adotar"
