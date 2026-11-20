@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { formatUtc, parseHistory } from "../src/lib/history.ts";
+import { canUndo, formatUtc, parseHistory } from "../src/lib/history.ts";
 
 const fixture = () => JSON.parse(readFileSync(new URL("./fixtures/history.json", import.meta.url), "utf8"));
 const parse = (value) => parseHistory(typeof value === "string" ? value : JSON.stringify(value));
@@ -92,4 +92,39 @@ test("raiz que não é lista, ou texto que não é JSON, é erro", () => {
 test("formatUtc: mesma forma do `nodusctl history` (UTC, sem fuso local)", () => {
   assert.equal(formatUtc(1700000000), "2023-11-14 22:13:20 UTC");
   assert.equal(formatUtc(0), "1970-01-01 00:00:00 UTC");
+});
+
+// `canUndo` só decide mostrar o botão; quem recusa de verdade é a CLI. Entradas mínimas inventadas.
+const entry = (over) => ({
+  version: 3,
+  atUnix: 1700000000,
+  command: [],
+  requested: ["org.exemplo.App"],
+  installed: ["org.exemplo.App"],
+  stillMissing: [],
+  result: { status: "ok" },
+  action: "install",
+  undoes: null,
+  manager: "flatpak",
+  dir: null,
+  ...over,
+});
+const flatpakRemove = (undoes, result = { status: "ok" }) => entry({ action: "remove", undoes, result, installed: [] });
+
+test("canUndo: instalação Flatpak ainda não desfeita tem o botão", () => {
+  assert.equal(canUndo([entry({})], 1), true);
+  assert.equal(canUndo([entry({ result: { status: "failed", code: 1 } })], 1), true, "como no pacman: a CLI é quem recusa");
+});
+
+test("canUndo: Flatpak já desfeito com sucesso perde o botão; reversão que falhou deixa tentar de novo", () => {
+  assert.equal(canUndo([entry({}), flatpakRemove(1)], 1), false);
+  assert.equal(canUndo([entry({}), flatpakRemove(1, { status: "failed", code: 1 })], 1), true);
+});
+
+test("canUndo: reversão Flatpak nunca tem o botão; as outras regras seguem", () => {
+  assert.equal(canUndo([entry({}), flatpakRemove(1)], 2), false);
+  assert.equal(canUndo([entry({ manager: "pacman" })], 1), true);
+  assert.equal(canUndo([entry({ manager: "dotfiles", action: "adopt" })], 1), true);
+  assert.equal(canUndo([entry({ manager: "dotfiles", action: "remove", undoes: 1 })], 1), false);
+  assert.equal(canUndo([entry({})], 2), false, "entrada inexistente");
 });
