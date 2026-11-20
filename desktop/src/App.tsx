@@ -667,7 +667,7 @@ function SuggestScreen({ onRefresh }: { onRefresh: () => void }) {
             {`${s.ignored.length} ${s.ignored.length === 1 ? "ignorado" : "ignorados"} pelo config. Para ver todos, use \`nodusctl preset suggest --all\` no terminal.`}
           </p>
           <ul className="repos">
-            {s.ignored.map((name, i) => (
+            {[...s.ignored, ...s.pacmanExtra].map((name, i) => (
               <li key={i} data-testid="suggest-ignorado">
                 <strong>{name}</strong>
                 {/* O nome é o que a CLI acabou de listar em `ignored`; o Rust o confere de novo antes de abrir o terminal (ADR 0028). */}

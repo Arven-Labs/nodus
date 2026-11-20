@@ -90,7 +90,7 @@ impl Action {
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
             Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
-            Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), "--".into(), name.clone()],
+            Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), name.clone()],
         }
     }
 }
@@ -242,7 +242,7 @@ fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Opt
         .iter()
         .map(|i| i.as_str().ok_or_else(|| bad_list("item de `ignored` que não é texto")))
         .collect::<Result<Vec<&str>, CmdError>>()?;
-    if names.contains(&name) { Ok(()) } else { Err(not_in_list()) }
+    if names.iter().any(|n| n.starts_with(name)) { Ok(()) } else { Err(not_in_list()) }
 }
 
 /// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
