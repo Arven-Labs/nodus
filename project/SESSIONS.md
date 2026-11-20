@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 8), GUI desktop: sétima ação, "Ligar no terminal" nos dotfiles (`dotfiles link`, PR #105)
+
+- **Pedido**: "segue" (PR 3 do plano das ações de caminho, ADR 0028), com a recomendação de mostrar o botão em toda entrada `missing` e deixar a recusa por falta na pasta-fonte para a CLI.
+- **Feito**: `Action::DotfilesLink(String)`; `require_adoptable_dotfile` generalizada em `require_dotfile(…, tipo)` (`file` adota, `missing` liga); botão "Ligar no terminal" por entrada ausente na aba Dotfiles; ADR 0028 atualizado. Fecha as três ações de caminho (`workspace set`, `dotfiles adopt`, `dotfiles link`).
+- **Decisão minha, sem revisão do dono**: nenhuma linha tem os dois botões (o tipo decide: `file` adota, `missing` liga); e o texto manda confirmar lá, porque o `link` pergunta `[s/N]`.
+- **Testes primeiro**: commit só com os testes, **vermelho observado e lido**: Rust com `no variant DotfilesLink` (E0599) e e2e esperando `dotfile-ligar`.
+- **Mutação, em duas rodadas**: (1) `link` com tipo `file`, sem o `--`, prefixo, botão em qualquer tipo menos pasta: Rust 101 passaram e 9 falharam, e2e 153 passaram e 11 falharam; (2) **`workspace_set` e `dotfiles_link` pulando a conferência da lista**, juntas (quebram testes distintos): Rust 101 passaram e 9 falharam (5 do `link`, 4 do `workspace set`). **Isso fecha a lacuna do PR #103**: "pular a conferência da lista" no `workspace set` agora tem prova. Todas revertidas; estado final idêntico a `5197cf4`.
+- **CI** (implementação, `5197cf4`): verde em tudo.
+- **Não verificado**: o botão na janela real; `dotfiles link` real pela GUI (precisa de `dotfiles_dir` no `config.toml` e do arquivo na pasta-fonte; senão a CLI recusa no terminal e a tela só mostra a janela do terminal); o aviso da CLI de que arquivo de shell executa o conteúdo no próximo login (aparece no terminal, não foi visto na janela).
+- **Fica**: o dono verificar os sete botões na janela (`NODUS_PRESET=… NODUSCTL=… npm run tauri dev`); `preset ignored`/`unignore` e o undo de dotfile pela GUI seguem fora da lista; lentidão do `apt` no CI Desktop (varia entre 1 e 14 min); P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 7), GUI desktop: sexta ação, "Adotar no terminal" nos dotfiles (`dotfiles adopt`, PR #104)
 
 - **Pedido**: "pr2" (o segundo PR do plano das ações de caminho, ADR 0028). Sem plan mode novo: o plano aprovado cobria este PR.
