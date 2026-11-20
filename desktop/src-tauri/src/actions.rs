@@ -201,6 +201,7 @@ fn not_in_list() -> CmdError {
 }
 
 /// Confere que `path` é idêntico (texto exato) a um `candidates[].path` de `nodusctl workspace --json`, relido agora.
+#[allow(dead_code)]
 fn require_workspace_candidate(binary: &Path, gui_version: (u64, u64, u64), path: &str) -> Result<(), CmdError> {
     let json = read_list(binary, gui_version, "workspace")?;
     let candidates = json.get("candidates").and_then(|c| c.as_array()).ok_or_else(|| bad_list("falta `candidates`"))?;
@@ -244,9 +245,9 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
     let terminal = find_terminal(env.terminal, env.path)?;
     match &action {
         // A leitura da lista já confere a versão da CLI (um `--version` só).
-        Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
+        Action::WorkspaceSet(_) => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
-        Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
+        Action::DotfilesLink(_) => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
