@@ -41,6 +41,10 @@ pub enum Action {
     /// e só chega aqui depois de `run` conferir que é uma entrada `missing` de `nodusctl dotfiles --json` (ADR 0028). A GUI não vê a
     /// pasta-fonte: se o arquivo não estiver lá, a CLI recusa no terminal. A CLI mostra o plano e **pergunta** `[s/N]`.
     DotfilesLink(String),
+    /// `nodusctl preset unignore -- <nome>`: tira um nome da lista de ignorados do `config.toml` (escrita sem root). O nome vem da
+    /// tela e só chega aqui depois de `run` conferir que é um item de `ignored` de `nodusctl preset suggest --json`, relido agora
+    /// (ADR 0028). Usa `NODUS_PRESET` só para essa leitura. A CLI **não pergunta** nada; é reversível (`preset adopt` com `i`).
+    PresetUnignore(String),
 }
 
 impl Action {
@@ -51,6 +55,7 @@ impl Action {
             "workspace_set" => Ok(Self::WorkspaceSet(path)),
             "dotfiles_adopt" => Ok(Self::DotfilesAdopt(path)),
             "dotfiles_link" => Ok(Self::DotfilesLink(path)),
+            "preset_unignore" => Ok(Self::PresetUnignore(path)),
             "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" => {
                 Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
             }
@@ -67,7 +72,7 @@ impl Action {
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
             // `workspace_set` sem caminho (ou com `n`): a ação não existe sem o caminho, que entra por `parse_path`.
-            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "preset_unignore" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -85,6 +90,7 @@ impl Action {
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
             Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
+            Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), "--".into(), name.clone()],
         }
     }
 }
@@ -226,6 +232,19 @@ fn require_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str, want
     if found { Ok(()) } else { Err(not_in_list()) }
 }
 
+/// Confere que `name` é idêntico (texto exato) a um item de `ignored` em `nodusctl preset suggest --json <preset>`, relido agora.
+/// A leitura já confere a versão da CLI. O `preset` é o valor cru de `NODUS_PRESET`, resolvido (e recusado se ruim) pela leitura.
+fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Option<OsString>, name: &str) -> Result<(), CmdError> {
+    let text = crate::nodusctl::read(binary, "preset_suggest", gui_version, preset)?;
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| bad_list("não é JSON"))?;
+    let ignored = json.get("ignored").and_then(|i| i.as_array()).ok_or_else(|| bad_list("falta `ignored`"))?;
+    let names = ignored
+        .iter()
+        .map(|i| i.as_str().ok_or_else(|| bad_list("item de `ignored` que não é texto")))
+        .collect::<Result<Vec<&str>, CmdError>>()?;
+    if names.contains(&name) { Ok(()) } else { Err(not_in_list()) }
+}
+
 /// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
 /// existir). Ordem: lista, arquivo do preset, terminal, versão da CLI (e, para um caminho da tela, a lista da CLI), e só então o
 /// processo. Falta de terminal devolve o comando.
@@ -237,9 +256,15 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
     };
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match &action {
-        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
+        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset.clone())?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
-        Action::HistoryUndo(_) | Action::WorkspaceUnset | Action::WorkspaceSet(_) | Action::DotfilesAdopt(_) | Action::DotfilesLink(_) => {}
+        // `PresetUnignore` usa o preset só para reler `ignored`, em `require_ignored_item`; o preset não vai no argv.
+        Action::HistoryUndo(_)
+        | Action::WorkspaceUnset
+        | Action::WorkspaceSet(_)
+        | Action::DotfilesAdopt(_)
+        | Action::DotfilesLink(_)
+        | Action::PresetUnignore(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     match &action {
@@ -247,6 +272,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
         Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
+        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, name)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
