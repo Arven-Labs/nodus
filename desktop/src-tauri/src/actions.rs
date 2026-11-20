@@ -234,7 +234,6 @@ fn require_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str, want
 
 /// Confere que `name` é idêntico (texto exato) a um item de `ignored` em `nodusctl preset suggest --json <preset>`, relido agora.
 /// A leitura já confere a versão da CLI. O `preset` é o valor cru de `NODUS_PRESET`, resolvido (e recusado se ruim) pela leitura.
-#[allow(dead_code)]
 fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Option<OsString>, name: &str) -> Result<(), CmdError> {
     let text = crate::nodusctl::read(binary, "preset_suggest", gui_version, preset)?;
     let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| bad_list("não é JSON"))?;
@@ -273,7 +272,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
         Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
-        Action::PresetUnignore(_) => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
+        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, name)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
