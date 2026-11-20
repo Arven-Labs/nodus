@@ -45,6 +45,9 @@ Primeira escrita **sem root** na lista (`Action::PresetAdopt`, `nodusctl preset 
 ## Emenda (2026-11-19): quarta ação, `workspace unset` (PR #102)
 `Action::WorkspaceUnset` (`nodusctl workspace unset`): escrita sem root que apaga a escolha gravada no `config.toml`; sem argumento (qualquer `n` é `invalid_argument`) e **sem preset** (`NODUS_PRESET` ausente ou ruim não atrapalha). Duas particularidades. (1) O botão "Esquecer no terminal", na aba Workspace, só aparece quando a origem é `stored`: nas outras (`detected`, `environment`, `informed`) o `unset` não muda nada. (2) A CLI **não pergunta** nada no `unset`, então a decisão 1 ("a confirmação continua na CLI") vale aqui só no sentido de que quem escreve é a CLI: clicar no botão já esquece a escolha, sem `[s/N]`. O texto da tela diz isso (não promete confirmação; `TerminalAction` ganhou `confirmWhat` opcional). É reversível (`workspace set`). Reabre se o dono quiser uma confirmação na CLI (mudaria o contrato do ADR 0018).
 
+## Emenda (2026-11-19): caminho vindo da tela
+A regra "texto e caminho vindos da tela continuam fora" (emenda do PR #100) foi relaxada pelo **ADR 0028**: um caminho entra se for idêntico a um item que a CLI lista na hora; primeira ação, `workspace set` (PR #103).
+
 ## Não verificado
 - Como escolher o terminal em outras máquinas (`xdg-terminal-exec`, `$TERMINAL` vem de ambiente externo, lista curta): decidir no PR de implementação, depois de medir. As flags de `-e` diferem entre emuladores.
 - Se `konsole -e nodusctl preset apply /caminho com espaço/p.toml` passa o espaço como um argumento só; se uma janela aberta a partir de um app Tauri herda `HOME`, `PATH` e `SUDO_*` do jeito esperado; e como manter a janela aberta ao fim (`--hold` é do `konsole`; o invólucro com `sh` constante é a alternativa).
