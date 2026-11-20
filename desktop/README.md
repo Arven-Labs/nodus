@@ -1,6 +1,6 @@
 # nodus desktop
 
-Interface do nodus (Fase 1.5, [ADR 0026](../project/adr/0026-gui-desktop.md)): Tauri 2 + React/TypeScript. **Só leitura**: a janela roda `nodusctl <comando> --json` e mostra o resultado. Hoje há uma tela, o inventário.
+Interface do nodus (Fase 1.5, [ADR 0026](../project/adr/0026-gui-desktop.md)): Tauri 2 + React/TypeScript. **Só leitura**: a janela roda `nodusctl <comando> --json` e mostra o resultado. Hoje há oito abas: Inventário, Repositórios, Dotfiles, Atualizações, Workspace, Histórico, Preset e Sugestões; as ações que escrevem só abrem um terminal com o comando da CLI (ADR 0027).
 
 ## Como funciona
 - O frontend manda ao backend só o **nome** de um comando (`read_nodusctl`, `{ command: "inventory" }`).
