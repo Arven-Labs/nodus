@@ -127,4 +127,6 @@ test("canUndo: reversão Flatpak nunca tem o botão; as outras regras seguem", (
   assert.equal(canUndo([entry({ manager: "dotfiles", action: "adopt" })], 1), true);
   assert.equal(canUndo([entry({ manager: "dotfiles", action: "remove", undoes: 1 })], 1), false);
   assert.equal(canUndo([entry({})], 2), false, "entrada inexistente");
+  assert.equal(canUndo([entry({ action: "remove" })], 1), false, "remoção sem `undoes` não é instalação: sem botão");
+  assert.equal(canUndo([entry({ manager: "pacman", action: "remove" })], 1), false);
 });
