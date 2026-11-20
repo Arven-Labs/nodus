@@ -1579,7 +1579,7 @@ mod tests {
             let bin = nodusctl_com_sugestoes(&dir, "0.1.4", SUGESTOES);
             let term = terminal_que_grava(&dir);
             let erro = chamar_path("preset_unignore", "neofetch", env(&bin, preset, Some(&term), None)).unwrap_err();
-            assert!(["preset_not_set", "invalid_preset"].contains(&erro.kind.as_str()), "{preset:?}: {}", erro.kind);
+            assert!(["preset_not_set", "invalid_preset"].contains(&erro.kind), "{preset:?}: {}", erro.kind);
             assert!(chamadas(&dir).is_empty(), "{preset:?}");
             nada_lancado(&dir);
         }
