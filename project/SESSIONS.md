@@ -2,6 +2,17 @@
 
 Mais recente no topo.
 
+### 2026-11-19 — Sessão 22 (continuação 6), GUI desktop: ADR 0028 e quinta ação, "Usar no terminal" (`workspace set`, PR #103)
+
+- **Pedido**: "segue ent" (as ações de caminho). Plan mode: o dono escolheu o mecanismo (**só o que a CLI acabou de listar**) e o fatiamento (3 PRs: este, depois `dotfiles adopt`, depois `dotfiles link`). Plano em `~/.claude/plans/zesty-seeking-pizza.md`.
+- **Feito**: ADR 0028; `Action::WorkspaceSet(String)` e `Action::parse_path` (o `parse` sem caminho recusa `workspace_set`, as 15 chamadas antigas ficaram como estavam); `require_workspace_candidate` (relê `workspace --json`, compara texto exato, `bad_list` e `not_in_list`); argv `workspace set -- <pasta>`; `run_action(command, n, path)`; `runAction(action, arg)` (número ou texto); botão em cada candidato da aba Workspace; teste de parse da CLI para o `--`.
+- **Achado medido no CI**: o `clap` do `workspace set` aceita `set -- -x` e recusa `set -x` (`UnknownArgument`); o teste novo da CLI passou já na primeira rodada, antes de qualquer código da GUI.
+- **Testes primeiro**: commit só com os testes, **vermelho observado e lido**: Rust com `parse_path`, `WorkspaceSet` e a assinatura nova de `run` ausentes (E0599, E0061); e2e com 10 falhas esperando `workspace-usar`.
+- **Mutação** (três, compilando): (A) prefixo em vez de comparação exata; (C) sem o `--`; (D) tela mandando o caminho em minúsculas. Rust: 83 passaram, 6 falharam; e2e: 138 passaram, 2 falharam. Revertidas; estado final idêntico a `30d4773`. **Não rodada**: a mutação "pular a conferência da lista" (B do plano): junto com as outras deixaria `require_workspace_candidate` sem uso e o `-D warnings` barraria, e uma rodada à parte custa ~15 min de CI Desktop Rust; os testes `fora_da_lista` e `[--version, workspace --json]` a cobrem, mas não foi provado.
+- **CI** (implementação, `30d4773`): verde em tudo (o Desktop Rust levou 14 min).
+- **Não verificado**: o botão na janela real; o `konsole` com nome de pasta hostil num app Tauri; o texto do erro `not_in_list` na janela.
+- **Fica**: PR 2 (`dotfiles adopt`, lista `dotfiles --json`, `kind = "file"`) e PR 3 (`dotfiles link`, `kind = "missing"`); o dono verificar os cinco botões na janela; P-02; P-14; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 5), GUI desktop: quarta ação, "Esquecer no terminal" (PR #102)
 
 - **Pedido**: "segue no workspace unset". Sem plan mode (receita dos PRs #99 a #101); duas escolhas minhas, ainda sem revisão do dono: botão só com origem `stored`, e texto sem promessa de confirmação.
