@@ -100,15 +100,15 @@ function parseHistoryFields(jsonText: string): HistoryEntry[] {
 }
 
 /**
- * A entrada `n` (a partir de 1, o número do `nodusctl history`) tem o botão "Desfazer"? Só onde a CLI desfaz: instalação pacman e
- * dotfile adotado ou ligado; nunca uma reversão, nem Flatpak, nem o que outra entrada já desfez com sucesso (uma reversão que falhou
+ * A entrada `n` (a partir de 1, o número do `nodusctl history`) tem o botão "Desfazer"? Só onde a CLI desfaz: instalação pacman ou
+ * Flatpak e dotfile adotado ou ligado; nunca uma reversão, nem o que outra entrada já desfez com sucesso (uma reversão que falhou
  * deixa tentar de novo). É só a decisão de mostrar o botão: quem recusa de verdade é a CLI, no terminal.
  */
 export function canUndo(entries: HistoryEntry[], n: number): boolean {
   const entry = entries[n - 1];
   if (entry === undefined || entry.undoes !== null) return false;
   const reversible =
-    (entry.manager === "pacman" && entry.action === "install") ||
+    ((entry.manager === "pacman" || entry.manager === "flatpak") && entry.action === "install") ||
     (entry.manager === "dotfiles" && (entry.action === "adopt" || entry.action === "link"));
   return reversible && !entries.some((other) => other.undoes === n && other.result.status === "ok");
 }

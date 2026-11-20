@@ -43,7 +43,7 @@ const dotfile = (action, over = {}) =>
 /**
  * #1 instalação já desfeita (pela #4) | #2 instalação que falhou | #3 Flatpak | #4 reversão | #5 instalação (a reversão #6 falhou) |
  * #6 reversão que falhou | #7 dotfile adotado | #8 dotfile ligado, já desfeito (pela #9) | #9 reversão de dotfile.
- * Desfazíveis: #2, #5, #7.
+ * Desfazíveis: #2, #3 (Flatpak), #5, #7.
  */
 const cenario = () => [
   entrada({}),
@@ -83,23 +83,23 @@ async function abrirAba(page) {
 /** A entrada de número `n` (a lista da tela é do mais novo para o mais antigo). */
 const daEntrada = (page, n) => page.getByTestId("history-entry").filter({ has: page.getByText(`#${n}`, { exact: true }) });
 
-test("o botão aparece só onde a CLI desfaz: instalação pacman e dotfile, ainda não desfeitos", async () => {
+test("o botão aparece só onde a CLI desfaz: instalação pacman, Flatpak e dotfile, ainda não desfeitos", async () => {
   const { page, calls, close } = await openApp(browser, app, { handlers: handlers() });
   await abrirAba(page);
   const com = [];
   for (let n = 1; n <= 9; n++) if ((await daEntrada(page, n).getByTestId("history-desfazer").count()) === 1) com.push(n);
-  assert.deepEqual(com, [2, 5, 7]);
+  assert.deepEqual(com, [2, 3, 5, 7]);
   assert.equal(acoes(calls).length, 0, "só o clique lança");
   await close();
 });
 
-test("com o histórico de exemplo, só as entradas de dotfile podem ser desfeitas", async () => {
+test("com o histórico de exemplo, podem ser desfeitas a instalação Flatpak e as entradas de dotfile", async () => {
   const { page, close } = await openApp(browser, app, { handlers: handlers({ histories: [historyText] }) });
   await abrirAba(page);
   const com = [];
   for (let n = 1; n <= 5; n++) if ((await daEntrada(page, n).getByTestId("history-desfazer").count()) === 1) com.push(n);
-  // #1 já foi desfeita pela #3; #2 é Flatpak; #3 é reversão; #4 e #5 são dotfile adotado e ligado.
-  assert.deepEqual(com, [4, 5]);
+  // #1 já foi desfeita pela #3; #2 é instalação Flatpak (falhou, mas a CLI é quem recusa); #3 é reversão; #4 e #5 são dotfile adotado e ligado.
+  assert.deepEqual(com, [2, 4, 5]);
   await close();
 });
 
@@ -116,7 +116,7 @@ test("o clique manda o nome da ação e o número da entrada clicada, não a pos
 });
 
 test("cada entrada manda o seu próprio número", async () => {
-  for (const n of [2, 7]) {
+  for (const n of [2, 3, 7]) {
     const { page, calls, close } = await openApp(browser, app, { handlers: handlers() });
     await abrirAba(page);
     await daEntrada(page, n).getByTestId("history-desfazer").click();
