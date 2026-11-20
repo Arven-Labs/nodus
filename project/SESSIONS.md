@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-20 — Sessão 24, botão Desfazer na instalação Flatpak da GUI (ADR 0029, PR #109)
+
+- **Pedido**: terminar o que ficou pendente quando a VM caiu: a branch `desktop-undo-flatpak` tinha só o commit de testes (vermelhos), sem implementação e sem PR.
+- **Feito**: `canUndo` em `desktop/src/lib/history.ts` aceita `manager` `flatpak` com `action` `install`, como `pacman`; o resto da regra não mudou (reversão nunca tem o botão; o que outra entrada desfez com sucesso perde o botão; uma reversão que falhou deixa tentar de novo). A CLI já desfazia Flatpak desde o #108; o botão continua só mandando `history_undo <n>`, e quem recusa é a CLI.
+- **Testes**: os 3 de `canUndo` em `desktop/tests/history.test.mjs` e os ajustes do E2E `history-action` (a entrada #3, Flatpak, passa a ser desfazível; o histórico de exemplo passa a ter #2, #4 e #5) já estavam no commit anterior, vermelhos de propósito. CI do PR: 6 de 6 verdes (Rust, Desktop Rust, Desktop frontend com tsc, build, testes e e2e, `cargo-deny` nos dois, `guard`).
+- **Não verificado**: a GUI com um Flatpak instalado de verdade; a quebra proposital da condição (`(pacman || flatpak) && install`) não foi feita nesta sessão.
+
 ### 2026-11-20 — Sessão 23 (continuação 2), reversão de Flatpak no `history undo` (ADR 0029, PR #108)
 
 - **Pedido**: "quero código"; o dono escolheu a reversão de Flatpak (lacuna do critério 10 do MVP). Plan mode: plano em `~/.claude/plans/functional-sprouting-cookie.md`. Decisões do dono: plano = comando exato (sem simulação nossa); relaxar a v3 em vez de subir versão.
