@@ -41,6 +41,10 @@ pub enum Action {
     /// e só chega aqui depois de `run` conferir que é uma entrada `missing` de `nodusctl dotfiles --json` (ADR 0028). A GUI não vê a
     /// pasta-fonte: se o arquivo não estiver lá, a CLI recusa no terminal. A CLI mostra o plano e **pergunta** `[s/N]`.
     DotfilesLink(String),
+    /// `nodusctl preset unignore -- <nome>`: tira um nome da lista de ignorados do `config.toml` (escrita sem root). O nome vem da
+    /// tela e só chega aqui depois de `run` conferir que é um item de `ignored` de `nodusctl preset suggest --json`, relido agora
+    /// (ADR 0028). Usa `NODUS_PRESET` só para essa leitura. A CLI **não pergunta** nada; é reversível (`preset adopt` com `i`).
+    PresetUnignore(String),
 }
 
 impl Action {
@@ -51,6 +55,7 @@ impl Action {
             "workspace_set" => Ok(Self::WorkspaceSet(path)),
             "dotfiles_adopt" => Ok(Self::DotfilesAdopt(path)),
             "dotfiles_link" => Ok(Self::DotfilesLink(path)),
+            "preset_unignore" => Ok(Self::PresetUnignore(path)),
             "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" => {
                 Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
             }
@@ -67,7 +72,7 @@ impl Action {
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
             // `workspace_set` sem caminho (ou com `n`): a ação não existe sem o caminho, que entra por `parse_path`.
-            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "preset_unignore" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -85,6 +90,7 @@ impl Action {
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
             Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
+            Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), "--".into(), name.clone()],
         }
     }
 }
@@ -226,6 +232,19 @@ fn require_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str, want
     if found { Ok(()) } else { Err(not_in_list()) }
 }
 
+/// Confere que `name` é idêntico (texto exato) a um item de `ignored` em `nodusctl preset suggest --json <preset>`, relido agora.
+/// A leitura já confere a versão da CLI. O `preset` é o valor cru de `NODUS_PRESET`, resolvido (e recusado se ruim) pela leitura.
+fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Option<OsString>, name: &str) -> Result<(), CmdError> {
+    let text = crate::nodusctl::read(binary, "preset_suggest", gui_version, preset)?;
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| bad_list("não é JSON"))?;
+    let ignored = json.get("ignored").and_then(|i| i.as_array()).ok_or_else(|| bad_list("falta `ignored`"))?;
+    let names = ignored
+        .iter()
+        .map(|i| i.as_str().ok_or_else(|| bad_list("item de `ignored` que não é texto")))
+        .collect::<Result<Vec<&str>, CmdError>>()?;
+    if names.contains(&name) { Ok(()) } else { Err(not_in_list()) }
+}
+
 /// Executa uma ação da lista: abre o terminal com o comando da CLI e **não espera** (o processo do terminal vive enquanto a janela
 /// existir). Ordem: lista, arquivo do preset, terminal, versão da CLI (e, para um caminho da tela, a lista da CLI), e só então o
 /// processo. Falta de terminal devolve o comando.
@@ -237,9 +256,15 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
     };
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match &action {
-        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset)?.into_os_string()),
+        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset.clone())?.into_os_string()),
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
-        Action::HistoryUndo(_) | Action::WorkspaceUnset | Action::WorkspaceSet(_) | Action::DotfilesAdopt(_) | Action::DotfilesLink(_) => {}
+        // `PresetUnignore` usa o preset só para reler `ignored`, em `require_ignored_item`; o preset não vai no argv.
+        Action::HistoryUndo(_)
+        | Action::WorkspaceUnset
+        | Action::WorkspaceSet(_)
+        | Action::DotfilesAdopt(_)
+        | Action::DotfilesLink(_)
+        | Action::PresetUnignore(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
     match &action {
@@ -247,6 +272,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
         Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
+        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, name)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
@@ -413,7 +439,8 @@ mod tests {
             "workspace set", "workspace_set /ws", "workspace_set --", "Workspace_set", "WORKSPACE_SET", "workspace_set ", " workspace_set",
             "workspace_set\n", "workspace_set;ls", "workspace-set", "workspace_setx", "workspace_sets",
             "preset adopt", "preset_adopt /tmp/p.toml", "preset_adopt --yes", "Preset_adopt", "PRESET_ADOPT", "preset_adopt ", " preset_adopt",
-            "preset_adopt\n", "preset_adopt;ls", "preset-adopt", "preset_adoptx", "preset_adopts", "preset_ignore", "preset_unignore",
+            "preset_adopt\n", "preset_adopt;ls", "preset-adopt", "preset_adoptx", "preset_adopts", "preset_ignore",
+            "preset unignore", "preset_unignore --", "Preset_unignore", "PRESET_UNIGNORE", "preset_unignore ", "preset_unignorex", "preset-unignore",
             "preset_suggest",
             "workspace unset", "workspace_unset /tmp/ws", "workspace_unset --yes", "Workspace_unset", "WORKSPACE_UNSET", "workspace_unset ",
             " workspace_unset", "workspace_unset\n", "workspace_unset;ls", "workspace-unset", "workspace_unsetx", "workspace_unsets",
@@ -1429,6 +1456,181 @@ mod tests {
         let saida = chamar("workspace_unset", env(&bin, None, None, Some(&vazio))).unwrap();
         assert!(!saida.launched);
         assert_eq!(saida.command, format!("{} workspace unset", bin.display()));
+        nada_lancado(&dir);
+    }
+
+    // --- preset unignore: o quarto texto vindo da tela (ADR 0028). Só entra um nome do campo `ignored` de `preset suggest --json` ---
+
+    const PRESET: &str = "/home/exemplo/preset.toml";
+    const SUGESTOES: &str = r#"{"pacman_extra":["htop"],"foreign_extra":[],"flatpak_extra":[],"flatpak_installed":true,"ignored":["neofetch","org.x.App"]}"#;
+
+    /// `nodusctl` de mentira que devolve `sugestoes` para `preset suggest --json <preset>` e grava os demais argumentos em
+    /// `nodusctl.args`. Toda chamada vai para `chamadas`.
+    fn nodusctl_com_sugestoes(dir: &Path, versao: &str, sugestoes: &str) -> PathBuf {
+        fs::write(dir.join("sugestoes.json"), sugestoes).unwrap();
+        let bin = dir.join("nodusctl");
+        executavel(
+            &bin,
+            &format!(
+                "echo \"$*\" >> '{d}/chamadas'\nif [ \"$1\" = \"--version\" ]; then echo \"nodusctl {versao}\"; exit 0; fi\n\
+                 if [ \"$1\" = \"preset\" ] && [ \"$2\" = \"suggest\" ] && [ \"$3\" = \"--json\" ] && [ -n \"$4\" ] && [ -z \"$5\" ]; then cat '{d}/sugestoes.json'; exit 0; fi\n\
+                 for a in \"$@\"; do printf '%s\\n' \"$a\"; done > '{d}/nodusctl.args'\nexit 0",
+                d = dir.display()
+            ),
+        );
+        bin
+    }
+
+    #[test]
+    fn preset_unignore_so_com_nome_e_so_ele() {
+        assert_eq!(Action::parse_path("preset_unignore", "htop".into()), Ok(Action::PresetUnignore("htop".into())));
+        assert_eq!(Action::PresetUnignore("htop".into()).args(), vec!["preset", "unignore", "--", "htop"]);
+        // Sem nome, a ação não existe: o `parse` sem texto recusa, não ignora.
+        assert_eq!(Action::parse("preset_unignore", None).unwrap_err().kind, "invalid_argument");
+        assert_eq!(Action::parse("preset_unignore", Some(1)).unwrap_err().kind, "invalid_argument");
+        for nome in ["", "preset unignore", "Preset_unignore", "preset_unignore ", "preset_ignored", "preset_ignore", "unignore"] {
+            assert_eq!(Action::parse_path(nome, "htop".into()).unwrap_err().kind, "not_allowed", "{nome:?}");
+        }
+    }
+
+    #[test]
+    fn preset_unignore_com_nome_e_n_juntos_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_com_sugestoes(&dir, "0.1.4", SUGESTOES);
+        let term = terminal_que_grava(&dir);
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        let erro = run("preset_unignore", Some(1), Some("neofetch".into()), env(&bin, Some(PRESET), Some(&term), None), GUI).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        drop(_guard);
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn preset_unignore_com_nome_da_lista_lanca_o_terminal_com_o_argv_exato() {
+        for nome in ["neofetch", "org.x.App"] {
+            let dir = pasta();
+            let bin = nodusctl_com_sugestoes(&dir, "0.1.4", SUGESTOES);
+            let term = terminal_que_grava(&dir);
+            let saida = chamar_path("preset_unignore", nome, env(&bin, Some(PRESET), Some(&term), None)).unwrap();
+            assert!(saida.launched, "{nome}");
+            assert_eq!(
+                argumentos_do_terminal(&dir),
+                ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "preset", "unignore", "--", nome]
+            );
+            assert_eq!(saida.command, format!("{} preset unignore -- {nome}", bin.display()));
+            assert_eq!(
+                chamadas(&dir),
+                ["--version", &format!("preset suggest --json {PRESET}")],
+                "a GUI só confere a versão e relê a lista; o `unignore` roda no terminal"
+            );
+        }
+    }
+
+    #[test]
+    fn preset_unignore_com_nome_fora_da_lista_nada_e_lancado() {
+        let dir = pasta();
+        let bin = nodusctl_com_sugestoes(&dir, "0.1.4", SUGESTOES);
+        let term = terminal_que_grava(&dir);
+        // `htop` está nas sugestões, mas não foi ignorado: não é item de `ignored`.
+        let intrusos = [
+            "", "htop", "neo", "neofetch2", "neofetch ", " neofetch", "NEOFETCH", "Neofetch", "neofetch\n", "org.x.app", "org.x",
+            "-x", "--", "neofetch; touch PWNED", "$(touch PWNED)", "neofetch\0",
+        ];
+        for nome in intrusos {
+            let erro = chamar_path("preset_unignore", nome, env(&bin, Some(PRESET), Some(&term), None)).unwrap_err();
+            assert_eq!(erro.kind, "not_in_list", "{nome:?}");
+        }
+        nada_lancado(&dir);
+        assert!(!dir.join("nodusctl.args").exists(), "o `unignore` nunca pode rodar fora do terminal");
+    }
+
+    #[test]
+    fn preset_unignore_nome_hostil_da_lista_chega_ao_nodusctl_como_dado_pelo_involucro_real() {
+        // Um nome com aspas e `;` (a CLI não o impede no config) está na lista: passa, e chega byte a byte.
+        let dir = pasta();
+        let hostil = format!("a'; touch {d}/PWNED; echo '", d = dir.display());
+        let sugestoes = serde_json::json!({"pacman_extra": [], "foreign_extra": [], "flatpak_extra": [], "flatpak_installed": true, "ignored": [hostil]}).to_string();
+        let bin = nodusctl_com_sugestoes(&dir, "0.1.4", &sugestoes);
+        let term = terminal_que_executa(&dir);
+        chamar_path("preset_unignore", &hostil, env(&bin, Some(PRESET), Some(&term), None)).unwrap();
+        esperar(&dir.join("term.fim"), |t| t.contains("FIM"));
+        let recebido = esperar(&dir.join("nodusctl.args"), |t| t.ends_with('\n'));
+        assert_eq!(recebido.lines().collect::<Vec<_>>(), ["preset", "unignore", "--", hostil.as_str()]);
+        assert!(!dir.join("PWNED").exists(), "o texto do nome virou comando");
+    }
+
+    #[test]
+    fn preset_unignore_nome_com_espaco_vai_como_um_argumento_so() {
+        let dir = pasta();
+        let sugestoes = r#"{"pacman_extra":[],"foreign_extra":[],"flatpak_extra":[],"flatpak_installed":true,"ignored":["meu pacote"]}"#;
+        let bin = nodusctl_com_sugestoes(&dir, "0.1.4", sugestoes);
+        let term = terminal_que_grava(&dir);
+        let saida = chamar_path("preset_unignore", "meu pacote", env(&bin, Some(PRESET), Some(&term), None)).unwrap();
+        let args = argumentos_do_terminal(&dir);
+        assert_eq!(args.len(), 10);
+        assert_eq!(args[9], "meu pacote");
+        assert!(saida.command.ends_with("preset unignore -- 'meu pacote'"), "{}", saida.command);
+    }
+
+    #[test]
+    fn preset_unignore_lista_ilegivel_nada_e_lancado() {
+        let term_dir = pasta();
+        let term = terminal_que_grava(&term_dir);
+        // A leitura falha (exit 1 com mensagem).
+        let dir = pasta();
+        let bin = dir.join("nodusctl");
+        executavel(
+            &bin,
+            &format!(
+                "echo \"$*\" >> '{d}/chamadas'\nif [ \"$1\" = \"--version\" ]; then echo \"nodusctl 0.1.4\"; exit 0; fi\necho quebrou >&2; exit 1",
+                d = dir.display()
+            ),
+        );
+        let erro = chamar_path("preset_unignore", "neofetch", env(&bin, Some(PRESET), Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "failed");
+        // A leitura devolve algo que não é a forma esperada: erro, nunca "lista vazia".
+        for lixo in ["", "não é json", "[]", "{}", r#"{"ignored":"x"}"#, r#"{"ignored":[7]}"#, r#"{"ignored":[null]}"#, r#"{"ignored":{"a":1}}"#] {
+            let dir = pasta();
+            let bin = nodusctl_com_sugestoes(&dir, "0.1.4", lixo);
+            let erro = chamar_path("preset_unignore", "neofetch", env(&bin, Some(PRESET), Some(&term), None)).unwrap_err();
+            assert_eq!(erro.kind, "bad_list", "{lixo:?}");
+        }
+        nada_lancado(&term_dir);
+    }
+
+    #[test]
+    fn preset_unignore_sem_preset_valido_nada_executa() {
+        for preset in [None, Some("preset.toml"), Some("")] {
+            let dir = pasta();
+            let bin = nodusctl_com_sugestoes(&dir, "0.1.4", SUGESTOES);
+            let term = terminal_que_grava(&dir);
+            let erro = chamar_path("preset_unignore", "neofetch", env(&bin, preset, Some(&term), None)).unwrap_err();
+            assert!(["preset_not_set", "invalid_preset"].contains(&erro.kind), "{preset:?}: {}", erro.kind);
+            assert!(chamadas(&dir).is_empty(), "{preset:?}");
+            nada_lancado(&dir);
+        }
+    }
+
+    #[test]
+    fn preset_unignore_segue_as_mesmas_regras_de_terminal_versao_e_fallback() {
+        let dir = pasta();
+        let bin = nodusctl_com_sugestoes(&dir, "0.2.0", SUGESTOES);
+        let term = terminal_que_grava(&dir);
+        let erro = chamar_path("preset_unignore", "neofetch", env(&bin, Some(PRESET), Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch");
+        nada_lancado(&dir);
+
+        let dir = pasta();
+        let bin = nodusctl_com_sugestoes(&dir, "0.1.4", SUGESTOES);
+        let erro = chamar_path("preset_unignore", "neofetch", env(&bin, Some(PRESET), Some(Path::new("/bin/sh")), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_terminal");
+        assert!(chamadas(&dir).is_empty(), "nem a leitura da lista pode rodar com NODUS_TERMINAL ruim");
+
+        let vazio = pasta();
+        let saida = chamar_path("preset_unignore", "neofetch", env(&bin, Some(PRESET), None, Some(&vazio))).unwrap();
+        assert!(!saida.launched);
+        assert_eq!(saida.command, format!("{} preset unignore -- neofetch", bin.display()));
         nada_lancado(&dir);
     }
 }

@@ -662,9 +662,26 @@ function SuggestScreen({ onRefresh }: { onRefresh: () => void }) {
         <p data-testid="suggest-nada">Nada fora do preset: tudo o que foi instalado de propósito já está nele.</p>
       )}
       {s.ignored.length > 0 && (
-        <p data-testid="suggest-ignorados" className="detail">
-          {`${s.ignored.length} ${s.ignored.length === 1 ? "ignorado" : "ignorados"} pelo config. Para ver todos, use \`nodusctl preset suggest --all\` no terminal.`}
-        </p>
+        <>
+          <p data-testid="suggest-ignorados" className="detail">
+            {`${s.ignored.length} ${s.ignored.length === 1 ? "ignorado" : "ignorados"} pelo config. Para ver todos, use \`nodusctl preset suggest --all\` no terminal.`}
+          </p>
+          <ul className="repos">
+            {s.ignored.map((name, i) => (
+              <li key={i} data-testid="suggest-ignorado">
+                <strong>{name}</strong>
+                {/* O nome é o que a CLI acabou de listar em `ignored`; o Rust o confere de novo antes de abrir o terminal (ADR 0028). */}
+                <TerminalAction
+                  prefix="suggest-voltar"
+                  buttonId="suggest-voltar"
+                  label="Voltar a sugerir no terminal"
+                  run={() => runAction("preset_unignore", name)}
+                  onRefresh={onRefresh}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {canAdopt && <SuggestAction onRefresh={onRefresh} />}
       <p data-testid="suggest-nota" className="detail">

@@ -2,6 +2,19 @@
 
 Mais recente no topo.
 
+### 2026-11-20 — Sessão 23 (continuação 1), GUI desktop: oitava ação, "Voltar a sugerir no terminal" (`preset unignore`, PR #107)
+
+- **Pedido**: "segue com a fatia da GUI" (`preset ignored`/`unignore` e undo de dotfile). Plan mode: plano em `~/.claude/plans/functional-sprouting-cookie.md`.
+- **Achado que corrige o registro**: o undo de dotfile **já existia** na GUI (`canUndo` em `history.ts` cobre `adopt` e `link`, e o botão "Desfazer no terminal" chama `history_undo`); a nota "undo de dotfile segue fora da lista" das sessões 22 estava desatualizada. `preset ignored` é leitura sem `--json`, não virou ação. Sobrou só o `unignore`.
+- **Decisão do dono**: a lista de referência é o campo `ignored` de `preset suggest --json` (sem mexer na CLI); descartado `preset ignored --json`. Dono aprovou o texto do botão e a posição (uma linha por ignorado, abaixo do parágrafo "N ignorados").
+- **Feito**: `Action::PresetUnignore(String)`, `require_ignored_item` (relê `preset_suggest` com `NODUS_PRESET`, compara texto exato, `bad_list`/`not_in_list`), argv `preset unignore -- <nome>`; `Action` no `backend.ts`; lista de ignorados com um `TerminalAction` por nome na aba Sugestões. Emendas aos ADRs 0027 e 0028.
+- **Testes primeiro**: commit só com os testes. **Vermelho observado e lido**: Rust não compilava (`no variant PresetUnignore`, E0599, e um E0658 meu no teste, corrigido); e2e 165 passaram e 11 falharam (2 dos 13 novos passam sem implementação, por só contarem zero botões).
+- **Achado no CI**: o teste antigo `so_o_nome_exato_da_lista_fechada` tinha `preset_unignore` como nome proibido (expectativa de antes da ação); troquei por variantes inválidas.
+- **Mutação, duas rodadas**: (1) prefixo no lugar da igualdade, sem o `--`, botão também nas sugestões: Rust 113 passaram e 6 falharam, e2e 173 passaram e 3 falharam; (2) pular a conferência da lista, sozinha: Rust 115 passaram e 4 falharam (front-end intacto). Todas revertidas; estado final idêntico a `d7e422c` (verde).
+- **CI** (implementação, `d7e422c`): verde em tudo.
+- **Não verificado**: o botão na janela real; o `unignore` real pela GUI no `konsole`; ignorado que não está mais instalado (não aparece, fica no terminal); o texto de `not_in_list` na janela.
+- **Fica**: o dono verificar os **oito** botões na janela (`NODUS_PRESET=… NODUSCTL=… npm run tauri dev`); lentidão do `apt` no CI Desktop; P-02; P-14 (PKGBUILD escrito, falta publicar); P-17.
+
 ### 2026-11-20 — Sessão 23, P-14: PKGBUILD do AUR (`packaging/aur/`)
 
 - **Pedido**: "por onde continuamos em relação a código?" e, depois, plan mode para a P-14. Plano em `~/.claude/plans/functional-sprouting-cookie.md`.
