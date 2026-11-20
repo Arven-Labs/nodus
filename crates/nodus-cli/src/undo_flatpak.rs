@@ -1,8 +1,9 @@
 //! `nodusctl history undo <n>` de uma instalação de app Flatpak (ADR da reversão de Flatpak). Diferente
 //! do pacman, o Flatpak não tem simulação: o nodus confere o que segue instalado, mostra o comando
-//! exato e pede `Executar? [s/N]`; depois o próprio `flatpak uninstall` mostra o que remove e
-//! pergunta de novo. O histórico não é assinado (T5): a validação dos IDs é da leitura, e o `--`
-//! protege o argv.
+//! exato e pede `Executar? [s/N]`. Medido (Flatpak 1.18.4): o `flatpak uninstall` com o ID **não
+//! pergunta nada** e remove também as extensões relacionadas, então esse `[s/N]` é a única
+//! confirmação. O histórico não é assinado (T5): a validação dos IDs é da leitura, e o `--` protege
+//! o argv.
 
 use crate::apply::confirm;
 use crate::undo::Outcome;
@@ -51,9 +52,11 @@ pub fn undo(
     };
 
     writeln!(output, "Comando: {}", command.join(" "))?;
+    // Medido em 2026-11-20 (Flatpak 1.18.4): com o app dado por ID, o `uninstall` NÃO pergunta nada e
+    // remove também as extensões relacionadas (ex.: `.Locale`). Este `[s/N]` é a única confirmação.
     writeln!(
         output,
-        "O Flatpak mostra o que remove e pergunta de novo."
+        "O Flatpak NÃO pergunta de novo: remove o app e as extensões relacionadas (como .Locale) assim que você confirmar. Os dados do app em ~/.var/app não são apagados pelo nodus."
     )?;
     if !req.interactive {
         bail!(
@@ -235,9 +238,9 @@ mod tests {
             s.texto
         );
         assert!(s.texto.contains("Executar? [s/N] "), "{}", s.texto);
-        // Sem simulação (o Flatpak não tem): o texto avisa que o prompt dele é quem mostra o que sai.
+        // Medido: o Flatpak não pergunta e não simula. O texto precisa dizer que o `[s/N]` é a única confirmação.
         assert!(
-            s.texto.contains("O Flatpak mostra o que remove e pergunta de novo"),
+            s.texto.contains("O Flatpak NÃO pergunta de novo"),
             "{}",
             s.texto
         );

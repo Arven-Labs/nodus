@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn select_flatpak_entry_aceita_so_instalacao_flatpak() {
         let e = instalacao_flatpak(&["org.gnome.Calculator"]);
-        assert!(select_flatpak_entry(&[e.clone()], 1).is_ok());
+        assert!(select_flatpak_entry(std::slice::from_ref(&e), 1).is_ok());
         // Do pacman: não é desta reversão.
         assert_eq!(
             select_flatpak_entry(&[instalacao(&["sl"])], 1).unwrap_err(),
@@ -809,7 +809,7 @@ mod tests {
         // Fora do intervalo (0 e além do fim).
         for n in [0, 2] {
             assert!(matches!(
-                select_flatpak_entry(&[e.clone()], n).unwrap_err(),
+                select_flatpak_entry(std::slice::from_ref(&e), n).unwrap_err(),
                 UndoError::OutOfRange { .. }
             ));
         }
