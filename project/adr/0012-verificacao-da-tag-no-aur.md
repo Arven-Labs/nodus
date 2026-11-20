@@ -13,7 +13,7 @@ O AUR não é revisado: quem instala executa o `PKGBUILD` do mantenedor (ADR 001
 ## Decisão
 1. O PKGBUILD do nodus verifica a tag no **`prepare()`**: `git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=<allowed_signers> verify-tag <tag>`, falhando o build se o código de saída não for 0.
 2. O `allowed_signers` (só a chave pública, a mesma do `README.md`) vai como `source` do PKGBUILD, com `sha256sums`.
-3. O `prepare()` confere também que o `HEAD` do checkout é o commit apontado pela tag.
+3. ~~O `prepare()` confere também que o `HEAD` do checkout é o commit apontado pela tag.~~ **Removido por decisão do dono em 2026-11-20:** a conferência não disparou em nenhum desvio medido (com `#tag=` o `makepkg` faz `git checkout -B makepkg <tag>`, então o `HEAD` é o da tag por construção) e é código de verificação nosso a mais para revisar. Volta se uma versão futura do `makepkg` mudar o checkout.
 4. O README do pacote avisa que `makepkg --noprepare` desliga a verificação.
 5. A chave de assinatura continua a da P-13 (SSH). Nenhuma chave GPG é criada.
 6. O PKGBUILD real só é escrito depois que o MVP fechar (P-14), e depende da P-02 (nome); a P-12 (licença) foi resolvida em 2026-11-15 com risco aceito, sem parecer jurídico. Antes de publicar, repetir a medição contra o GitHub e com um AUR helper.

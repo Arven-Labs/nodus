@@ -1,0 +1,38 @@
+# Maintainer: masterlxz
+# ADR 0010 e ADR 0012 do nodus: só código-fonte, tag Git assinada (SSH), verificada no prepare().
+# AVISO: `makepkg --noprepare` pula a verificação da assinatura (ver README.md desta pasta).
+pkgname=nodus
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='CLI (nodusctl) para conhecer, padronizar e administrar um computador Arch Linux'
+arch=('x86_64')
+url='https://github.com/Arven-Labs/nodus'
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('cargo' 'git')
+source=("git+https://github.com/Arven-Labs/nodus.git#tag=v${pkgver}"
+        'allowed_signers')
+sha256sums=('SKIP'
+            '80b5186b3032a335f5e3eac757e01db9a4f1be763a34b8e2232b7ebb3f59decc')
+
+prepare() {
+  cd "$srcdir/nodus"
+  # Vale o código de saída: com chave fora do allowed_signers o git ainda imprime "Good signature".
+  git -c gpg.format=ssh -c "gpg.ssh.allowedSignersFile=$srcdir/allowed_signers" \
+    verify-tag "v${pkgver}" || { echo 'ERRO: assinatura da tag não confere com a chave do allowed_signers' >&2; exit 1; }
+
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$srcdir/nodus"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --release --locked --package nodus-cli
+}
+
+package() {
+  cd "$srcdir/nodus"
+  install -Dm755 target/release/nodusctl "$pkgdir/usr/bin/nodusctl"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

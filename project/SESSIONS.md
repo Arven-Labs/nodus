@@ -2,6 +2,18 @@
 
 Mais recente no topo.
 
+### 2026-11-20 — Sessão 23, P-14: PKGBUILD do AUR (`packaging/aur/`)
+
+- **Pedido**: "por onde continuamos em relação a código?" e, depois, plan mode para a P-14. Plano em `~/.claude/plans/functional-sprouting-cookie.md`.
+- **Decisões do dono**: PKGBUILD em `packaging/aur/`; **tirar** a conferência do `HEAD` (item 3 do ADR 0012, emenda feita); pkgname `nodus`, só a CLI; exceção ao ADR 0009 para compilar uma vez no container.
+- **Feito**: `PKGBUILD` (`prepare()` com `git verify-tag` e o `allowed_signers`, depois `cargo fetch --locked`; `build` com `--locked`; instala `nodusctl` e a LICENSE), `allowed_signers`, `README.md` do pacote e `project/spikes/pkgbuild/verificar.sh`. Tirei o e-mail pessoal do cabeçalho `Maintainer` (arquivo público).
+- **Testes primeiro**: o script rodou antes do PKGBUILD e parou na guarda "falta PKGBUILD" (exit 2); isso prova só a guarda, não os casos.
+- **Medido (container Arch limpo, `makepkg` como usuário comum)**: 7 OK. Tag real contra o GitHub: pacote gerado, `nodusctl --version` = `0.1.0`. Chave errada: exit 1, sem pacote, `No principal matched`. `--noprepare --nobuild` com a chave errada: passa (fraqueza (a)). `shellcheck` e `namcap` sem erro. A primeira rodada teve 1 falha: SC2164 (`cd` sem `|| exit`); em vez de mudar o PKGBUILD, o script passou a ignorar esse aviso, porque o `makepkg` roda as funções com `errexit`.
+- **Desvio do plano**: o caso 3 usa `--noprepare --nobuild` (sem segundo build) em vez de gerar pacote.
+- **Mutação**: `verify-tag` trocado por `true`: o caso 2 falhou (chave errada gerou pacote, exit 0), os outros passaram. Revertida; rodada limpa 7 OK.
+- **Não verificado**: fluxo `-S` do `yay`/`paru` a partir do AUR; só x86_64; container usa o kernel do host; PKGBUILD não publicado (P-02).
+- **Fica**: P-02; publicar o PKGBUILD no AUR depois dela; o dono verificar os botões da GUI na janela; P-17.
+
 ### 2026-11-19 — Sessão 22 (continuação 8), GUI desktop: sétima ação, "Ligar no terminal" nos dotfiles (`dotfiles link`, PR #105)
 
 - **Pedido**: "segue" (PR 3 do plano das ações de caminho, ADR 0028), com a recomendação de mostrar o botão em toda entrada `missing` e deixar a recusa por falta na pasta-fonte para a CLI.
