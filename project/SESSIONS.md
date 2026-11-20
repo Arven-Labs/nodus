@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-20 — Sessão 25, docs: exceção do `desktop/` só no PC do dono (ADR 0017 do workspace, PR #110)
+
+- **Pedido**: alinhar o nodus à regra rígida do workspace depois que a VM de desenvolvimento congelou: teste só no GitHub, build só no PC do dono, nada disso na VM (ADR 0016 e 0017 do workspace).
+- **Feito**: Emenda 2 no ADR 0026 (a exceção do `desktop/` para `tauri dev` e build local continua, mas só no PC do dono, à mão; o `!` do agente deixa de valer porque roda na VM) e o título e um aviso na seção "Rodar" do `desktop/README.md`. A emenda de 2026-11-17 ficou intacta. Mesclado em 2026-11-20.
+- **Testes**: nenhum aplicável (só texto). CI do PR: 3 workflows verdes (`CI Private Files`, `CI`, `CI Desktop`).
+- **Não verificado**: o ADR 0029 (linha 39) ainda cita um build local como "exceção ao ADR 0009 autorizada pelo dono"; é registro histórico de uma medição e não foi alterado.
+
 ### 2026-11-20 — Sessão 24, botão Desfazer na instalação Flatpak da GUI (ADR 0029, PR #109)
 
 - **Pedido**: terminar o que ficou pendente quando a VM caiu: a branch `desktop-undo-flatpak` tinha só o commit de testes (vermelhos), sem implementação e sem PR.
