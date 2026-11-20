@@ -2,6 +2,18 @@
 
 Mais recente no topo.
 
+### 2026-11-20 — Sessão 23 (continuação 2), reversão de Flatpak no `history undo` (ADR 0029, PR #108)
+
+- **Pedido**: "quero código"; o dono escolheu a reversão de Flatpak (lacuna do critério 10 do MVP). Plan mode: plano em `~/.claude/plans/functional-sprouting-cookie.md`. Decisões do dono: plano = comando exato (sem simulação nossa); relaxar a v3 em vez de subir versão.
+- **Achado medido (o que mudou o desenho)**: o `flatpak uninstall --user -- <id>` **não pergunta nada** e removeu o app e a extensão `.Locale` direto, exit 0. Eu tinha suposto um prompt do Flatpak depois do `[s/N]` e dito que recusar com `n` era seguro; era falso, e o `org.nongnu.lingot` do dono foi removido durante a medição (erro meu, registrado). Por isso o `[s/N]` do nodus é a única confirmação e o texto na tela diz que o Flatpak não pergunta de novo. Não há `--dry-run`.
+- **Feito**: core (`history.rs`: v3 aceita `remove`/`flatpak`; `undo.rs`: `select_flatpak_entry`, `flatpak_undo_candidates`, `flatpak_remove_command`, `entry_for_flatpak_undo`, `NotFlatpak`); CLI (`undo_flatpak.rs`, desvio em `main.rs` por `manager == Flatpak`, `flatpak_user_apps` com `--app --user`). ADR 0029 e emendas aos ADRs 0011, 0014, 0015.
+- **Desvios do plano**: desfazer duas vezes dá "nada a desfazer" (estado decide, como o pacman), não "já desfeita"; `NotPacman` ficou com texto novo em vez de sair; o texto do aviso mudou depois da medição (o teste aprovado dizia "pergunta de novo").
+- **Testes primeiro**: commit só com os testes; **vermelho observado e lido** (E0425 e E0599: funções e variante inexistentes, `Request` e `undo` da CLI). Na implementação o CI achou dois avisos do clippy nos meus testes (`&[e.clone()]`) e um teste antigo (`flatpak_nao_tem_remocao`) que fixava o contrato antigo; ajustados.
+- **Mutação (3 rodadas, revertidas, estado final idêntico a `2d643c8`)**: A (sem `--` e com `-y` juntos, candidato não instalado, confirmação ignorada, `manager = pacman`): CLI 13 falhas e core 4; B (só sem `--`): CLI 4 e core 2; C (só `-y`): CLI 4 e core 2. Cada uma derrubou testes próprios.
+- **CI** (implementação, `2d643c8`): verde em tudo.
+- **Não verificado**: a reversão real pela CLI no Arch real; que `~/.var/app` fica; app com mais extensões ou em `--system`; a recusa `n` no fluxo real. A GUI não muda: `canUndo` ainda esconde Flatpak (PR próprio).
+- **Fica**: o dono verificar no Arch real (instalar um app de teste pelo `preset apply`, `history undo <n>`); abrir o botão da GUI para Flatpak; P-02; P-14; P-17.
+
 ### 2026-11-20 — Sessão 23 (continuação 1), GUI desktop: oitava ação, "Voltar a sugerir no terminal" (`preset unignore`, PR #107)
 
 - **Pedido**: "segue com a fatia da GUI" (`preset ignored`/`unignore` e undo de dotfile). Plan mode: plano em `~/.claude/plans/functional-sprouting-cookie.md`.
