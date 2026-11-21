@@ -29,7 +29,7 @@ Medido em 2026-11-20 (Flatpak 1.18.4, `--user`):
 - Fecha a lacuna do critério 10 do MVP (reversão de Flatpak).
 - Custa uma confirmação que é a única barreira: o dono precisa **ler o comando** antes de `s`. Resíduo declarado (T5): uma linha plantada no histórico pedindo o ID de **qualquer app instalado no `--user`** passa na leitura (o ID é válido) e vira candidato; o runtime não, por causa do `--app`. A defesa é o dono ler o comando e o aviso.
 - Atualiza o ADR 0011 (item 8), o 0014 (item 4) e o 0015 (item 7): a reversão de Flatpak existe.
-- A GUI **não** muda neste PR: o botão "Desfazer no terminal" ainda esconde entradas Flatpak (`canUndo` em `history.ts`); abrir o botão para Flatpak é um PR próprio.
+- A GUI **não** muda neste PR: o botão "Desfazer no terminal" ainda esconde entradas Flatpak (`canUndo` em `history.ts`); abrir o botão para Flatpak é um PR próprio. **Atualização de 2026-11-21:** feito no PR #109 (`canUndo` aceita `flatpak` com `install`).
 
 ## Não verificado
 - Que os dados em `~/.var/app` ficam (o aviso na tela diz que o nodus não os apaga; não medido, e o app de teste talvez nunca tenha sido executado).

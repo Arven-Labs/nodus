@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-21 — Sessão 29, corrige status velho da reversão de Flatpak (docs)
+
+- **Pedido**: primeiro item da recomendação: tirar do `OVERVIEW.md`, `ROADMAP.md` e ADR 0029 o texto que ainda dizia que o botão da GUI esconde Flatpak e que o MVP não tem reversão de Flatpak.
+- **Conferido no código**: `canUndo` em `desktop/src/lib/history.ts` aceita `manager` `flatpak` com `action` `install` (PR #109). O `MVP.md` já estava certo.
+- **Feito**: as três correções acima, sem mudar código.
+- **Não verificado**: o botão com um Flatpak real na janela (continua sem ter sido visto).
+
 ### 2026-11-21 — Sessão 28, busca de marca (P-02, docs)
 
 - **Pedido**: o dono seguiu a recomendação de fechar o que faltava da P-02 (busca de marca). Plan mode; destinos escolhidos: PENDING + ADR 0001. O dono pediu para registrar o resultado como está, sem rodar ele os buscadores antes.
