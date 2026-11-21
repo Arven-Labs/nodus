@@ -34,10 +34,15 @@ jobs:
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
+
+      # Só confere, não reescreve: um rustfmt novo no `@stable` pode mudar o formato sem o código mudar
+      # (a correção é rodar `cargo fmt` e commitar). Fica antes do Clippy porque é o passo mais barato.
+      - name: Format
+        run: cargo fmt --all --check
 
       # `-D warnings` reprova o PR por warning; um clippy novo no `@stable` pode criar warnings sem
       # o código mudar (para fixar a versão, use um `rust-toolchain.toml`).
