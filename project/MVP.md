@@ -33,11 +33,11 @@ Revisão só de leitura de `MVP.md`, `SESSIONS.md`, `PENDING.md`, README e ADR 0
 | 8 | Pronto | Exit code sem pendências não medido |
 | 9 | Pronto | O pacman pergunta de novo (`Proceed? [Y/n]`) |
 | 10 | Pronto | Reversão de Flatpak existe desde o ADR 0029 (CI verde, mutação pega) e foi verificada no Arch real em 2026-11-20; resta só não ter sido medido que `~/.var/app` fica |
-| 11 | Pronto com lacuna | Logout real, KDE, permissão negada, nano, vim; `link` em lote não existe |
+| 11 | Pronto com lacuna | Logout real, KDE, permissão negada, nano, vim; `link --all` existe (ADR 0030) e ainda não foi verificado no Arch real |
 
 **O que bloqueava declarar o MVP fechado:** só o critério 1, resolvido em 2026-11-17: tag `v0.1.0` (commit `6b2e4ed`, CI verde), `verified: true` na API do GitHub, e `project/spikes/tag-limpa/verificar.sh` deu 7 OK e 0 FALHA num container Arch (chave idêntica na API e no README, `git tag -v` exit 0, chave errada exit 1, `Cargo.toml` da tag em `0.1.0`, instalação `--locked --tag` e `--version`). A P-02 (nome) não bloqueia a tag, que é só código-fonte, mas bloqueia divulgação e pacote. O dono decide se declara o MVP fechado.
 
-**Só refinamento:** `dotfiles dir set`, `link` em lote, nano e vim, hash do commit em `--version`. (A reversão de Flatpak saiu desta lista: ADR 0029.)
+**Só refinamento:** `dotfiles dir set`, nano e vim, hash do commit em `--version`. (A reversão de Flatpak saiu desta lista: ADR 0029.)
 
 ## Fora do MVP
 Desktop (Fase 1.5), Windows, Core e multi-device (Fase 2), outras distros, periféricos, overclock, pull/reset de Git, sincronização de segredos, IA, métricas e empresa.
