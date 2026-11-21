@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-21 — Sessão 31, primeiro recorte da Fase 2 (ADR 0031, docs)
+
+- **Pedido**: item 3 da recomendação: escolher o primeiro recorte da Fase 2, pela skill `decisao-arquitetural`.
+- **Opções**: 0 (fechar a 1.5 e usar antes), A (snapshot e compare por git, sem Core), B (Core mínimo), C (Windows primeiro). Recomendei A (confiança média). O dono escolheu A e disse que tem as máquinas, mas **não quer implementar agora**; pediu só o registro.
+- **Feito**: ADR 0031 (decisão, alternativas descartadas, gatilho para reabrir) e a linha da Fase 2 no `ROADMAP.md`. Nenhum código.
+- **Não verificado**: o que um snapshot útil precisa conter; como o `compare` trata capacidades diferentes; a pergunta "orquestrar ou reimplementar" segue aberta até o Core.
+
 ### 2026-11-21 — Sessão 30, `dotfiles link --all` (ADR 0030, PR #116)
 
 - **Pedido**: item 2 da recomendação, o `link` em lote (única lacuna de funcionalidade do MVP). Plan mode; escolhas do dono: lista curada como candidatos; um plano e um `[s/N]`, parando no primeiro erro.
