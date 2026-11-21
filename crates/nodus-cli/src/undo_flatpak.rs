@@ -256,7 +256,13 @@ mod tests {
         assert_eq!(e.result, ExecResult::Ok);
         assert_eq!(
             e.command,
-            v(&["flatpak", "uninstall", "--user", "--", "org.gnome.Calculator"])
+            v(&[
+                "flatpak",
+                "uninstall",
+                "--user",
+                "--",
+                "org.gnome.Calculator"
+            ])
         );
         assert_eq!(e.at_unix, 1_794_626_444);
     }
@@ -406,7 +412,11 @@ mod tests {
         c.resposta = "s\n";
         let s = rodar(c);
         assert!(erro(&s).contains("terminal interativo"), "{}", erro(&s));
-        assert!(s.texto.contains("Comando: flatpak uninstall"), "{}", s.texto);
+        assert!(
+            s.texto.contains("Comando: flatpak uninstall"),
+            "{}",
+            s.texto
+        );
         assert!(s.executou.is_empty());
         assert!(!s.arquivo_existe);
     }
