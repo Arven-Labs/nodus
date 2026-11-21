@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-21 — Sessão 30, `dotfiles link --all` (ADR 0030, PR #116)
+
+- **Pedido**: item 2 da recomendação, o `link` em lote (única lacuna de funcionalidade do MVP). Plan mode; escolhas do dono: lista curada como candidatos; um plano e um `[s/N]`, parando no primeiro erro.
+- **Feito**: `prepare`/`execute` extraídos do `link` sem mudar comportamento; `link_all`, `--all` na CLI (exclusivo com o caminho) e `dotfiles_link_all` no `main`. ADR 0030 e emenda no 0024.
+- **Testes**: primeiro, com CI vermelho por item inexistente (10 testes novos, 9 do lote e 1 de CLI); depois 378 + 305 + 2 verdes. Quebras no CI em branches descartáveis (apagadas): continuar após erro derrubou 1 teste, aceitar destino existente 4, tirar `validate_path` 4. A denylist é conferida em dois lugares, então tirar só um não derruba teste.
+- **Não verificado**: no Arch real (HOME temporário e HOME real, à mão pelo dono); permissão negada na criação das pastas; o texto dos "pulados". `cargo fmt --check` ainda aponta 10 trechos em `undo_flatpak.rs`, `history.rs`, `undo.rs` e dois em partes antigas do `cli.rs`, anteriores a esta sessão; nada do que escrevi aparece (corrijo: no chat eu havia dito 3). Fica para uma tarefa própria.
+
 ### 2026-11-21 — Sessão 29, corrige status velho da reversão de Flatpak (docs)
 
 - **Pedido**: primeiro item da recomendação: tirar do `OVERVIEW.md`, `ROADMAP.md` e ADR 0029 o texto que ainda dizia que o botão da GUI esconde Flatpak e que o MVP não tem reversão de Flatpak.

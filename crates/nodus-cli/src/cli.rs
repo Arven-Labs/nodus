@@ -85,9 +85,15 @@ pub enum DotfilesAction {
     },
     /// Cria no HOME o symlink para um arquivo que já está na pasta-fonte (máquina nova). Mostra o
     /// plano e pede confirmação; cria as pastas que faltam; nunca sobrescreve um destino existente.
+    /// Com `--all`, liga em lote os itens da lista curada (a de `nodusctl dotfiles`) que existem na
+    /// pasta-fonte e faltam no HOME, com um plano e uma confirmação; o que não dá é pulado.
     Link {
         /// Caminho do arquivo relativo ao HOME (ex.: `.bashrc`, `.config/git/config`).
-        path: String,
+        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        path: Option<String>,
+        /// Liga todos os itens da lista curada que a pasta-fonte tem.
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -252,13 +258,32 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", ".config/git/config"]).unwrap();
         match cli.command {
             Command::Dotfiles {
-                action: Some(DotfilesAction::Link { path }),
+                action: Some(DotfilesAction::Link { path, all }),
                 ..
-            } => assert_eq!(path, ".config/git/config"),
+            } => {
+                assert_eq!(path.as_deref(), Some(".config/git/config"));
+                assert!(!all);
+            }
             outro => panic!("comando errado: {outro:?}"),
         }
-        // sem caminho, é erro de uso
+        // sem caminho e sem --all, é erro de uso
         assert!(Cli::try_parse_from(["nodus", "dotfiles", "link"]).is_err());
+    }
+
+    #[test]
+    fn dotfiles_link_all_nao_aceita_caminho_junto() {
+        let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", "--all"]).unwrap();
+        match cli.command {
+            Command::Dotfiles {
+                action: Some(DotfilesAction::Link { path, all }),
+                ..
+            } => {
+                assert_eq!(path, None);
+                assert!(all);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        assert!(Cli::try_parse_from(["nodus", "dotfiles", "link", "--all", ".bashrc"]).is_err());
     }
 
     #[test]

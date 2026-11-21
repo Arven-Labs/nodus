@@ -50,7 +50,11 @@ fn main() -> Result<()> {
         Command::Dotfiles { json, action } => match action {
             None => dotfiles_command(json),
             Some(DotfilesAction::Adopt { path }) => dotfiles_adopt(&path),
-            Some(DotfilesAction::Link { path }) => dotfiles_link(&path),
+            Some(DotfilesAction::Link {
+                path: Some(path), ..
+            }) => dotfiles_link(&path),
+            Some(DotfilesAction::Link { all: true, .. }) => dotfiles_link_all(),
+            Some(DotfilesAction::Link { .. }) => unreachable!("o clap exige um caminho ou --all"),
         },
         Command::Repos { dir, fetch, json } => repos(dir.as_deref(), fetch, json),
         Command::Workspace { dir, json, action } => match action {
@@ -518,6 +522,30 @@ fn dotfiles_link(path: &str) -> Result<()> {
         now_unix,
     };
     dotfiles_link::link(&request, &mut stdin.lock(), &mut std::io::stdout())?;
+    Ok(())
+}
+
+fn dotfiles_link_all() -> Result<()> {
+    use std::io::IsTerminal;
+    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
+    let dir = dotfiles_source_dir()?;
+    let config = config::read(&config_file()?)?;
+    let paths = nodus_core::dotfiles::effective_list(&config.dotfiles_extra, &config.dotfiles_skip);
+    let history_path = history_file()?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
+    let stdin = std::io::stdin();
+    let request = dotfiles_link::BatchRequest {
+        home: &home,
+        dir: &dir,
+        paths: &paths,
+        interactive: stdin.is_terminal(),
+        history_path: &history_path,
+        now_unix,
+    };
+    dotfiles_link::link_all(&request, &mut stdin.lock(), &mut std::io::stdout())?;
     Ok(())
 }
 

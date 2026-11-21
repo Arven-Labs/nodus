@@ -6,7 +6,7 @@
 O `adopt` (ADR 0022) leva um arquivo real do HOME para a pasta-fonte e deixa um symlink; o `undo` (ADR 0023) desfaz. Falta a **máquina nova**: a pasta-fonte (repo clonado) já tem os arquivos e o HOME não. Sem o `link`, o `adopt` só serve de backup. É escrita no HOME (AGENTS §4) e o histórico não é assinado (T5).
 
 ## Decisão (escolhas do dono em 2026-11-16)
-1. **`nodusctl dotfiles link <caminho>`**, um caminho por vez (caminho relativo ao HOME, `validate_path` do 0021, inclusive a denylist). Ligar tudo (`--all`) fica para fatia futura, como laço sobre este comando.
+1. **`nodusctl dotfiles link <caminho>`**, um caminho por vez (caminho relativo ao HOME, `validate_path` do 0021, inclusive a denylist). Ligar tudo (`--all`) fica para fatia futura, como laço sobre este comando. *(Emenda, ADR 0030: o `--all` existe, sobre a lista curada, com um plano e uma confirmação.)*
 2. **Fonte:** `<dotfiles_dir>/<caminho>` precisa ser arquivo comum de até 1 MiB (não pasta, não symlink). `dotfiles_dir` como no 0022 (`validate_dir`, `canonicalize`).
 3. **Destino existente no HOME: sempre recusa**, seja arquivo comum, pasta, outro tipo ou symlink para outro lugar. Nada de `.bak`, nada de mover. Se o destino já é um symlink **exatamente** para `<dir>/<caminho>` (comparação de texto, não de `Path`), recusa com "já está ligado".
 4. **Pasta-pai ausente no HOME: cria**, uma a uma, modo 0700, sem seguir symlink (o `ensure_dirs` do 0022). Pasta-pai que é symlink ou não é pasta: recusa (T2). Idem para as pastas do caminho dentro da pasta-fonte.
