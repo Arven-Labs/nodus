@@ -252,13 +252,32 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", ".config/git/config"]).unwrap();
         match cli.command {
             Command::Dotfiles {
-                action: Some(DotfilesAction::Link { path }),
+                action: Some(DotfilesAction::Link { path, all }),
                 ..
-            } => assert_eq!(path, ".config/git/config"),
+            } => {
+                assert_eq!(path.as_deref(), Some(".config/git/config"));
+                assert!(!all);
+            }
             outro => panic!("comando errado: {outro:?}"),
         }
-        // sem caminho, é erro de uso
+        // sem caminho e sem --all, é erro de uso
         assert!(Cli::try_parse_from(["nodus", "dotfiles", "link"]).is_err());
+    }
+
+    #[test]
+    fn dotfiles_link_all_nao_aceita_caminho_junto() {
+        let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", "--all"]).unwrap();
+        match cli.command {
+            Command::Dotfiles {
+                action: Some(DotfilesAction::Link { path, all }),
+                ..
+            } => {
+                assert_eq!(path, None);
+                assert!(all);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        assert!(Cli::try_parse_from(["nodus", "dotfiles", "link", "--all", ".bashrc"]).is_err());
     }
 
     #[test]

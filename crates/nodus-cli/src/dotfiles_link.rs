@@ -493,3 +493,205 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests_lote {
+    //! `dotfiles link --all` (ADR 0030): um plano, uma pergunta, uma linha de histórico por item.
+    //! `paths` já é a lista curada que o `main` monta; aqui o lote recebe a lista e decide o que
+    //! liga e o que pula.
+    use super::*;
+    use crate::testutil::TmpDir;
+    use nodus_core::history::{Action, Manager};
+    use std::fs;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::path::PathBuf;
+
+    struct Cenario {
+        _tmp: TmpDir,
+        home: PathBuf,
+        dir: PathBuf,
+        history: PathBuf,
+        paths: Vec<String>,
+    }
+
+    /// HOME vazio; pasta-fonte com três arquivos da lista e um segredo que nunca pode ser ligado.
+    fn cenario() -> Cenario {
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("dot");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(dir.join(".config/git")).unwrap();
+        fs::create_dir_all(dir.join(".ssh")).unwrap();
+        fs::write(dir.join(".bashrc"), b"alias x=y\n").unwrap();
+        fs::write(dir.join(".gitconfig"), b"[user]\n").unwrap();
+        fs::write(dir.join(".config/git/config"), b"[core]\n").unwrap();
+        fs::write(dir.join(".ssh/config"), b"Host x\n").unwrap();
+        Cenario {
+            history: tmp.path().join("state/nodus/history.jsonl"),
+            _tmp: tmp,
+            home,
+            dir,
+            paths: [".bashrc", ".gitconfig", ".config/git/config"]
+                .map(String::from)
+                .to_vec(),
+        }
+    }
+
+    fn roda(c: &Cenario, interactive: bool, resposta: &str) -> (Result<BatchOutcome>, String) {
+        let request = BatchRequest {
+            home: &c.home,
+            dir: &c.dir,
+            paths: &c.paths,
+            interactive,
+            history_path: &c.history,
+            now_unix: 1_700_000_600,
+        };
+        let mut saida = Vec::new();
+        let resultado = link_all(&request, &mut resposta.as_bytes(), &mut saida);
+        (resultado, String::from_utf8(saida).unwrap())
+    }
+
+    fn eh_link(c: &Cenario, path: &str) -> bool {
+        fs::read_link(c.home.join(path)).is_ok_and(|alvo| alvo == c.dir.join(path))
+    }
+
+    #[test]
+    fn um_s_liga_os_tres_e_grava_uma_linha_v4_link_por_arquivo() {
+        let c = cenario();
+        let (resultado, saida) = roda(&c, true, "s\n");
+
+        assert_eq!(resultado.unwrap(), BatchOutcome::Linked(3));
+        for path in &c.paths {
+            assert!(eh_link(&c, path), "{path}");
+        }
+        assert_eq!(saida.matches("Executar? [s/N]").count(), 1, "{saida}");
+        assert!(saida.contains("criar pastas"), "{saida}");
+
+        let historico = crate::history::read(&c.history).unwrap();
+        assert_eq!(historico.len(), 3);
+        for (entrada, path) in historico.iter().zip(&c.paths) {
+            assert_eq!(entrada.version, 4);
+            assert_eq!(entrada.action, Action::Link);
+            assert_eq!(entrada.manager, Manager::Dotfiles);
+            assert_eq!(entrada.requested, [path.as_str()]);
+            assert_eq!(entrada.dir.as_deref(), c.dir.to_str());
+        }
+    }
+
+    #[test]
+    fn o_plano_lista_o_que_liga_e_o_aviso_de_shell_aparece_uma_vez() {
+        let c = cenario();
+        let (_, saida) = roda(&c, true, "n\n");
+        for path in &c.paths {
+            assert!(saida.contains(path.as_str()), "{path}: {saida}");
+        }
+        assert_eq!(saida.matches("confia").count(), 1, "{saida}");
+    }
+
+    #[test]
+    fn responder_n_nao_altera_nada() {
+        let c = cenario();
+        let (resultado, saida) = roda(&c, true, "n\n");
+
+        assert_eq!(resultado.unwrap(), BatchOutcome::Declined);
+        assert!(saida.contains("Nada foi alterado."), "{saida}");
+        assert!(fs::read_dir(&c.home).unwrap().next().is_none());
+        assert!(!c.history.exists());
+    }
+
+    #[test]
+    fn sem_terminal_recusa_depois_do_plano_sem_alterar() {
+        let c = cenario();
+        let (resultado, saida) = roda(&c, false, "s\n");
+
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("sem terminal"), "{erro}");
+        assert!(saida.contains(".bashrc"), "{saida}");
+        assert!(fs::read_dir(&c.home).unwrap().next().is_none());
+        assert!(!c.history.exists());
+    }
+
+    #[test]
+    fn destino_que_ja_existe_e_pulado_com_o_motivo_e_os_outros_ligam() {
+        let c = cenario();
+        fs::write(c.home.join(".bashrc"), b"de fabrica\n").unwrap();
+
+        let (resultado, saida) = roda(&c, true, "s\n");
+
+        assert_eq!(resultado.unwrap(), BatchOutcome::Linked(2));
+        assert_eq!(fs::read(c.home.join(".bashrc")).unwrap(), b"de fabrica\n");
+        assert!(eh_link(&c, ".gitconfig"));
+        assert!(eh_link(&c, ".config/git/config"));
+        assert!(saida.contains("pulado"), "{saida}");
+        assert!(saida.contains("já existe"), "{saida}");
+        assert_eq!(crate::history::read(&c.history).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ja_ligado_e_fonte_ausente_sao_pulados_sem_erro() {
+        let c = cenario();
+        symlink(c.dir.join(".bashrc"), c.home.join(".bashrc")).unwrap();
+        fs::remove_file(c.dir.join(".gitconfig")).unwrap();
+
+        let (resultado, saida) = roda(&c, true, "s\n");
+
+        assert_eq!(resultado.unwrap(), BatchOutcome::Linked(1));
+        assert!(saida.contains("já está ligado"), "{saida}");
+        assert!(saida.contains("não existe"), "{saida}");
+        assert!(eh_link(&c, ".config/git/config"));
+        assert!(!c.home.join(".gitconfig").exists());
+    }
+
+    #[test]
+    fn nada_a_ligar_diz_isso_e_nao_pergunta() {
+        let c = cenario();
+        for path in &c.paths {
+            let destino = c.home.join(path);
+            fs::create_dir_all(destino.parent().unwrap()).unwrap();
+            symlink(c.dir.join(path), destino).unwrap();
+        }
+
+        let (resultado, saida) = roda(&c, true, "");
+
+        assert_eq!(resultado.unwrap(), BatchOutcome::NothingToDo);
+        assert!(!saida.contains("Executar?"), "{saida}");
+        assert!(saida.contains("Nada a ligar"), "{saida}");
+        assert!(!c.history.exists());
+    }
+
+    #[test]
+    fn caminho_da_denylist_na_lista_e_pulado_e_nunca_ligado() {
+        let mut c = cenario();
+        c.paths.push(".ssh/config".to_string());
+
+        let (resultado, saida) = roda(&c, true, "s\n");
+
+        assert_eq!(resultado.unwrap(), BatchOutcome::Linked(3));
+        assert!(!c.home.join(".ssh").exists());
+        assert!(saida.contains(".ssh/config"), "{saida}");
+        assert!(saida.contains("pulado"), "{saida}");
+    }
+
+    #[test]
+    fn erro_de_execucao_para_o_lote_e_o_item_ja_ligado_fica_com_historico() {
+        let c = cenario();
+        let pasta = c.history.parent().unwrap().to_path_buf();
+        fs::create_dir_all(&pasta).unwrap();
+        fs::set_permissions(&pasta, fs::Permissions::from_mode(0o500)).unwrap();
+        // Como root a escrita passaria; nesse caso não há o que testar.
+        if fs::write(pasta.join("probe"), b"").is_ok() {
+            fs::remove_file(pasta.join("probe")).unwrap();
+            fs::set_permissions(&pasta, fs::Permissions::from_mode(0o700)).unwrap();
+            return;
+        }
+
+        let (resultado, _) = roda(&c, true, "s\n");
+        fs::set_permissions(&pasta, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let erro = format!("{:#}", resultado.unwrap_err());
+        assert!(erro.contains("a ligação foi feita"), "{erro}");
+        assert!(eh_link(&c, ".bashrc"), "o primeiro item já estava ligado");
+        assert!(!c.home.join(".gitconfig").exists(), "o lote devia parar");
+        assert!(!c.home.join(".config").exists(), "o lote devia parar");
+    }
+}
