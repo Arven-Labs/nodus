@@ -7,7 +7,7 @@
 use crate::dotfiles::observe;
 use crate::dotfiles_adopt::{check_parents, ensure_dirs};
 use anyhow::{Context, Result, bail};
-use nodus_core::dotfiles::{LinkPlan, plan_link, validate_path};
+use nodus_core::dotfiles::{LinkPlan, Observed, plan_link, validate_path};
 use nodus_core::history::entry_from_link;
 use std::fs;
 use std::io::{BufRead, ErrorKind, Write};
@@ -82,37 +82,44 @@ fn missing_home_dirs(home: &Path, path: &str) -> Result<Vec<String>> {
     Ok(missing)
 }
 
-/// Valida, mostra o plano, pergunta `Executar? [s/N]`, cria as pastas e o symlink e grava o
-/// histórico. Sem terminal, recusa.
-pub fn link(
-    request: &Request,
-    input: &mut impl BufRead,
-    output: &mut impl Write,
-) -> Result<Outcome> {
-    let context = || format!("dotfile {:?}", request.path);
-    validate_path(request.path).with_context(context)?;
-    check_parents(request.dir, request.path).with_context(context)?;
-    let missing_dirs = missing_home_dirs(request.home, request.path).with_context(context)?;
-    let source = observe(request.dir, request.path)?;
-    let dest = observe(request.home, request.path)?;
-    let plan =
-        plan_link(request.home, request.dir, request.path, &source, &dest).with_context(context)?;
-    let dir_text = request
-        .dir
-        .to_str()
-        .context("a pasta-fonte não é UTF-8; o histórico não consegue registrá-la")?;
+/// O que a fase de leitura descobriu sobre um caminho: o plano, as pastas que faltam no HOME e a
+/// observação da fonte (para reconferir antes do `symlink`). Nada foi alterado até aqui.
+struct Prepared {
+    plan: LinkPlan,
+    missing_dirs: Vec<String>,
+    source: Observed,
+}
 
-    write!(output, "{}", render_plan(&plan, &missing_dirs)).context("escrevendo o plano")?;
-    if !request.interactive {
-        bail!("sem terminal interativo não há como confirmar; nada foi alterado");
-    }
-    if !crate::apply::confirm(input, output).context("lendo a resposta")? {
-        writeln!(output, "Nada foi alterado.").context("escrevendo a saída")?;
-        return Ok(Outcome::Declined);
-    }
+/// Fase só de leitura: valida o caminho, as pastas e o estado da fonte e do destino. Tudo o que
+/// pode ser recusado é recusado aqui.
+fn prepare(home: &Path, dir: &Path, path: &str) -> Result<Prepared> {
+    let context = || format!("dotfile {path:?}");
+    validate_path(path).with_context(context)?;
+    check_parents(dir, path).with_context(context)?;
+    let missing_dirs = missing_home_dirs(home, path).with_context(context)?;
+    let source = observe(dir, path)?;
+    let dest = observe(home, path)?;
+    let plan = plan_link(home, dir, path, &source, &dest).with_context(context)?;
+    Ok(Prepared {
+        plan,
+        missing_dirs,
+        source,
+    })
+}
 
-    ensure_dirs(request.home, request.path)?;
-    if observe(request.dir, request.path)? != source {
+/// Fase de escrita, só depois da confirmação: cria as pastas, reconfere a fonte, `symlink(2)` e
+/// histórico. Se o histórico falhar, o erro diz que o link já existe, para o dono não repetir.
+fn execute(
+    home: &Path,
+    dir: &Path,
+    dir_text: &str,
+    prepared: &Prepared,
+    history_path: &Path,
+    now_unix: u64,
+) -> Result<()> {
+    let plan = &prepared.plan;
+    ensure_dirs(home, &plan.path)?;
+    if observe(dir, &plan.path)? != prepared.source {
         bail!("a fonte mudou desde o plano; nada foi ligado");
     }
     match symlink(&plan.target, &plan.link) {
@@ -126,20 +133,175 @@ pub fn link(
         }
     }
 
-    // O link já existe; se o histórico falhar, o erro diz isso, para o dono não repetir.
-    let command = ["nodusctl", "dotfiles", "link", "--", request.path].map(String::from);
-    let entry = entry_from_link(request.path, dir_text, &command, request.now_unix);
-    crate::history::append(request.history_path, &entry).context(
+    let command = ["nodusctl", "dotfiles", "link", "--", plan.path.as_str()].map(String::from);
+    let entry = entry_from_link(&plan.path, dir_text, &command, now_unix);
+    crate::history::append(history_path, &entry).context(
         "a ligação foi feita (o symlink foi criado), mas não consegui gravar o histórico",
+    )?;
+    Ok(())
+}
+
+fn dir_as_text(dir: &Path) -> Result<&str> {
+    dir.to_str()
+        .context("a pasta-fonte não é UTF-8; o histórico não consegue registrá-la")
+}
+
+/// Valida, mostra o plano, pergunta `Executar? [s/N]`, cria as pastas e o symlink e grava o
+/// histórico. Sem terminal, recusa.
+pub fn link(
+    request: &Request,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<Outcome> {
+    let prepared = prepare(request.home, request.dir, request.path)?;
+    let dir_text = dir_as_text(request.dir)?;
+
+    write!(
+        output,
+        "{}",
+        render_plan(&prepared.plan, &prepared.missing_dirs)
+    )
+    .context("escrevendo o plano")?;
+    if !request.interactive {
+        bail!("sem terminal interativo não há como confirmar; nada foi alterado");
+    }
+    if !crate::apply::confirm(input, output).context("lendo a resposta")? {
+        writeln!(output, "Nada foi alterado.").context("escrevendo a saída")?;
+        return Ok(Outcome::Declined);
+    }
+
+    execute(
+        request.home,
+        request.dir,
+        dir_text,
+        &prepared,
+        request.history_path,
+        request.now_unix,
     )?;
     writeln!(
         output,
         "Ligado: {} -> {}",
-        plan.link.display(),
-        plan.target.display()
+        prepared.plan.link.display(),
+        prepared.plan.target.display()
     )
     .context("escrevendo a saída")?;
     Ok(Outcome::Linked)
+}
+
+/// Tudo o que o `link --all` precisa saber (ADR 0030). `paths` é a lista curada que o `main`
+/// monta (a mesma do `nodusctl dotfiles`); o lote nunca liga nada fora dela.
+pub struct BatchRequest<'a> {
+    pub home: &'a Path,
+    pub dir: &'a Path,
+    pub paths: &'a [String],
+    pub interactive: bool,
+    pub history_path: &'a Path,
+    pub now_unix: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BatchOutcome {
+    Declined,
+    NothingToDo,
+    /// Quantos symlinks foram criados.
+    Linked(usize),
+}
+
+fn render_batch_plan(ready: &[Prepared], skipped: &[(String, String)]) -> String {
+    let mut text = String::new();
+    if !ready.is_empty() {
+        text.push_str(&format!("Ligar {} dotfile(s):\n", ready.len()));
+        let mut dirs: Vec<&str> = Vec::new();
+        for item in ready {
+            text.push_str(&format!(
+                "  {} ({} bytes): {} -> {}\n",
+                item.plan.path,
+                item.plan.size,
+                item.plan.link.display(),
+                item.plan.target.display()
+            ));
+            for dir in &item.missing_dirs {
+                if !dirs.contains(&dir.as_str()) {
+                    dirs.push(dir);
+                }
+            }
+        }
+        if !dirs.is_empty() {
+            text.push_str(&format!("  criar pastas: {}\n", dirs.join(", ")));
+        }
+        text.push_str("Nenhum destino existe e o nodus nunca sobrescreve; a pasta-fonte não é alterada.\nAtenção: ligar um arquivo de shell (.bashrc, .profile) faz o shell executar o conteúdo dele no próximo login. Só ligue de uma pasta-fonte em que você confia; o nodus não olha o conteúdo.\n");
+    }
+    if !skipped.is_empty() {
+        text.push_str(&format!("Pulados ({}):\n", skipped.len()));
+        for (path, reason) in skipped {
+            text.push_str(&format!("  {path}: pulado: {reason}\n"));
+        }
+    }
+    text
+}
+
+/// Liga em lote os itens da lista que podem ser ligados: observa todos (só leitura), mostra um plano
+/// com o que liga e o que pula (com o motivo), pergunta uma vez e liga um a um, com uma linha de
+/// histórico por item. O que não pode ser ligado é pulado; um erro de execução para o lote.
+pub fn link_all(
+    request: &BatchRequest,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<BatchOutcome> {
+    let dir_text = dir_as_text(request.dir)?;
+    let mut ready = Vec::new();
+    let mut skipped = Vec::new();
+    for path in request.paths {
+        match prepare(request.home, request.dir, path) {
+            Ok(prepared) => ready.push(prepared),
+            Err(erro) => skipped.push((path.clone(), format!("{erro:#}"))),
+        }
+    }
+
+    write!(output, "{}", render_batch_plan(&ready, &skipped)).context("escrevendo o plano")?;
+    if ready.is_empty() {
+        writeln!(output, "Nada a ligar.").context("escrevendo a saída")?;
+        return Ok(BatchOutcome::NothingToDo);
+    }
+    if !request.interactive {
+        bail!("sem terminal interativo não há como confirmar; nada foi alterado");
+    }
+    if !crate::apply::confirm(input, output).context("lendo a resposta")? {
+        writeln!(output, "Nada foi alterado.").context("escrevendo a saída")?;
+        return Ok(BatchOutcome::Declined);
+    }
+
+    let mut linked: Vec<&str> = Vec::new();
+    for item in &ready {
+        execute(
+            request.home,
+            request.dir,
+            dir_text,
+            item,
+            request.history_path,
+            request.now_unix,
+        )
+        .with_context(|| {
+            format!(
+                "o lote parou em {} (ligados antes: {})",
+                item.plan.path,
+                if linked.is_empty() {
+                    "nenhum".to_string()
+                } else {
+                    linked.join(", ")
+                }
+            )
+        })?;
+        linked.push(&item.plan.path);
+        writeln!(
+            output,
+            "Ligado: {} -> {}",
+            item.plan.link.display(),
+            item.plan.target.display()
+        )
+        .context("escrevendo a saída")?;
+    }
+    Ok(BatchOutcome::Linked(linked.len()))
 }
 
 #[cfg(test)]

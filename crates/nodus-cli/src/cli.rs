@@ -85,9 +85,15 @@ pub enum DotfilesAction {
     },
     /// Cria no HOME o symlink para um arquivo que já está na pasta-fonte (máquina nova). Mostra o
     /// plano e pede confirmação; cria as pastas que faltam; nunca sobrescreve um destino existente.
+    /// Com `--all`, liga em lote os itens da lista curada (a de `nodusctl dotfiles`) que existem na
+    /// pasta-fonte e faltam no HOME, com um plano e uma confirmação; o que não dá é pulado.
     Link {
         /// Caminho do arquivo relativo ao HOME (ex.: `.bashrc`, `.config/git/config`).
-        path: String,
+        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        path: Option<String>,
+        /// Liga todos os itens da lista curada que a pasta-fonte tem.
+        #[arg(long)]
+        all: bool,
     },
 }
 
