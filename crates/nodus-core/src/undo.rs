@@ -246,14 +246,7 @@ pub fn entry_for_flatpak_undo(
 ) -> HistoryEntry {
     HistoryEntry {
         manager: Manager::Flatpak,
-        ..entry_for_undo(
-            undoes,
-            requested,
-            still_installed,
-            command,
-            result,
-            at_unix,
-        )
+        ..entry_for_undo(undoes, requested, still_installed, command, result, at_unix)
     }
 }
 
@@ -866,7 +859,14 @@ mod tests {
     fn comando_de_remocao_flatpak_e_exato() {
         assert_eq!(
             flatpak_remove_command(&v(&["org.a.B", "org.c.D"])),
-            Some(v(&["flatpak", "uninstall", "--user", "--", "org.a.B", "org.c.D"]))
+            Some(v(&[
+                "flatpak",
+                "uninstall",
+                "--user",
+                "--",
+                "org.a.B",
+                "org.c.D"
+            ]))
         );
         assert_eq!(flatpak_remove_command(&[]), None);
     }
@@ -912,7 +912,11 @@ mod tests {
         assert_eq!(e.still_missing, v(&["org.a.B"]));
         assert_eq!(e.result, ExecResult::Failed { code: Some(1) });
         assert_eq!(e.dir, None);
-        assert_eq!(parse_line(&to_line(&e)).unwrap(), e, "a linha gravada é legível");
+        assert_eq!(
+            parse_line(&to_line(&e)).unwrap(),
+            e,
+            "a linha gravada é legível"
+        );
     }
 
     #[test]

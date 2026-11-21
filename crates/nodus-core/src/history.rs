@@ -1246,7 +1246,13 @@ mod tests {
         HistoryEntry {
             version: 3,
             at_unix: 1_700_000_100,
-            command: v(&["flatpak", "uninstall", "--user", "--", "org.gnome.Calculator"]),
+            command: v(&[
+                "flatpak",
+                "uninstall",
+                "--user",
+                "--",
+                "org.gnome.Calculator",
+            ]),
             requested: v(&["org.gnome.Calculator"]),
             installed: vec![],
             still_missing: v(&["org.gnome.Calculator"]),
@@ -1303,14 +1309,20 @@ mod tests {
         assert!(parse_line(&com_dir.to_string()).is_err(), "dir na v3");
         let mut dotfiles = serde_json::to_value(remocao_flatpak(1)).unwrap();
         dotfiles["manager"] = serde_json::json!("dotfiles");
-        assert!(parse_line(&dotfiles.to_string()).is_err(), "manager dotfiles na v3");
+        assert!(
+            parse_line(&dotfiles.to_string()).is_err(),
+            "manager dotfiles na v3"
+        );
     }
 
     #[test]
     fn v3_install_com_undoes_continua_recusado_para_flatpak() {
         let mut e = serde_json::to_value(remocao_flatpak(1)).unwrap();
         e["action"] = serde_json::json!("install");
-        assert!(parse_line(&e.to_string()).is_err(), "install não leva undoes");
+        assert!(
+            parse_line(&e.to_string()).is_err(),
+            "install não leva undoes"
+        );
     }
 
     #[test]

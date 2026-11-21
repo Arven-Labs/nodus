@@ -2,6 +2,12 @@
 
 Mais recente no topo.
 
+### 2026-11-21 — Sessão 32, `cargo fmt` nos 10 trechos antigos (chore)
+
+- **Pedido**: o item opcional da Sessão 30: pôr o código no formato do `rustfmt`, em PR próprio.
+- **Feito**: 10 trechos em `cli.rs`, `undo_flatpak.rs`, `history.rs` e `undo.rs` (core), aplicados à mão com `Edit` a partir da saída de `cargo fmt --check`; só quebra de linha e indentação, sem mudar lógica. `cargo fmt --check` na VM: 0 diferenças depois.
+- **Não verificado**: nada além do CI; o CI não tem passo de `fmt`, então ele não prova o formato (a prova é o `fmt --check` da VM). Sugestão ao dono, sem aplicar (CI é área de §4): um passo `cargo fmt --check` no `ci.yml`.
+
 ### 2026-11-21 — Sessão 31, primeiro recorte da Fase 2 (ADR 0031, docs)
 
 - **Pedido**: item 3 da recomendação: escolher o primeiro recorte da Fase 2, pela skill `decisao-arquitetural`.
