@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-21 — Sessão 28, busca de marca (P-02, docs)
+
+- **Pedido**: o dono seguiu a recomendação de fechar o que faltava da P-02 (busca de marca). Plan mode; destinos escolhidos: PENDING + ADR 0001. O dono pediu para registrar o resultado como está, sem rodar ele os buscadores antes.
+- **Achado**: USPTO tem dois `NODUS` vivos da Nodus Technologies, Inc. nas classes 9 e 42 (Reg. 2876650 e 3637558), as mesmas do nodus. Fonte só resumos de busca de agregadores; as páginas não abriram (Justia 403, Markinton sem DNS). EUIPO e INPI não consultados (buscadores interativos). Nenhum produto homônimo de gestão de dispositivos na web.
+- **Feito**: atualização datada no ADR 0001; linha da P-02 no `PENDING.md` com as consultas prontas para o dono (USPTO/TSDR, TMview, INPI). A decisão de manter o nome não mudou; a P-02 segue aberta.
+- **Não verificado**: status atual e lista de produtos dos registros (TSDR); EUIPO; INPI; o que a Nodus Technologies faz hoje. Triagem, não parecer jurídico.
+
 ### 2026-11-20 — Sessão 27, verificação da GUI no PC do dono (docs)
 
 - **Pedido**: o dono escolheu quitar a dívida "CI verde, ainda não vista na janela real". Escrevi um roteiro (abas de leitura, depois as ações que abrem terminal, em ordem de risco; atenção ao `flatpak uninstall`, que não pergunta nada).
