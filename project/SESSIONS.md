@@ -7,7 +7,8 @@ Mais recente no topo.
 - **Pedido**: a sugestão da Sessão 32, aprovada pelo dono: o CI barrar a deriva de formato.
 - **Feito**: `.github/workflows/ci.yml`: `rustfmt` entra em `components` e um passo `Format` (`cargo fmt --all --check`) roda antes do Clippy, **dentro do job `rust`** (o nome `Rust (clippy and tests)` é o contexto do ruleset da main e não muda; um job novo ficaria fora do ruleset).
 - **Risco**: um `rustfmt` novo no `@stable` pode mudar o formato sem o código mudar e deixar o CI vermelho; a correção é rodar `cargo fmt` e commitar. Mesma natureza do aviso do Clippy no mesmo arquivo.
-- **Não verificado**: que o `rustfmt` do CI concorda com o da VM em todo o código (o PR mostra: se der diferença, o passo falha e eu leio o diff).
+- **Verificado no CI**: o passo `Format` passa na main já formatada (o `rustfmt` do CI concorda com o da VM) e **falha de verdade** numa branch descartável com uma linha mal formatada (`dotfiles_link.rs`); nesse caso Clippy e Testes foram pulados. Branch apagada, remota e local.
+- **Não verificado**: o comportamento com um `rustfmt` mais novo no `@stable` no futuro (risco declarado acima).
 
 ### 2026-11-21 — Sessão 32, `cargo fmt` nos 10 trechos antigos (chore)
 
