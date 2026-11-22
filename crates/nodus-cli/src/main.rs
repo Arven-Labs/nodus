@@ -251,7 +251,7 @@ fn preset_apply(file: &std::path::Path, skip_flatpak: bool) -> Result<()> {
     if skip_flatpak {
         let (without, skipped) = apply::without_flatpak(&plan);
         plan = without;
-        emit(&render::render_skipped_flatpak(&skipped))?;
+        let _ = skipped;
     }
     emit(&render::render_plan(&plan))?;
     let now = std::time::SystemTime::now()
