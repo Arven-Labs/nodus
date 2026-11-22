@@ -480,9 +480,6 @@ fn preset_adopt(file: &std::path::Path, machine: Option<&str>) -> Result<()> {
     // relatório diria "adotado" sem ter gravado nada.
     let known = &parsed.preset;
     suggestions
-        .pacman_extra
-        .retain(|name| !known.pacman.contains(name));
-    suggestions
         .foreign_extra
         .retain(|name| !known.pacman.contains(name));
     suggestions
