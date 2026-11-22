@@ -2,13 +2,13 @@
 
 use crate::snapshot::Unreadable;
 use crate::workspace::{Report, Source};
-use nodus_core::compare::{Comparison, ListComparison};
+use nodus_core::compare::{Comparison, DotfilesComparison, ListComparison};
 use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Preset, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
-use nodus_core::snapshot::SnapshotOs;
+use nodus_core::snapshot::{DotfileState, SnapshotOs};
 use nodus_core::status::{MachineStatus, StatusList};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
@@ -410,6 +410,7 @@ pub fn render_comparison(comparison: &Comparison) -> String {
     }
     comparison_section(&mut out, "Pacman", comparison, &comparison.pacman);
     comparison_section(&mut out, "Flatpak", comparison, &comparison.flatpak);
+    dotfiles_section(&mut out, comparison);
     if !comparison.has_differences() {
         out.push_str(if comparison.has_not_comparable() {
             "Sem divergências nas listas comparadas.\n"
@@ -418,6 +419,57 @@ pub fn render_comparison(comparison: &Comparison) -> String {
         });
     }
     out
+}
+
+fn dotfile_state_label(state: Option<DotfileState>) -> &'static str {
+    match state {
+        Some(DotfileState::Linked) => "ligado",
+        Some(DotfileState::File) => "arquivo",
+        Some(DotfileState::Missing) => "ausente",
+        Some(DotfileState::Other) => "outro",
+        None => "fora da lista",
+    }
+}
+
+/// Dotfiles do `compare`: sem seção quando as duas olharam e nenhuma lista tem caminho; "não
+/// comparável" cita quem não olhou (snapshot v1) e como resolver. O caminho vem de um arquivo de
+/// outra máquina: nada de byte de controle na tela.
+fn dotfiles_section(out: &mut String, comparison: &Comparison) {
+    match &comparison.dotfiles {
+        DotfilesComparison::Compared { differ, same } => {
+            if differ.is_empty() && *same == 0 {
+                return;
+            }
+            let _ = writeln!(out, "Dotfiles: {same} em comum");
+            if differ.is_empty() {
+                return;
+            }
+            let _ = writeln!(out, "  diferem ({}):", differ.len());
+            for diff in differ {
+                let _ = writeln!(
+                    out,
+                    "    {}: {} {}, {} {}",
+                    plain(&diff.path),
+                    comparison.a,
+                    dotfile_state_label(diff.a),
+                    comparison.b,
+                    dotfile_state_label(diff.b)
+                );
+            }
+        }
+        DotfilesComparison::NotComparable { lacks } => {
+            let verb = if lacks.len() == 1 {
+                "não registrou"
+            } else {
+                "não registraram"
+            };
+            let _ = writeln!(
+                out,
+                "Dotfiles: não comparável, {} {verb} dotfiles (snapshot v1; rode `nodusctl snapshot` de novo)",
+                lacks.join(" e ")
+            );
+        }
+    }
 }
 
 /// O snapshot guarda `pacman -Qe`: "ausente" inclui o que veio só como dependência.

@@ -4,9 +4,9 @@
 //! sem Flatpak não "perdeu" os apps: dizer "faltam apps" seria acusar falta onde não há como ter.
 //! A capacidade manda, mesmo que um arquivo editado à mão traga a lista.
 
-use crate::snapshot::{Snapshot, SnapshotOs};
+use crate::snapshot::{DotfileEntry, DotfileState, Snapshot, SnapshotOs};
 use serde::Serialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Comparison {
@@ -17,6 +17,31 @@ pub struct Comparison {
     pub os: Option<OsDifference>,
     pub pacman: ListComparison,
     pub flatpak: ListComparison,
+    pub dotfiles: DotfilesComparison,
+}
+
+/// Dotfiles: só se compara se as duas máquinas olharam (snapshot v2). Um snapshot v1 não olhou, e
+/// dizer que "não tem" o `.bashrc` seria acusar falta onde ninguém procurou.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DotfilesComparison {
+    Compared {
+        /// Caminhos com estado diferente, ou só na lista de uma das máquinas, ordenados.
+        differ: Vec<DotfileDiff>,
+        /// Caminhos nas duas listas com o mesmo estado (inclui `missing` nos dois lados).
+        same: usize,
+    },
+    /// Alguma máquina não olhou os dotfiles; `lacks` traz o rótulo de quem não olhou.
+    NotComparable { lacks: Vec<String> },
+}
+
+/// Um dotfile em que as máquinas divergem. `None` = o caminho não está na lista daquela máquina
+/// (diferente de `Missing`, que é "está na lista e não existe").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DotfileDiff {
+    pub path: String,
+    pub a: Option<DotfileState>,
+    pub b: Option<DotfileState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -45,11 +70,13 @@ impl Comparison {
         self.os.is_some()
             || has_items_only_on_one_side(&self.pacman)
             || has_items_only_on_one_side(&self.flatpak)
+            || matches!(&self.dotfiles, DotfilesComparison::Compared { differ, .. } if !differ.is_empty())
     }
 
     pub fn has_not_comparable(&self) -> bool {
         matches!(self.pacman, ListComparison::NotComparable { .. })
             || matches!(self.flatpak, ListComparison::NotComparable { .. })
+            || matches!(self.dotfiles, DotfilesComparison::NotComparable { .. })
     }
 }
 
@@ -80,7 +107,39 @@ pub fn compare(a: &Snapshot, b: &Snapshot) -> Comparison {
             (a.capabilities.flatpak, b.capabilities.flatpak),
             (&a.flatpak, &b.flatpak),
         ),
+        dotfiles: compare_dotfiles(a, b),
     }
+}
+
+fn compare_dotfiles(a: &Snapshot, b: &Snapshot) -> DotfilesComparison {
+    let lacks: Vec<String> = [a, b]
+        .into_iter()
+        .filter(|s| !s.capabilities.dotfiles)
+        .map(|s| s.name.clone())
+        .collect();
+    if !lacks.is_empty() {
+        return DotfilesComparison::NotComparable { lacks };
+    }
+    let states = |entries: &[DotfileEntry]| -> BTreeMap<String, DotfileState> {
+        entries.iter().map(|e| (e.path.clone(), e.state)).collect()
+    };
+    let (in_a, in_b) = (states(&a.dotfiles), states(&b.dotfiles));
+    let paths: BTreeSet<&String> = in_a.keys().chain(in_b.keys()).collect();
+    let mut differ = Vec::new();
+    let mut same = 0;
+    for path in paths {
+        let (state_a, state_b) = (in_a.get(path).copied(), in_b.get(path).copied());
+        if state_a == state_b {
+            same += 1;
+        } else {
+            differ.push(DotfileDiff {
+                path: path.clone(),
+                a: state_a,
+                b: state_b,
+            });
+        }
+    }
+    DotfilesComparison::Compared { differ, same }
 }
 
 fn compare_list(

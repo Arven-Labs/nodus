@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result, bail};
 use nodus_core::dotfiles::{Entry, Observed, classify, validate_path};
+use nodus_core::snapshot::{DotfileEntry, dotfile_state};
 use std::path::{Path, PathBuf};
 
 /// O `$HOME`, que precisa ser absoluto: é a raiz de todos os caminhos da lista.
@@ -36,6 +37,21 @@ pub fn observe(home: &Path, path: &str) -> Result<Observed> {
     } else {
         Ok(Observed::Other)
     }
+}
+
+/// O estado de cada item da lista para o snapshot v2, na ordem dela. `dir` é a pasta-fonte: só um
+/// symlink cujo alvo é, em texto, `<dir>/<caminho>` conta como `linked`. Valida cada caminho de novo
+/// (denylist) e, como o relatório, não abre arquivo nem segue symlink.
+pub fn dotfile_entries(home: &Path, dir: &Path, list: &[String]) -> Result<Vec<DotfileEntry>> {
+    list.iter()
+        .map(|path| {
+            validate_path(path).with_context(|| format!("dotfile {path:?}"))?;
+            Ok(DotfileEntry {
+                path: path.clone(),
+                state: dotfile_state(dir, path, &observe(home, path)?),
+            })
+        })
+        .collect()
 }
 
 /// Uma entrada por item da lista, na ordem dela. Valida cada caminho de novo, mesmo vindo do
