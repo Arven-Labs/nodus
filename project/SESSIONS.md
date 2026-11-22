@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 37, `nodusctl compare` (Fase 2, fatia 2, PR #125)
+
+- **Pedido**: o dono quis a fatia 2. Eu havia recomendado ver um snapshot real antes; ele preferiu seguir (o `compare` só lê, então o risco é de formato de relatório). Plan mode; escolhas dele: entrada = dois snapshots por rótulo; saída = sempre código 0, só relatório.
+- **Feito**: `crates/nodus-core/src/compare.rs` (`compare`, `Comparison`, `ListComparison` com `Compared` ou `NotComparable`, `has_differences`, `has_not_comparable`); `snapshot::read` no CLI (rótulo validado antes do caminho, sem symlink em `.nodus`, `snapshots` e no arquivo, teto de 1 MiB, leitura estrita, `name` de dentro igual ao rótulo; não cria nada); `render_comparison` (texto) e `--json`; subcomando `nodusctl compare <a> <b> [--json]`. Regra: uma lista só é comparada se as duas têm a capacidade; "não comparável" não é "diferente".
+- **Achado**: a leitura da fatia 1 não valida `os.name`; um snapshot de outra máquina podia levar `ESC` ali. O `compare` troca byte de controle por `?` ao mostrar; a leitura do core ficou como estava (formato v1 já mesclado).
+- **Testes**: primeiro, com CI vermelho pelo motivo certo (itens inexistentes); depois CI verde (27 testes novos, conferidos no log). Mutações numa branch descartável (apagada): ignorar a capacidade Flatpak, trocar `only_a`, seguir symlink, aceitar nome divergente, tirar a limpeza de controle, "Sem divergências" com lista não comparável e ignorar o SO derrubaram 16 testes, cada mutação por pelo menos um. Sobreviveriam, por defesa em camadas: tirar só o teto de tamanho antes da leitura (a leitura com `take` ainda barra) e tirar só `validate_name` (o `name` de dentro do arquivo ainda barra); não foram testadas.
+- **Não verificado**: no Arch real (dois snapshots e `compare a b`); a regra de capacidades e a de "SO diferente conta como divergência" não foram medidas com snapshots de máquinas de verdade; a saída com listas grandes (centenas de pacotes só de um lado).
+
 ### 2026-11-22 — Sessão 36, ADR 0032: formato do snapshot (docs)
 
 - **Pedido**: o dono aprovou criar o ADR 0032 que a Sessão 35 deixou pendente.
