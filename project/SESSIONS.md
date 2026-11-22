@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 39, verificação da Fase 2 no Arch real (docs)
+
+- **Pedido**: o dono quis código "corrigir o que a verificação achar". Não havia defeito conhecido: `snapshot`, `compare` e `preset status` (PRs #122, #125, #127) nunca tinham rodado numa máquina real. Li `status.rs` e `collect_plan` antes (sem achar defeito) e o dono rodou o roteiro no PC dele.
+- **Achado de processo**: o `nodusctl` instalado era o da tag `v0.1.0` e não tinha os subcomandos novos; foi preciso `git pull` e `cargo install --path crates/nodus-cli --locked` a partir da `main` (`64a1deb`). Um comando meu do roteiro (`workspace set` dentro de `$(...)` com stderr escondido) era imprudente e foi retirado; não sei se ele alterou o `config.toml` do dono (pedi `nodusctl workspace` para conferir e o resultado não foi relatado).
+- **Medido (Arch real, 2026-11-22)**: duas execuções de `snapshot` deram o mesmo sha256, arquivo 0600, rótulo = hostname. `preset status` com preset do `init`: em dia (resultado circular, os dois vêm de `-Qe`). Com um preset de um item que está só como dependência (`a52dec`): `status` diz "não instalado de propósito" e `plan` diz "já presente". `compare` com um segundo snapshot forjado (sem `7zip` e `htop`, Flatpak desligado): 152 em comum, itens só de um lado, Flatpak "não comparável", `--json` com `only_a`, `only_b`, `common` e `lacks`, código 0, ordem invertida dá o mesmo resultado por nome de máquina.
+- **Decisão do dono**: manter o limite do `-Qe` (opção A). Descartado: snapshot v2 com `pacman -Q`. Registrado no ADR 0032 (Lacunas).
+- **Não verificado**: máquina de verdade como segunda ponta; SO diferente no `compare`; listas grandes só de um lado; snapshot ilegível ou rótulo inválido; o `--json` do `preset status`. Nenhum código mudou nesta sessão.
+
 ### 2026-11-22 — Sessão 38, `nodusctl preset status` (critério 3, PR #127)
 
 - **Pedido**: planejar e fazer o critério 3 do SPEC §16 ("sincronizar mudanças do preset"). Plan mode. Leitura do problema: o git já leva o arquivo do preset e `preset plan`/`apply` já instala o que falta; faltava **enxergar a divergência do preset entre as máquinas**. Escolhas do dono: lacuna = status do preset por máquina (descartadas: exceções por dispositivo, que exigem preset v2, e só documentar); escopo = todos os snapshots da pasta, rótulos opcionais restringem.

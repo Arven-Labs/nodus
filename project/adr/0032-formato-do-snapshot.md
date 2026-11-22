@@ -38,7 +38,7 @@ O ADR 0031 escolheu "snapshot e compare por git, sem Core" como primeiro recorte
 - O snapshot não prova que o preset foi aplicado: guarda o estado instalado, não o desejado. Comparar com um preset é outra decisão.
 
 ## Lacunas
-- **Não verificado no Arch real:** gravar duas vezes seguidas e conferir `git diff` vazio; o hostname real como rótulo.
+- **Verificado no Arch real em 2026-11-22:** duas gravações seguidas deram o mesmo sha256 (o `git diff` vazio não serviria, a pasta ainda não era versionada), arquivo 0600 e o hostname como rótulo.
 - `os.version` é `null` no Arch (o `os-release` dele não tem `VERSION_ID`); não medido em outra distribuição.
-- Sem protótipo do `compare`: não sei se `pacman -Qe` é o conjunto certo para comparar (pacotes de dependência promovidos, grupos).
+- `pacman -Qe` como conjunto de comparação, medido em 2026-11-22: um item do preset instalado só como dependência aparece como "não instalado de propósito" no `preset status`, enquanto o `preset plan` (que usa `pacman -Q`) o vê como presente. **Decisão do dono: manter** (opção A). Descartado: gravar também `pacman -Q` (formato v2), porque o snapshot passaria a mudar a cada atualização de dependência e contraria o conteúdo mínimo. Não escolhido: sugerir `pacman -D --asexplicit` na nota.
 - Este ADR foi escrito por IA e revisado só pelo dono.
