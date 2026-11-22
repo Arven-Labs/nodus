@@ -122,7 +122,7 @@ fn read_for_machine(
     Ok(match label {
         Some(label) => {
             let skipped = parsed.skipped(&label);
-            (parsed.for_machine(&label), Some((label, skipped)))
+            (parsed.for_machine(""), Some((label, skipped)))
         }
         None => (parsed.preset, None),
     })
