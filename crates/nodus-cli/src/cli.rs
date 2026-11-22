@@ -40,14 +40,10 @@ pub enum Command {
     /// snapshot ilegível vira aviso, e com menos de dois legíveis não há o que comparar (não é erro).
     Compare {
         /// Rótulo da primeira máquina (o nome do arquivo, sem `.json`).
-        #[arg(
-            required_unless_present = "all",
-            requires = "b",
-            conflicts_with = "all"
-        )]
+        #[arg(required_unless_present = "all", requires = "b")]
         a: Option<String>,
         /// Rótulo da segunda máquina.
-        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        #[arg(required_unless_present = "all")]
         b: Option<String>,
         /// Compara todos os pares de snapshots em vez de dois rótulos.
         #[arg(long)]
