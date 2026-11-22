@@ -45,6 +45,7 @@ fn main() -> Result<()> {
         Command::Inventory { json } => inventory(json),
         Command::Updates { json } => updates(json),
         Command::Snapshot { name } => snapshot_command(name),
+        Command::Compare { a, b, json } => compare_command(&a, &b, json),
         Command::History { json, action } => match action {
             None => show_history(json),
             Some(HistoryAction::Undo { n }) => history_undo(n),
@@ -644,6 +645,19 @@ fn snapshot_command(name: Option<String>) -> Result<()> {
         "Snapshot gravado em {}\nO commit e o push são seus: o nodus não roda git.\n",
         path.display()
     ))
+}
+
+fn compare_command(a: &str, b: &str, json: bool) -> Result<()> {
+    let dir = dotfiles_source_dir()?;
+    let first = snapshot::read(&dir, a)?;
+    let second = snapshot::read(&dir, b)?;
+    let comparison = nodus_core::compare::compare(&first, &second);
+    if json {
+        emit(&format!("{}\n", serde_json::to_string_pretty(&comparison)?))?;
+    } else {
+        emit(&render::render_comparison(&comparison))?;
+    }
+    Ok(())
 }
 
 fn inventory(json: bool) -> Result<()> {

@@ -34,7 +34,7 @@ O ADR 0031 escolheu "snapshot e compare por git, sem Core" como primeiro recorte
 
 ## Consequências
 - Formato fixado em `version: 1`. Mudar exige `version: 2` e leitura dos dois (como o histórico). Remover o recurso é fácil enquanto o `compare` não existir.
-- A fatia 2 herda as regras de leitura. Ela precisa decidir como tratar capacidades diferentes entre as máquinas (critério 2 do SPEC §16): o formato já guarda o necessário, mas a regra do `compare` ainda não foi medida.
+- A fatia 2 (`nodusctl compare`, PR #125) herda as regras de leitura e decidiu as capacidades (critério 2 do SPEC §16): uma lista só é comparada se **as duas** máquinas têm a capacidade; sem ela, a lista é "não comparável" (cita quem não tem), nunca "faltam apps", e a capacidade manda mesmo que o arquivo traga a lista. SO diferente é aviso e conta como divergência. A regra foi decidida e testada, **não medida** com snapshots reais. A leitura do `compare` acrescenta o que o ADR não previa: `.nodus`, `snapshots` e o arquivo sem symlink, teto de 1 MiB e o `name` de dentro do arquivo igual ao rótulo pedido. A leitura do core **não valida `os.name`**: o `compare` troca byte de controle por `?` ao mostrar.
 - O snapshot não prova que o preset foi aplicado: guarda o estado instalado, não o desejado. Comparar com um preset é outra decisão.
 
 ## Lacunas

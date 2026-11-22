@@ -32,6 +32,19 @@ pub enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Compara dois snapshots gravados pelo `snapshot` (em `<dotfiles_dir>/.nodus/snapshots/`) e
+    /// mostra o que só existe em cada máquina, por lista. Só lê arquivos (somente leitura). Uma
+    /// máquina sem Flatpak não é acusada de "faltar apps": a lista fica "não comparável". Divergir
+    /// não é erro (código 0); arquivo ausente, versão desconhecida ou symlink são.
+    Compare {
+        /// Rótulo da primeira máquina (o nome do arquivo, sem `.json`).
+        a: String,
+        /// Rótulo da segunda máquina.
+        b: String,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Mostra o que o nodus executou (cada `preset apply` e cada reversão), do mais antigo ao mais
     /// novo, com o número de cada entrada (somente leitura). `undo <n>` desfaz uma instalação.
     History {
@@ -274,6 +287,24 @@ mod tests {
         // O rótulo é uma opção, não um argumento solto; e não há outra opção.
         assert!(Cli::try_parse_from(["nodus", "snapshot", "meu-pc"]).is_err());
         assert!(Cli::try_parse_from(["nodus", "snapshot", "--out", "/tmp"]).is_err());
+    }
+
+    #[test]
+    fn compare_recebe_dois_rotulos_e_json_opcional() {
+        let cli = Cli::try_parse_from(["nodus", "compare", "pc-a", "pc-b"]).unwrap();
+        match cli.command {
+            Command::Compare { a, b, json } => {
+                assert_eq!((a.as_str(), b.as_str()), ("pc-a", "pc-b"));
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let cli = Cli::try_parse_from(["nodus", "compare", "pc-a", "pc-b", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Compare { json: true, .. }));
+        // São exatamente dois rótulos.
+        assert!(Cli::try_parse_from(["nodus", "compare"]).is_err());
+        assert!(Cli::try_parse_from(["nodus", "compare", "pc-a"]).is_err());
+        assert!(Cli::try_parse_from(["nodus", "compare", "a", "b", "c"]).is_err());
     }
 
     #[test]

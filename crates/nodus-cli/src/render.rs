@@ -1,11 +1,13 @@
 //! Formatação do inventário para o terminal.
 
 use crate::workspace::{Report, Source};
+use nodus_core::compare::{Comparison, ListComparison};
 use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
+use nodus_core::snapshot::SnapshotOs;
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
@@ -296,6 +298,83 @@ pub fn render_plan(plan: &Plan) -> String {
             "Nada a fazer: a máquina já está como o preset.\n"
         } else {
             "Nada a instalar: só restam itens indisponíveis nos repositórios.\n"
+        });
+    }
+    out
+}
+
+/// Troca byte de controle por `?`: o SO vem de um arquivo de outra máquina (a leitura não o valida) e
+/// um `ESC` ali mexeria no terminal de quem lê o relatório. Rótulos e nomes de item já são validados.
+fn plain(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
+}
+
+fn os_label(os: &SnapshotOs) -> String {
+    match &os.version {
+        Some(version) => plain(&format!("{} {version}", os.name)),
+        None => plain(&os.name),
+    }
+}
+
+fn comparison_section(
+    out: &mut String,
+    title: &str,
+    comparison: &Comparison,
+    list: &ListComparison,
+) {
+    match list {
+        ListComparison::Compared {
+            only_a,
+            only_b,
+            common,
+        } => {
+            let _ = writeln!(out, "{title}: {common} em comum");
+            for (label, only) in [(&comparison.a, only_a), (&comparison.b, only_b)] {
+                if only.is_empty() {
+                    continue;
+                }
+                let _ = writeln!(out, "  só em {label} ({}):", only.len());
+                for name in only {
+                    let _ = writeln!(out, "    {name}");
+                }
+            }
+        }
+        ListComparison::NotComparable { lacks } => {
+            let who = lacks.join(" e ");
+            let verb = if lacks.len() == 1 {
+                "não tem"
+            } else {
+                "não têm"
+            };
+            let _ = writeln!(out, "{title}: não comparável, {who} {verb} {title}");
+        }
+    }
+}
+
+pub fn render_comparison(comparison: &Comparison) -> String {
+    let mut out = format!(
+        "Comparando {} com {} (só leitura):\n",
+        comparison.a, comparison.b
+    );
+    if let Some(os) = &comparison.os {
+        let _ = writeln!(
+            out,
+            "Aviso: sistemas diferentes: {} é {}, {} é {}",
+            comparison.a,
+            os_label(&os.a),
+            comparison.b,
+            os_label(&os.b)
+        );
+    }
+    comparison_section(&mut out, "Pacman", comparison, &comparison.pacman);
+    comparison_section(&mut out, "Flatpak", comparison, &comparison.flatpak);
+    if !comparison.has_differences() {
+        out.push_str(if comparison.has_not_comparable() {
+            "Sem divergências nas listas comparadas.\n"
+        } else {
+            "Sem divergências.\n"
         });
     }
     out
@@ -1260,5 +1339,123 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
     #[test]
     fn dotfiles_com_lista_vazia_diz_que_nao_ha_nada() {
         assert_eq!(render_dotfiles(&[]), "Nenhum dotfile na lista.\n");
+    }
+
+    // --- compare (ADR 0031, fatia 2) ---
+
+    fn snapshot_de(
+        label: &str,
+        os: &str,
+        pacman: &[&str],
+        flatpak: Option<&[&str]>,
+    ) -> nodus_core::snapshot::Snapshot {
+        let os = nodus_core::inventory::OsInfo {
+            name: os.into(),
+            version: None,
+        };
+        let machine = nodus_core::preset::MachinePreset {
+            preset: nodus_core::preset::Preset {
+                pacman: pacman.iter().map(|s| s.to_string()).collect(),
+                flatpak: flatpak
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            },
+            flatpak_installed: flatpak.is_some(),
+        };
+        nodus_core::snapshot::build(label, &os, &machine).unwrap()
+    }
+
+    #[test]
+    fn compare_mostra_o_que_so_tem_em_cada_lado() {
+        let a = snapshot_de(
+            "pc-a",
+            "Arch Linux",
+            &["base", "git", "vim"],
+            Some(&["org.a.A"]),
+        );
+        let b = snapshot_de(
+            "pc-b",
+            "Arch Linux",
+            &["base", "git", "htop"],
+            Some(&["org.a.A"]),
+        );
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 2 em comum
+  só em pc-a (1):
+    vim
+  só em pc-b (1):
+    htop
+Flatpak: 1 em comum
+";
+        assert_eq!(
+            render_comparison(&nodus_core::compare::compare(&a, &b)),
+            esperado
+        );
+    }
+
+    #[test]
+    fn compare_de_maquinas_iguais_diz_que_nao_ha_divergencia() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base", "git"], Some(&["org.a.A"]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["git", "base"], Some(&["org.a.A"]));
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 2 em comum
+Flatpak: 1 em comum
+Sem divergências.
+";
+        assert_eq!(
+            render_comparison(&nodus_core::compare::compare(&a, &b)),
+            esperado
+        );
+    }
+
+    #[test]
+    fn compare_sem_flatpak_num_lado_nao_acusa_falta_e_nao_diz_que_esta_tudo_igual() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&["org.a.A"]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 1 em comum
+Flatpak: não comparável, pc-b não tem Flatpak
+Sem divergências nas listas comparadas.
+";
+        assert_eq!(texto, esperado);
+        assert!(!texto.contains("só em"));
+    }
+
+    #[test]
+    fn compare_com_as_duas_sem_flatpak_cita_as_duas() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], None);
+        let b = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        assert!(
+            texto.contains("Flatpak: não comparável, pc-a e pc-b não têm Flatpak\n"),
+            "{texto}"
+        );
+    }
+
+    #[test]
+    fn compare_avisa_quando_o_so_e_diferente() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], None);
+        let mut b = snapshot_de("pc-b", "Fedora Linux", &["base"], None);
+        b.os.version = Some("41".into());
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        let aviso = "Aviso: sistemas diferentes: pc-a é Arch Linux, pc-b é Fedora Linux 41\n";
+        assert!(texto.contains(aviso), "{texto}");
+        assert!(!texto.contains("Sem divergências"), "{texto}");
+    }
+
+    #[test]
+    fn compare_nao_escapa_nome_hostil_do_arquivo_de_outra_maquina() {
+        // Os nomes de pacote são validados na leitura; ainda assim, nada de byte de controle na saída.
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], None);
+        let mut b = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        b.os.name = "Arch\x1b[31m Linux".into();
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        assert!(!texto.contains('\x1b'), "{texto:?}");
     }
 }
