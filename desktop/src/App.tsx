@@ -6,6 +6,7 @@ import { canUndo, formatUtc, type HistoryEntry, parseHistory } from "./lib/histo
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parsePresetPlan } from "./lib/preset";
+import { type MachineStatus, parsePresetStatus } from "./lib/presetStatus";
 import { parsePresetSuggest } from "./lib/presetSuggest";
 import { parseRepos, type Repo } from "./lib/repos";
 import { parseUpdates, type Updates } from "./lib/updates";
@@ -703,7 +704,70 @@ function SuggestScreen({ onRefresh }: { onRefresh: () => void }) {
   );
 }
 
-type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset" | "suggest";
+function MachineStatusView({ m }: { m: MachineStatus }) {
+  const lists = [
+    { label: "Pacman", list: m.pacman },
+    { label: "Flatpak", list: m.flatpak },
+  ];
+  // "Não comparável" não é diferença: a máquina não tem a capacidade, então a lista não conta nem contra nem a favor.
+  const inSync = lists.every(({ list }) => list.kind === "not_comparable" || (list.missing.length === 0 && list.extra.length === 0));
+  const notComparable = lists.some(({ list }) => list.kind === "not_comparable");
+  return (
+    <div data-testid="status-maquina">
+      <h2>{`${m.machine} (${m.os.name}${m.os.version ? ` ${m.os.version}` : ""})`}</h2>
+      {inSync && <p data-testid="status-em-dia">{notComparable ? "em dia nas listas comparadas" : "em dia com o preset"}</p>}
+      {lists.map(({ label, list }) =>
+        list.kind === "not_comparable" ? (
+          <p key={label} data-testid="status-nao-comparavel">{`${label}: não comparável, ${list.lacks.join(", ")} não tem ${label}`}</p>
+        ) : (
+          <div key={label}>
+            <h3>{`${label}: ${list.inSync} em dia`}</h3>
+            {list.missing.length > 0 && (
+              <div data-testid="status-faltam">
+                <h4>{`No preset e não instalado de propósito (${list.missing.length})`}</h4>
+                <NameList items={list.missing} testId="status-faltam-item" />
+              </div>
+            )}
+            {list.extra.length > 0 && (
+              <div data-testid="status-sobram">
+                <h4>{`Instalado de propósito e fora do preset (${list.extra.length})`}</h4>
+                <NameList items={list.extra} testId="status-sobram-item" />
+              </div>
+            )}
+          </div>
+        ),
+      )}
+    </div>
+  );
+}
+
+function StatusScreen() {
+  const state = useLoad("preset_status", parsePresetStatus);
+
+  if (state.status === "loading") return <p>Lendo o preset e os snapshots…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="o status do preset" />;
+
+  const { machines, unreadable } = state.data;
+  return (
+    <section>
+      <h1>Status do preset</h1>
+      {machines.length === 0 && unreadable.length === 0 && (
+        <p data-testid="status-vazio">Nenhum snapshot encontrado. Rode `nodusctl snapshot` em cada máquina e traga os arquivos pelo git.</p>
+      )}
+      {machines.map((m, i) => (
+        <MachineStatusView key={i} m={m} />
+      ))}
+      {unreadable.map((u, i) => (
+        <p key={i} data-testid="status-ilegivel" className="detail">{`Aviso: não consegui ler o snapshot ${u.label}: ${u.reason}`}</p>
+      ))}
+      <p data-testid="status-nota" className="detail">
+        Só leitura: nada foi alterado. "Não instalado de propósito" inclui o que veio só como dependência, porque o snapshot guarda `pacman -Qe`.
+      </p>
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset" | "suggest" | "status";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "inventory", label: "Inventário" },
@@ -714,6 +778,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "history", label: "Histórico" },
   { id: "preset", label: "Preset" },
   { id: "suggest", label: "Sugestões" },
+  { id: "status", label: "Status" },
 ];
 
 export default function App() {
@@ -745,6 +810,7 @@ export default function App() {
       {tab === "history" && <HistoryScreen key={historyKey} onRefresh={() => setHistoryKey((k) => k + 1)} />}
       {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
       {tab === "suggest" && <SuggestScreen key={suggestKey} onRefresh={() => setSuggestKey((k) => k + 1)} />}
+      {tab === "status" && <StatusScreen />}
     </main>
   );
 }

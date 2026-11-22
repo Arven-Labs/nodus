@@ -59,6 +59,9 @@ pub enum Allowed {
     /// Só a sugestão (`preset suggest`, sem `--all`; só lê o pacman, o Flatpak e o `config.toml`). Mesmo arquivo de `NODUS_PRESET`.
     /// `preset adopt`, `ignored` e `unignore` escrevem e ficam de fora.
     PresetSuggest,
+    /// Só o status por máquina (`preset status`, sem rótulos; lê o preset e os snapshots da pasta-fonte, não roda pacman nem flatpak).
+    /// Mesmo arquivo de `NODUS_PRESET`. O `snapshot` escreve e fica de fora.
+    PresetStatus,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -76,6 +79,7 @@ impl Allowed {
             "history" => Some(Self::History),
             "preset_plan" => Some(Self::PresetPlan),
             "preset_suggest" => Some(Self::PresetSuggest),
+            "preset_status" => Some(Self::PresetStatus),
             _ => None,
         }
     }
@@ -91,15 +95,21 @@ impl Allowed {
             Self::History => vec!["history", "--json"],
             Self::PresetPlan => vec!["preset", "plan", "--json"],
             Self::PresetSuggest => vec!["preset", "suggest", "--json"],
+            Self::PresetStatus => vec!["preset", "status", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History | Self::PresetPlan | Self::PresetSuggest => {
-                DEFAULT_TIMEOUT
-            }
+            Self::Inventory
+            | Self::Repos
+            | Self::Dotfiles
+            | Self::Workspace
+            | Self::History
+            | Self::PresetPlan
+            | Self::PresetSuggest
+            | Self::PresetStatus => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
@@ -322,7 +332,7 @@ pub fn read_with(
         .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
     // O caminho é conferido antes de executar qualquer coisa. Um argumento só (sem shell), então espaço não separa nada.
     let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
-    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest) {
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest | Allowed::PresetStatus) {
         argv.push(resolve_preset(preset)?.into_os_string());
     }
 
