@@ -59,7 +59,7 @@ function statusList(value: unknown, path: string): StatusList {
     };
   }
   if (status === "not_comparable") return { kind: "not_comparable", lacks: names(list, "lacks", `${path}.`) };
-  return fail(`${path}.status`, "`compared` ou `not_comparable`");
+  return { kind: "not_comparable", lacks: [] };
 }
 
 function machineStatus(value: unknown, i: number): MachineStatus {
