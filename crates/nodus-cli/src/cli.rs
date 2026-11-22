@@ -254,6 +254,20 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_aceita_nome_opcional_e_recusa_o_resto() {
+        let cli = Cli::try_parse_from(["nodus", "snapshot"]).unwrap();
+        assert!(matches!(cli.command, Command::Snapshot { name: None }));
+        let cli = Cli::try_parse_from(["nodus", "snapshot", "--name", "meu-pc"]).unwrap();
+        match cli.command {
+            Command::Snapshot { name } => assert_eq!(name.as_deref(), Some("meu-pc")),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        // O rótulo é uma opção, não um argumento solto; e não há outra opção.
+        assert!(Cli::try_parse_from(["nodus", "snapshot", "meu-pc"]).is_err());
+        assert!(Cli::try_parse_from(["nodus", "snapshot", "--out", "/tmp"]).is_err());
+    }
+
+    #[test]
     fn dotfiles_link_recebe_o_caminho_relativo() {
         let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", ".config/git/config"]).unwrap();
         match cli.command {

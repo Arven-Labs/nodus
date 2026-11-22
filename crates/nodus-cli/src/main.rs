@@ -18,6 +18,7 @@ mod history;
 mod preset_file;
 mod process;
 mod render;
+mod snapshot;
 #[cfg(test)]
 mod testutil;
 mod undo;

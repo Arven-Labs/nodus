@@ -6,6 +6,7 @@ pub mod inventory;
 pub mod preset;
 pub mod repos;
 pub mod runner;
+pub mod snapshot;
 pub mod undo;
 pub mod updates;
 
