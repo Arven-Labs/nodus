@@ -715,7 +715,7 @@ function MachineStatusView({ m }: { m: MachineStatus }) {
   return (
     <div data-testid="status-maquina">
       <h2>{`${m.machine} (${m.os.name}${m.os.version ? ` ${m.os.version}` : ""})`}</h2>
-      {inSync && <p data-testid="status-em-dia">{notComparable ? "em dia nas listas comparadas" : "em dia com o preset"}</p>}
+      {inSync && <p data-testid="status-em-dia">{!notComparable ? "em dia nas listas comparadas" : "em dia com o preset"}</p>}
       {lists.map(({ label, list }) =>
         list.kind === "not_comparable" ? (
           <p key={label} data-testid="status-nao-comparavel">{`${label}: não comparável, ${list.lacks.join(", ")} não tem ${label}`}</p>
