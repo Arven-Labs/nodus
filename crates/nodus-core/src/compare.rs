@@ -114,7 +114,7 @@ pub fn compare(a: &Snapshot, b: &Snapshot) -> Comparison {
 fn compare_dotfiles(a: &Snapshot, b: &Snapshot) -> DotfilesComparison {
     let lacks: Vec<String> = [a, b]
         .into_iter()
-        .filter(|s| !s.capabilities.dotfiles)
+        .filter(|s| s.name.is_empty())
         .map(|s| s.name.clone())
         .collect();
     if !lacks.is_empty() {
