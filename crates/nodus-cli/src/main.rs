@@ -249,8 +249,8 @@ fn preset_apply(file: &std::path::Path, skip_flatpak: bool) -> Result<()> {
     let preset = read_and_parse(file)?;
     let mut plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
     if skip_flatpak {
-        let (without, skipped) = apply::without_flatpak(&plan);
-        plan = without;
+        let (_, skipped) = apply::without_flatpak(&plan);
+        plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
         emit(&render::render_skipped_flatpak(&skipped))?;
     }
     emit(&render::render_plan(&plan))?;
