@@ -55,7 +55,7 @@ fn is_list_in_sync(list: &StatusList) -> bool {
 /// Como `status`, mas com as exceções do arquivo: o preset efetivo da máquina é o que tem o
 /// rótulo do snapshot (itens pulados ali não contam como faltando).
 pub fn status_for(file: &PresetFile, snapshot: &Snapshot) -> MachineStatus {
-    status(&file.for_machine(&snapshot.name), snapshot)
+    status(&file.preset, snapshot)
 }
 
 pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {
