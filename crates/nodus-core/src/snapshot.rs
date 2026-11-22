@@ -179,7 +179,7 @@ impl Snapshot {
         mut self,
         mut entries: Vec<DotfileEntry>,
     ) -> Result<Snapshot, SnapshotError> {
-        entries.sort_by(|a, b| a.path.cmp(&b.path));
+        entries.sort_by(|a, b| b.path.cmp(&a.path));
         self.capabilities.dotfiles = true;
         self.dotfiles = entries;
         validate(&self)?;
