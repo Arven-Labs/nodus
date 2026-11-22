@@ -23,6 +23,15 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Grava um snapshot desta máquina (SO, capacidades, pacotes instalados de propósito e apps
+    /// Flatpak) em `<dotfiles_dir>/.nodus/snapshots/<rótulo>.json`, para versionar no seu
+    /// repositório e comparar máquinas. Sem segredos, hora ou versões. O nodus não roda git: o
+    /// commit é seu. Regravar substitui o arquivo do mesmo rótulo.
+    Snapshot {
+        /// Rótulo da máquina (`[a-z0-9._-]`, até 63 caracteres). Sem ele, usa o hostname.
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Mostra o que o nodus executou (cada `preset apply` e cada reversão), do mais antigo ao mais
     /// novo, com o número de cada entrada (somente leitura). `undo <n>` desfaz uma instalação.
     History {

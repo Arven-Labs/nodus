@@ -1,3 +1,85 @@
+//! Gravação do snapshot na pasta-fonte dos dotfiles (ADR 0031, fatia 1). Escrita atômica
+//! (temporário `create_new` 0600 e `rename`), pastas 0700, e nada de seguir symlink: `.nodus`,
+//! `snapshots` e o arquivo de destino precisam ser reais, senão o snapshot (que é do dono) pararia
+//! fora do repositório.
+
+use anyhow::{Context, Result, bail};
+use nodus_core::snapshot::{Snapshot, to_json};
+use std::fs::{self, DirBuilder, OpenOptions};
+use std::io::{ErrorKind, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+
+/// Grava `<dir>/.nodus/snapshots/<rótulo>.json` e devolve o caminho. `dir` é a pasta-fonte (já
+/// resolvida por quem chama); o rótulo já foi validado pelo core, então não escapa da pasta.
+pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<PathBuf> {
+    let meta = fs::metadata(dir).with_context(|| format!("lendo {}", dir.display()))?;
+    if !meta.is_dir() {
+        bail!("{} não é uma pasta", dir.display());
+    }
+    let nodus = ensure_real_dir(&dir.join(".nodus"))?;
+    let snapshots = ensure_real_dir(&nodus.join("snapshots"))?;
+    let target = snapshots.join(format!("{}.json", snapshot.name));
+    match fs::symlink_metadata(&target) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => bail!(
+            "{} existe e não é um arquivo comum (symlink ou pasta); não vou sobrescrever",
+            target.display()
+        ),
+        Err(erro) if erro.kind() == ErrorKind::NotFound => {}
+        Err(erro) => return Err(erro).with_context(|| format!("lendo {}", target.display())),
+    }
+
+    let tmp = snapshots.join(format!(
+        ".{}.json.nodus-{}",
+        snapshot.name,
+        std::process::id()
+    ));
+    let outcome = write_and_swap(&tmp, &target, to_json(snapshot).as_bytes());
+    if outcome.is_err() {
+        // O temporário é nosso (`create_new`): se algo falhar até o `rename`, só ele é removido.
+        let _ = fs::remove_file(&tmp);
+    }
+    outcome?;
+    Ok(target)
+}
+
+fn write_and_swap(tmp: &Path, target: &Path, data: &[u8]) -> Result<()> {
+    let mut out = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(tmp)
+        .with_context(|| format!("criando {}", tmp.display()))?;
+    out.write_all(data)
+        .with_context(|| format!("gravando {}", tmp.display()))?;
+    out.sync_all()
+        .with_context(|| format!("gravando {} no disco", tmp.display()))?;
+    drop(out);
+    // `rename` troca o próprio nome: se o destino virou symlink no meio do caminho, é o symlink que
+    // é substituído, nunca o alvo dele.
+    fs::rename(tmp, target).with_context(|| format!("trocando {}", target.display()))
+}
+
+/// A pasta existe e é uma pasta de verdade (não symlink), ou é criada 0700.
+fn ensure_real_dir(path: &Path) -> Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => bail!(
+            "{} existe e não é uma pasta de verdade (symlink ou arquivo); não vou escrever por ela",
+            path.display()
+        ),
+        Err(erro) if erro.kind() == ErrorKind::NotFound => {
+            DirBuilder::new()
+                .mode(0o700)
+                .create(path)
+                .with_context(|| format!("criando {}", path.display()))?;
+        }
+        Err(erro) => return Err(erro).with_context(|| format!("lendo {}", path.display())),
+    }
+    Ok(path.to_path_buf())
+}
+
 #[cfg(test)]
 mod tests {
     //! Gravar o snapshot na pasta-fonte dos dotfiles (ADR 0031, fatia 1). Tudo em pasta temporária:

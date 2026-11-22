@@ -1,3 +1,163 @@
+//! Snapshot da máquina (ADR 0031, fatia 1): um JSON versionado que vai para o repositório git do
+//! dono, para o `compare` (fatia 2) mostrar as divergências entre máquinas. Só o que importa para
+//! isso: SO, capacidades, pacotes instalados de propósito e apps Flatpak. Sem hora (o diff só pode
+//! mostrar mudança real), versão de pacote, hardware ou conteúdo de arquivo.
+//!
+//! O arquivo vem de outra máquina e pode ser editado à mão, então a leitura é estrita (campo
+//! desconhecido e versão desconhecida são recusados) e valida o que a escrita validou.
+
+use crate::inventory::OsInfo;
+use crate::preset::{MachinePreset, is_valid_flatpak_id, is_valid_pacman_name};
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use thiserror::Error;
+
+const FORMAT_VERSION: u32 = 1;
+/// O rótulo vira nome de arquivo (`<rótulo>.json`): curto e sem nada que escape da pasta.
+const MAX_NAME_LEN: usize = 63;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Snapshot {
+    pub version: u32,
+    pub name: String,
+    pub os: SnapshotOs,
+    pub capabilities: Capabilities,
+    /// Pacotes instalados de propósito (`pacman -Qe`), ordenados.
+    pub pacman: Vec<String>,
+    /// IDs dos apps Flatpak, ordenados.
+    pub flatpak: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotOs {
+    pub name: String,
+    pub version: Option<String>,
+}
+
+/// O que a máquina tem para instalar coisas. Flatpak instalado e sem apps (`true`, lista vazia) é
+/// diferente de Flatpak ausente (`false`): o `compare` não pode acusar "faltam apps" onde nem há Flatpak.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capabilities {
+    pub pacman: bool,
+    pub flatpak: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum SnapshotError {
+    #[error(
+        "rótulo inválido {0:?}: use 1 a 63 caracteres de [a-z0-9._-], começando por letra ou dígito"
+    )]
+    InvalidName(String),
+    #[error("{list}: nome inválido {name:?}")]
+    InvalidItem { list: &'static str, name: String },
+    #[error("{list}: {name:?} aparece mais de uma vez")]
+    Duplicate { list: &'static str, name: String },
+    #[error("versão {0} do snapshot não é suportada (esta versão do nodus entende a 1)")]
+    UnsupportedVersion(u64),
+    #[error("snapshot ilegível: {0}")]
+    Json(String),
+}
+
+/// Rótulo: `[a-z0-9][a-z0-9._-]{0,62}`. Sem `/`, `..` ou maiúsculas: o nome do arquivo é o rótulo.
+pub fn validate_name(name: &str) -> Result<(), SnapshotError> {
+    let first_ok = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+    let rest_ok = name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'));
+    if first_ok && rest_ok && name.len() <= MAX_NAME_LEN {
+        Ok(())
+    } else {
+        Err(SnapshotError::InvalidName(name.to_string()))
+    }
+}
+
+/// Monta o snapshot a partir do que o core já leu da máquina. Nomes validados e listas ordenadas.
+pub fn build(name: &str, os: &OsInfo, machine: &MachinePreset) -> Result<Snapshot, SnapshotError> {
+    let mut pacman = machine.preset.pacman.clone();
+    let mut flatpak = machine.preset.flatpak.clone();
+    pacman.sort();
+    flatpak.sort();
+    let snapshot = Snapshot {
+        version: FORMAT_VERSION,
+        name: name.to_string(),
+        os: SnapshotOs {
+            name: os.name.clone(),
+            version: os.version.clone(),
+        },
+        capabilities: Capabilities {
+            // O nodus só lê a máquina pelo pacman hoje; a chave existe para o `compare` tratar
+            // máquinas com capacidades diferentes quando houver outro gerenciador.
+            pacman: true,
+            flatpak: machine.flatpak_installed,
+        },
+        pacman,
+        flatpak,
+    };
+    validate(&snapshot)?;
+    Ok(snapshot)
+}
+
+/// JSON estável (campos na ordem da struct, listas já ordenadas) e com `\n` no fim: dois
+/// snapshots iguais dão os mesmos bytes.
+pub fn to_json(snapshot: &Snapshot) -> String {
+    // Uma struct de texto, listas e booleanos não falha ao serializar; se falhasse, melhor parar
+    // do que gravar um snapshot vazio no repositório.
+    let mut text = serde_json::to_string_pretty(snapshot).expect("Snapshot sempre serializa");
+    text.push('\n');
+    text
+}
+
+/// Leitura estrita: a versão é conferida antes do resto, para um arquivo de um nodus mais novo
+/// (com campos novos) dar "versão não suportada" e não "campo desconhecido".
+pub fn parse(input: &str) -> Result<Snapshot, SnapshotError> {
+    let value: serde_json::Value =
+        serde_json::from_str(input).map_err(|e| SnapshotError::Json(e.to_string()))?;
+    match value.get("version").and_then(serde_json::Value::as_u64) {
+        Some(v) if v == u64::from(FORMAT_VERSION) => {}
+        Some(other) => return Err(SnapshotError::UnsupportedVersion(other)),
+        None => return Err(SnapshotError::Json("`version` ausente ou inválida".into())),
+    }
+    let snapshot: Snapshot =
+        serde_json::from_value(value).map_err(|e| SnapshotError::Json(e.to_string()))?;
+    validate(&snapshot)?;
+    Ok(snapshot)
+}
+
+fn validate(snapshot: &Snapshot) -> Result<(), SnapshotError> {
+    validate_name(&snapshot.name)?;
+    validate_list("pacman", &snapshot.pacman, is_valid_pacman_name)?;
+    validate_list("flatpak", &snapshot.flatpak, is_valid_flatpak_id)
+}
+
+fn validate_list(
+    list: &'static str,
+    names: &[String],
+    is_valid: fn(&str) -> bool,
+) -> Result<(), SnapshotError> {
+    let mut seen = HashSet::new();
+    for name in names {
+        if !is_valid(name) {
+            return Err(SnapshotError::InvalidItem {
+                list,
+                name: name.clone(),
+            });
+        }
+        if !seen.insert(name.as_str()) {
+            return Err(SnapshotError::Duplicate {
+                list,
+                name: name.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     //! Snapshot da máquina (ADR 0031, fatia 1): formato v1 que vai para o repositório git do dono.
