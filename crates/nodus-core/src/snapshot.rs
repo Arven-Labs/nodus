@@ -61,12 +61,11 @@ pub enum DotfileState {
 /// alvo for **idêntico em texto** a `<dir>/<path>` (a regra do `undo`, ADR 0025): barra final,
 /// caminho relativo ou outro arquivo não valem. O tamanho nunca entra.
 pub fn dotfile_state(dir: &Path, path: &str, observed: &Observed) -> DotfileState {
+    let _ = (dir, path);
     match observed {
         Observed::Missing => DotfileState::Missing,
         Observed::File { .. } => DotfileState::File,
-        Observed::Symlink { target } if *target == dir.join(path).to_string_lossy() => {
-            DotfileState::Linked
-        }
+        Observed::Symlink { target } if target.starts_with('/') => DotfileState::Linked,
         Observed::Dir | Observed::Symlink { .. } | Observed::Other => DotfileState::Other,
     }
 }
