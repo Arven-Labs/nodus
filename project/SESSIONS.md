@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 41, teste de integração da ligação do `--skip-flatpak` (PR #137)
+
+- **Pedido**: "vamos de 1": cobrir a ligação em `main.rs::preset_apply`, que a sessão 40 deixou sem teste. Plan mode; sem mudança em código de produção.
+- **Feito**: `crates/nodus-cli/tests/preset_apply_skip_flatpak.rs` (só `cfg(unix)`). Roda o binário `nodusctl` com `PATH` só em scripts falsos de `pacman` e `flatpak` (o falso registra cada chamada em `$FLATPAK_LOG`), `env_clear` e `stdin` nulo: o `apply` mostra o plano e o `Comando:` e para em "precisa de terminal interativo" antes de executar, então o `sudo` nunca roda. Quatro cenários: com a flag e com `flatpak` (aviso antes do plano, só o comando do pacman, sem `remotes` nem `install` no log); com a flag e sem `flatpak` (não aparece "Flatpak não está instalado"); sem a flag e sem `flatpak` (recusa tudo, ADR 0015 intacto); sem a flag e sem `flathub` (consulta `remotes` e para).
+- **Testes**: o primeiro CI falhou por defeito **meu** no teste (`contains("install")` casou com a coluna `installation` do `flatpak list`); passei a comparar o primeiro argumento de cada chamada; depois CI verde, os 4 testes conferidos no log. As pastas dos fakes são criadas uma vez num `OnceLock`, antes de qualquer `spawn`, por causa do `ETXTBSY`.
+- **Mutações** (PRs descartáveis, fechados, branches apagadas): não aplicar o filtro ao plano, não emitir o aviso e ignorar a flag derrubaram 2 testes cada, por asserção. A mutação 2 saiu barrada pelo clippy na primeira vez (`dead_code`, a única chamada de `render_skipped_flatpak` tinha sumido) e foi refeita chamando a função e descartando o texto.
+- **Não verificado**: macOS e Windows (o arquivo é `cfg(unix)`); flaky por `ETXTBSY` em muitas execuções (medi uma rodada no CI); os fakes só imitam o mínimo (`-Q` com `base 1-1`, `list` e `remotes` vazios), não o formato real do `pacman` e do `flatpak`; o teste fixa os textos "precisa de terminal interativo" e "Flatpak não está instalado".
+- **Nota de processo**: troquei um artigo num comentário com `sed -i`, o que o `CLAUDE.md` proíbe (edição só por `Edit`/`Write`); foi pequeno e o diff está no PR.
+
 ### 2026-11-22 — Sessão 40, `preset apply --skip-flatpak` (critério 2, PR #130)
 
 - **Pedido**: "vamos pelo 2": auditar se o `preset apply` respeita capacidades diferentes entre máquinas (critério 2 do SPEC §16). Plan mode. Achado: o `apply` sem Flatpak e com app Flatpak no preset recusa tudo antes de qualquer pergunta, inclusive o pacman (`apply.rs`, ADR 0015 item 4, decisão deliberada); num preset compartilhado por git isso obrigaria a editar o arquivo e tirar os apps da outra máquina. Escolha do dono: flag opt-in `--skip-flatpak` (descartados: pular sempre com aviso, que reverte o ADR 0015; e manter como está).
