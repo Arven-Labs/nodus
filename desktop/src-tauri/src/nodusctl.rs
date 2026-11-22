@@ -152,6 +152,28 @@ pub fn resolve_preset(env_value: Option<OsString>) -> Result<PathBuf, CmdError> 
     }
 }
 
+/// O rótulo da máquina vem do valor de `NODUS_MACHINE` e vira `--machine <rótulo>` nos comandos que usam o preset por máquina (ADR 0033).
+/// Sem a variável, `None`: a CLI usa o hostname. Com ela, só a regra do rótulo (a mesma do `snapshot`, ADR 0032): `[a-z0-9][a-z0-9._-]{0,62}`.
+/// Valor ruim (inclusive vazio) é erro, nunca "usa o hostname": o dono pode ter definido a variável justamente para fugir dele.
+pub fn resolve_machine(env_value: Option<OsString>) -> Result<Option<String>, CmdError> {
+    let Some(value) = env_value else {
+        return Ok(None);
+    };
+    let label = value.to_str().filter(|text| is_machine_label(text)).ok_or_else(|| {
+        CmdError::new(
+            "invalid_machine",
+            format!("NODUS_MACHINE precisa ser um rótulo de 1 a 63 caracteres de [a-z0-9._-], começando por letra ou dígito (recebi {value:?})"),
+        )
+    })?;
+    Ok(Some(label.to_string()))
+}
+
+fn is_machine_label(text: &str) -> bool {
+    let mut chars = text.chars();
+    let first_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+    first_ok && text.len() <= 63 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
 /// Lê `nodusctl X.Y.Z` (a saída de `nodusctl --version`). Estrito: sem sufixo, sem prefixo, sem número fora de `u64`.
 pub fn parse_version(output: &str) -> Option<(u64, u64, u64)> {
     let version = output.trim_end_matches('\n').strip_prefix("nodusctl ")?;
@@ -313,10 +335,10 @@ pub(crate) fn check_version(binary: &Path, gui_version: (u64, u64, u64), timeout
 }
 
 /// Roda um comando de leitura e devolve o JSON bruto (texto). Ordem: lista, versão, comando. O prazo é o do comando.
-/// `preset` é o valor cru de `NODUS_PRESET`; só o `preset_plan` o usa.
-pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64), preset: Option<OsString>) -> Result<String, CmdError> {
+/// `preset` é o valor cru de `NODUS_PRESET` (os comandos de preset o usam); `machine`, o de `NODUS_MACHINE` (só `preset_plan` e `preset_suggest`).
+pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64), preset: Option<OsString>, machine: Option<OsString>) -> Result<String, CmdError> {
     let timeout = Allowed::parse(name).map_or(DEFAULT_TIMEOUT, Allowed::timeout);
-    read_with(binary, name, gui_version, preset, timeout)
+    read_with(binary, name, gui_version, preset, machine, timeout)
 }
 
 /// Como `read`, com o prazo escolhido por quem chama (os testes usam um prazo curto). O prazo vale para cada processo: a
@@ -326,6 +348,7 @@ pub fn read_with(
     name: &str,
     gui_version: (u64, u64, u64),
     preset: Option<OsString>,
+    machine: Option<OsString>,
     timeout: Duration,
 ) -> Result<String, CmdError> {
     let allowed = Allowed::parse(name)
@@ -334,6 +357,14 @@ pub fn read_with(
     let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
     if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest | Allowed::PresetStatus) {
         argv.push(resolve_preset(preset)?.into_os_string());
+    }
+    // `preset status` não recebe a máquina (usa o nome do snapshot e a CLI recusa a flag), e uma NODUS_MACHINE ruim não o derruba.
+    // Argumentos separados, nunca `--machine=<valor>`.
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest)
+        && let Some(label) = resolve_machine(machine)?
+    {
+        argv.push("--machine".into());
+        argv.push(label.into());
     }
 
     check_version(binary, gui_version, timeout)?;

@@ -1,7 +1,7 @@
 // Ações que ESCREVEM, lançadas pela GUI (ADR 0027): nenhuma roda no processo da GUI. O botão abre um terminal já rodando
 // `nodusctl <comando>`, e a CLI segue dona do plano, do `[s/N]` e do `sudo`. Lista fechada e separada da de leitura (`Allowed`).
 
-use crate::nodusctl::{check_version, resolve_preset, CmdError, DEFAULT_TIMEOUT};
+use crate::nodusctl::{check_version, resolve_machine, resolve_preset, CmdError, DEFAULT_TIMEOUT};
 use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::fs::PermissionsExt;
@@ -172,6 +172,8 @@ pub struct Env {
     pub binary: PathBuf,
     /// Valor cru de `NODUS_PRESET`.
     pub preset: Option<OsString>,
+    /// Valor cru de `NODUS_MACHINE`: o rótulo da máquina (`--machine`) de `preset apply`, `preset adopt` e da releitura do `unignore`.
+    pub machine: Option<OsString>,
     /// Valor cru de `NODUS_TERMINAL`.
     pub terminal: Option<OsString>,
     /// Valor cru de `PATH`.
@@ -203,7 +205,7 @@ fn bad_list(why: &str) -> CmdError {
 
 /// Relê, agora, a lista que a própria CLI produz (`nodusctl <command> --json`). A leitura já confere a versão da CLI.
 fn read_list(binary: &Path, gui_version: (u64, u64, u64), command: &str) -> Result<serde_json::Value, CmdError> {
-    let text = crate::nodusctl::read(binary, command, gui_version, None)?;
+    let text = crate::nodusctl::read(binary, command, gui_version, None, None)?;
     serde_json::from_str(&text).map_err(|_| bad_list("não é JSON"))
 }
 
@@ -238,9 +240,10 @@ fn require_dotfile(binary: &Path, gui_version: (u64, u64, u64), path: &str, want
 }
 
 /// Confere que `name` é idêntico (texto exato) a um item de `ignored` em `nodusctl preset suggest --json <preset>`, relido agora.
-/// A leitura já confere a versão da CLI. O `preset` é o valor cru de `NODUS_PRESET`, resolvido (e recusado se ruim) pela leitura.
-fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Option<OsString>, name: &str) -> Result<(), CmdError> {
-    let text = crate::nodusctl::read(binary, "preset_suggest", gui_version, preset)?;
+/// A leitura já confere a versão da CLI. O `preset` e a `machine` são os valores crus de `NODUS_PRESET` e `NODUS_MACHINE`, resolvidos
+/// (e recusados se ruins) pela leitura: com `[machines]` no preset e um hostname que não serve de rótulo, a releitura precisa da máquina.
+fn require_ignored_item(binary: &Path, gui_version: (u64, u64, u64), preset: Option<OsString>, machine: Option<OsString>, name: &str) -> Result<(), CmdError> {
+    let text = crate::nodusctl::read(binary, "preset_suggest", gui_version, preset, machine)?;
     let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| bad_list("não é JSON"))?;
     let ignored = json.get("ignored").and_then(|i| i.as_array()).ok_or_else(|| bad_list("falta `ignored`"))?;
     let names = ignored
@@ -261,7 +264,14 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
     };
     let mut args: Vec<OsString> = action.args().into_iter().map(OsString::from).collect();
     match &action {
-        Action::PresetApply | Action::PresetAdopt => args.push(resolve_preset(env.preset.clone())?.into_os_string()),
+        Action::PresetApply | Action::PresetAdopt => {
+            args.push(resolve_preset(env.preset.clone())?.into_os_string());
+            // Depois do preset: um preset ruim vem primeiro. Argumentos separados, nunca `--machine=<valor>`.
+            if let Some(label) = resolve_machine(env.machine.clone())? {
+                args.push("--machine".into());
+                args.push(label.into());
+            }
+        }
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
         // `PresetUnignore` usa o preset só para reler `ignored`, em `require_ignored_item`; o preset não vai no argv.
         Action::HistoryUndo(_)
@@ -278,7 +288,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
         Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
-        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, name)?,
+        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, env.machine, name)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
