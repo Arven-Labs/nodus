@@ -199,6 +199,10 @@ pub enum PresetAction {
     Apply {
         /// Arquivo TOML do preset.
         file: PathBuf,
+        /// Não instala os apps Flatpak desta vez (máquina sem Flatpak, ou preset compartilhado com
+        /// outra máquina). Aplica só o pacman e lista o que ficou de fora.
+        #[arg(long)]
+        skip_flatpak: bool,
     },
 }
 
@@ -573,10 +577,25 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "preset", "apply", "p.toml"]).unwrap();
         match cli.command {
             Command::Preset {
-                action: PresetAction::Apply { file },
+                action: PresetAction::Apply { file, .. },
             } => assert_eq!(file, std::path::PathBuf::from("p.toml")),
             outro => panic!("comando errado: {outro:?}"),
         }
+    }
+
+    #[test]
+    fn preset_apply_skip_flatpak_e_opt_in() {
+        let sem = Cli::try_parse_from(["nodus", "preset", "apply", "p.toml"]).unwrap();
+        let com =
+            Cli::try_parse_from(["nodus", "preset", "apply", "p.toml", "--skip-flatpak"]).unwrap();
+        let flag = |cli: Cli| match cli.command {
+            Command::Preset {
+                action: PresetAction::Apply { skip_flatpak, .. },
+            } => skip_flatpak,
+            outro => panic!("comando errado: {outro:?}"),
+        };
+        assert!(!flag(sem), "sem a flag o padrão continua recusando");
+        assert!(flag(com));
     }
 
     #[test]

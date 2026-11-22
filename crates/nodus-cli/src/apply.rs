@@ -83,6 +83,15 @@ pub fn apply(
     Ok(outcome)
 }
 
+/// Plano sem os apps Flatpak a instalar (`--skip-flatpak`), mais a lista do que ficou de fora. Só
+/// `flatpak_missing` muda: o pacman, os indisponíveis e a capacidade Flatpak seguem como estavam.
+/// Sem apps no plano, o passo Flatpak não existe, então o `apply` nem consulta o `flathub`.
+pub fn without_flatpak(plan: &Plan) -> (Plan, Vec<String>) {
+    let mut sem = plan.clone();
+    let skipped = std::mem::take(&mut sem.flatpak_missing);
+    (sem, skipped)
+}
+
 #[derive(Debug)]
 pub struct Applied {
     pub outcome: Outcome,
@@ -468,6 +477,58 @@ mod tests {
         let (r, _, exec) = rodar(&plan, true, "s\n", None);
         assert_eq!(r.unwrap(), Outcome::Executed);
         assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl"]))]);
+    }
+
+    // --- --skip-flatpak: `without_flatpak` tira os apps Flatpak do plano antes do `apply` ---
+
+    #[test]
+    fn without_flatpak_zera_so_os_apps_e_devolve_os_pulados() {
+        let mut original = plano(&["sl", "vim"], &["org.a.B", "org.c.D"]);
+        original.flatpak_present = 2;
+        original.pacman_unavailable = vec!["brave-bin".into()];
+        let (plano_novo, pulados) = without_flatpak(&original);
+        assert_eq!(pulados, ["org.a.B", "org.c.D"]);
+        assert!(plano_novo.flatpak_missing.is_empty());
+        assert_eq!(plano_novo.pacman_missing, original.pacman_missing);
+        assert_eq!(plano_novo.pacman_present, 3);
+        assert_eq!(plano_novo.pacman_unavailable, ["brave-bin"]);
+        assert_eq!(plano_novo.flatpak_present, 2);
+        assert_eq!(plano_novo.flatpak_installed, original.flatpak_installed);
+    }
+
+    #[test]
+    fn sem_flatpak_a_flag_aplica_so_o_pacman_sem_consultar_o_flathub() {
+        let mut original = plano(&["sl"], &["org.a.B"]);
+        original.flatpak_installed = false;
+        let (plano_novo, _) = without_flatpak(&original);
+        let (r, out, exec) = rodar_com_flathub(&plano_novo, true, "s\n", None, || {
+            panic!("com a flag não há app Flatpak a instalar, então não consulta o flathub")
+        });
+        assert_eq!(r.unwrap(), Outcome::Executed);
+        assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl"]))]);
+        assert!(!out.contains("flatpak install"), "{out}");
+    }
+
+    #[test]
+    fn com_flatpak_instalado_a_flag_nao_oferece_o_passo_flatpak() {
+        let (plano_novo, pulados) = without_flatpak(&plano(&["sl"], &["org.a.B"]));
+        assert_eq!(pulados, ["org.a.B"]);
+        let (r, out, exec) = rodar_com_flathub(&plano_novo, true, "s\ns\n", None, || {
+            panic!("não consulta o flathub")
+        });
+        assert_eq!(r.unwrap(), Outcome::Executed);
+        assert_eq!(exec, [(Manager::Pacman, cmd_pacman(&["sl"]))]);
+        assert_eq!(out.matches("Executar?").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn preset_so_com_flatpak_e_a_flag_nao_faz_nada() {
+        let (plano_novo, pulados) = without_flatpak(&plano(&[], &["org.a.B"]));
+        assert_eq!(pulados, ["org.a.B"]);
+        let (r, out, exec) = rodar(&plano_novo, true, "s\n", None);
+        assert_eq!(r.unwrap(), Outcome::NothingToDo);
+        assert!(exec.is_empty());
+        assert!(!out.contains("Executar?"), "{out}");
     }
 
     // --- apply_with_history: registra o que de fato foi executado (SECURITY.md T5) ---

@@ -73,7 +73,7 @@ fn main() -> Result<()> {
             PresetAction::Adopt { file } => preset_adopt(&file),
             PresetAction::Ignored => preset_ignored(),
             PresetAction::Unignore { names } => preset_unignore(&names),
-            PresetAction::Apply { file } => preset_apply(&file),
+            PresetAction::Apply { file, skip_flatpak } => preset_apply(&file, skip_flatpak),
         },
     }
 }
@@ -243,11 +243,16 @@ fn history_undo(n: u32) -> Result<()> {
     Ok(())
 }
 
-fn preset_apply(file: &std::path::Path) -> Result<()> {
+fn preset_apply(file: &std::path::Path, skip_flatpak: bool) -> Result<()> {
     use std::io::IsTerminal;
     let history_path = history_file()?;
     let preset = read_and_parse(file)?;
-    let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
+    let mut plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
+    if skip_flatpak {
+        let (without, skipped) = apply::without_flatpak(&plan);
+        plan = without;
+        emit(&render::render_skipped_flatpak(&skipped))?;
+    }
     emit(&render::render_plan(&plan))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
