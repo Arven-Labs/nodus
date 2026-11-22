@@ -1576,6 +1576,90 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
         .unwrap()
     }
 
+    // --- compare --all (Fase 2, fatia 7) ---
+
+    fn comparar(
+        a: &nodus_core::snapshot::Snapshot,
+        b: &nodus_core::snapshot::Snapshot,
+    ) -> nodus_core::compare::Comparison {
+        nodus_core::compare::compare(a, b)
+    }
+
+    fn ilegivel(label: &str, reason: &str) -> crate::snapshot::Unreadable {
+        crate::snapshot::Unreadable {
+            label: label.into(),
+            reason: reason.into(),
+        }
+    }
+
+    #[test]
+    fn compare_all_com_menos_de_dois_snapshots_diz_quantos_ha_e_nao_compara() {
+        assert_eq!(
+            render_all_comparisons(0, &[], &[]),
+            "Preciso de pelo menos dois snapshots legíveis para comparar (há 0).\n"
+        );
+        assert_eq!(
+            render_all_comparisons(1, &[], &[]),
+            "Preciso de pelo menos dois snapshots legíveis para comparar (há 1).\n"
+        );
+    }
+
+    #[test]
+    fn compare_all_com_um_par_e_igual_ao_compare_de_dois_rotulos() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base", "git"], Some(&["org.a.A"]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let par = comparar(&a, &b);
+        assert_eq!(
+            render_all_comparisons(2, std::slice::from_ref(&par), &[]),
+            render_comparison(&par)
+        );
+    }
+
+    #[test]
+    fn compare_all_separa_os_pares_por_uma_linha_em_branco_na_ordem_dada() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["base", "vim"], Some(&[]));
+        let c = snapshot_de("pc-c", "Arch Linux", &["base"], Some(&[]));
+        let pares = [comparar(&a, &b), comparar(&a, &c), comparar(&b, &c)];
+        let texto = render_all_comparisons(3, &pares, &[]);
+        let esperado = format!(
+            "{}\n{}\n{}",
+            render_comparison(&pares[0]),
+            render_comparison(&pares[1]),
+            render_comparison(&pares[2])
+        );
+        assert_eq!(texto, esperado);
+        assert_eq!(texto.matches("\n\nComparando ").count(), 2, "{texto}");
+    }
+
+    #[test]
+    fn compare_all_lista_os_snapshots_ilegiveis_no_fim_e_sem_byte_de_controle() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["base"], Some(&[]));
+        let par = comparar(&a, &b);
+        let texto = render_all_comparisons(
+            2,
+            std::slice::from_ref(&par),
+            &[ilegivel("ruim", "JSON inválido\x1b[31m")],
+        );
+        assert!(texto.starts_with(&render_comparison(&par)), "{texto}");
+        assert!(
+            texto.ends_with("Aviso: não consegui ler o snapshot ruim: JSON inválido?[31m\n"),
+            "{texto:?}"
+        );
+        assert!(!texto.contains('\x1b'), "{texto:?}");
+    }
+
+    #[test]
+    fn compare_all_com_poucos_snapshots_ainda_mostra_os_avisos() {
+        let texto = render_all_comparisons(1, &[], &[ilegivel("ruim", "não é JSON")]);
+        assert_eq!(
+            texto,
+            "Preciso de pelo menos dois snapshots legíveis para comparar (há 1).\n\
+             Aviso: não consegui ler o snapshot ruim: não é JSON\n"
+        );
+    }
+
     #[test]
     fn compare_com_dotfiles_iguais_mostra_quantos_em_comum() {
         use nodus_core::snapshot::DotfileState::{Linked, Missing};
