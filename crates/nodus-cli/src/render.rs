@@ -1,11 +1,13 @@
 //! Formatação do inventário para o terminal.
 
 use crate::workspace::{Report, Source};
+use nodus_core::compare::{Comparison, ListComparison};
 use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
+use nodus_core::snapshot::SnapshotOs;
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
@@ -296,6 +298,83 @@ pub fn render_plan(plan: &Plan) -> String {
             "Nada a fazer: a máquina já está como o preset.\n"
         } else {
             "Nada a instalar: só restam itens indisponíveis nos repositórios.\n"
+        });
+    }
+    out
+}
+
+/// Troca byte de controle por `?`: o SO vem de um arquivo de outra máquina (a leitura não o valida) e
+/// um `ESC` ali mexeria no terminal de quem lê o relatório. Rótulos e nomes de item já são validados.
+fn plain(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
+}
+
+fn os_label(os: &SnapshotOs) -> String {
+    match &os.version {
+        Some(version) => plain(&format!("{} {version}", os.name)),
+        None => plain(&os.name),
+    }
+}
+
+fn comparison_section(
+    out: &mut String,
+    title: &str,
+    comparison: &Comparison,
+    list: &ListComparison,
+) {
+    match list {
+        ListComparison::Compared {
+            only_a,
+            only_b,
+            common,
+        } => {
+            let _ = writeln!(out, "{title}: {common} em comum");
+            for (label, only) in [(&comparison.a, only_a), (&comparison.b, only_b)] {
+                if only.is_empty() {
+                    continue;
+                }
+                let _ = writeln!(out, "  só em {label} ({}):", only.len());
+                for name in only {
+                    let _ = writeln!(out, "    {name}");
+                }
+            }
+        }
+        ListComparison::NotComparable { lacks } => {
+            let who = lacks.join(" e ");
+            let verb = if lacks.len() == 1 {
+                "não tem"
+            } else {
+                "não têm"
+            };
+            let _ = writeln!(out, "{title}: não comparável, {who} {verb} {title}");
+        }
+    }
+}
+
+pub fn render_comparison(comparison: &Comparison) -> String {
+    let mut out = format!(
+        "Comparando {} com {} (só leitura):\n",
+        comparison.a, comparison.b
+    );
+    if let Some(os) = &comparison.os {
+        let _ = writeln!(
+            out,
+            "Aviso: sistemas diferentes: {} é {}, {} é {}",
+            comparison.a,
+            os_label(&os.a),
+            comparison.b,
+            os_label(&os.b)
+        );
+    }
+    comparison_section(&mut out, "Pacman", comparison, &comparison.pacman);
+    comparison_section(&mut out, "Flatpak", comparison, &comparison.flatpak);
+    if !comparison.has_differences() {
+        out.push_str(if comparison.has_not_comparable() {
+            "Sem divergências nas listas comparadas.\n"
+        } else {
+            "Sem divergências.\n"
         });
     }
     out

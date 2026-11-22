@@ -1,3 +1,113 @@
+//! Comparação de dois snapshots (ADR 0031, fatia 2). Puro: quem lê os arquivos é o CLI.
+//!
+//! Uma lista só é comparada se **as duas** máquinas têm a capacidade correspondente. Uma máquina
+//! sem Flatpak não "perdeu" os apps: dizer "faltam apps" seria acusar falta onde não há como ter.
+//! A capacidade manda, mesmo que um arquivo editado à mão traga a lista.
+
+use crate::snapshot::{Snapshot, SnapshotOs};
+use serde::Serialize;
+use std::collections::BTreeSet;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Comparison {
+    /// Rótulos das duas máquinas, na ordem dos argumentos.
+    pub a: String,
+    pub b: String,
+    /// Só quando o SO (nome ou versão) é diferente. Informativo: as listas continuam comparadas.
+    pub os: Option<OsDifference>,
+    pub pacman: ListComparison,
+    pub flatpak: ListComparison,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OsDifference {
+    pub a: SnapshotOs,
+    pub b: SnapshotOs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ListComparison {
+    Compared {
+        /// Itens que só a máquina `a` tem, ordenados.
+        only_a: Vec<String>,
+        /// Itens que só a máquina `b` tem, ordenados.
+        only_b: Vec<String>,
+        common: usize,
+    },
+    /// Alguma máquina não tem a capacidade; `lacks` traz o rótulo de quem não tem.
+    NotComparable { lacks: Vec<String> },
+}
+
+impl Comparison {
+    /// Há algo diferente: SO, ou item só de um lado numa lista comparada. "Não comparável" não conta.
+    pub fn has_differences(&self) -> bool {
+        self.os.is_some()
+            || has_items_only_on_one_side(&self.pacman)
+            || has_items_only_on_one_side(&self.flatpak)
+    }
+
+    pub fn has_not_comparable(&self) -> bool {
+        matches!(self.pacman, ListComparison::NotComparable { .. })
+            || matches!(self.flatpak, ListComparison::NotComparable { .. })
+    }
+}
+
+fn has_items_only_on_one_side(list: &ListComparison) -> bool {
+    match list {
+        ListComparison::Compared { only_a, only_b, .. } => !only_a.is_empty() || !only_b.is_empty(),
+        ListComparison::NotComparable { .. } => false,
+    }
+}
+
+pub fn compare(a: &Snapshot, b: &Snapshot) -> Comparison {
+    Comparison {
+        a: a.name.clone(),
+        b: b.name.clone(),
+        os: (a.os != b.os).then(|| OsDifference {
+            a: a.os.clone(),
+            b: b.os.clone(),
+        }),
+        pacman: compare_list(
+            a,
+            b,
+            (a.capabilities.pacman, b.capabilities.pacman),
+            (&a.pacman, &b.pacman),
+        ),
+        flatpak: compare_list(
+            a,
+            b,
+            (a.capabilities.flatpak, b.capabilities.flatpak),
+            (&a.flatpak, &b.flatpak),
+        ),
+    }
+}
+
+fn compare_list(
+    a: &Snapshot,
+    b: &Snapshot,
+    has: (bool, bool),
+    items: (&[String], &[String]),
+) -> ListComparison {
+    let mut lacks = Vec::new();
+    if !has.0 {
+        lacks.push(a.name.clone());
+    }
+    if !has.1 {
+        lacks.push(b.name.clone());
+    }
+    if !lacks.is_empty() {
+        return ListComparison::NotComparable { lacks };
+    }
+    let set_a: BTreeSet<&String> = items.0.iter().collect();
+    let set_b: BTreeSet<&String> = items.1.iter().collect();
+    ListComparison::Compared {
+        only_a: set_a.difference(&set_b).map(|s| (*s).clone()).collect(),
+        only_b: set_b.difference(&set_a).map(|s| (*s).clone()).collect(),
+        common: set_a.intersection(&set_b).count(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Comparar dois snapshots (ADR 0031, fatia 2). Puro: sem arquivo, sem processo. Uma lista só é

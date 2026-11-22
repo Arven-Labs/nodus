@@ -4,9 +4,9 @@
 //! fora do repositório.
 
 use anyhow::{Context, Result, bail};
-use nodus_core::snapshot::{Snapshot, to_json};
+use nodus_core::snapshot::{Snapshot, parse, to_json, validate_name};
 use std::fs::{self, DirBuilder, OpenOptions};
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
@@ -59,6 +59,71 @@ fn write_and_swap(tmp: &Path, target: &Path, data: &[u8]) -> Result<()> {
     // `rename` troca o próprio nome: se o destino virou symlink no meio do caminho, é o symlink que
     // é substituído, nunca o alvo dele.
     fs::rename(tmp, target).with_context(|| format!("trocando {}", target.display()))
+}
+
+/// Teto do arquivo lido: o snapshot veio de outra máquina por git (entrada externa) e um arquivo
+/// enorme não pode ser lido inteiro. Um snapshot real tem alguns KB.
+pub const MAX_SNAPSHOT_BYTES: u64 = 1 << 20;
+
+/// Lê `<dir>/.nodus/snapshots/<rótulo>.json` (só leitura: não cria nada). O rótulo é validado antes
+/// de montar o caminho; `.nodus`, `snapshots` e o arquivo precisam ser reais (sem symlink, que
+/// poderia apontar para fora do repositório); a leitura é a estrita do core; e o `name` de dentro
+/// do arquivo tem de ser o rótulo pedido (um arquivo copiado com outro nome enganaria o relatório).
+pub fn read(dir: &Path, label: &str) -> Result<Snapshot> {
+    validate_name(label)?;
+    let meta = fs::metadata(dir).with_context(|| format!("lendo {}", dir.display()))?;
+    if !meta.is_dir() {
+        bail!("{} não é uma pasta", dir.display());
+    }
+    let nodus = require_real_dir(&dir.join(".nodus"))?;
+    let snapshots = require_real_dir(&nodus.join("snapshots"))?;
+    let path = snapshots.join(format!("{label}.json"));
+    let meta = fs::symlink_metadata(&path)
+        .with_context(|| format!("não achei o snapshot {label:?} em {}", path.display()))?;
+    if !meta.is_file() {
+        bail!(
+            "{} não é um arquivo comum (symlink ou pasta); não vou ler",
+            path.display()
+        );
+    }
+    if meta.len() > MAX_SNAPSHOT_BYTES {
+        bail!(
+            "{} é grande demais para um snapshot (limite {MAX_SNAPSHOT_BYTES} bytes)",
+            path.display()
+        );
+    }
+    // `take` limita a leitura mesmo que o arquivo cresça depois da conferência acima.
+    let mut text = String::new();
+    fs::File::open(&path)
+        .with_context(|| format!("abrindo {}", path.display()))?
+        .take(MAX_SNAPSHOT_BYTES + 1)
+        .read_to_string(&mut text)
+        .with_context(|| format!("lendo {}", path.display()))?;
+    if text.len() as u64 > MAX_SNAPSHOT_BYTES {
+        bail!("{} é grande demais para um snapshot", path.display());
+    }
+    let snapshot = parse(&text).with_context(|| format!("lendo {}", path.display()))?;
+    if snapshot.name != label {
+        bail!(
+            "{} diz ser o snapshot {:?}, não {label:?}; renomeie o arquivo ou regrave",
+            path.display(),
+            snapshot.name
+        );
+    }
+    Ok(snapshot)
+}
+
+/// A pasta existe e é uma pasta de verdade (não symlink). Não cria.
+fn require_real_dir(path: &Path) -> Result<PathBuf> {
+    let meta =
+        fs::symlink_metadata(path).with_context(|| format!("não achei {}", path.display()))?;
+    if !meta.is_dir() {
+        bail!(
+            "{} não é uma pasta de verdade (symlink ou arquivo); não vou ler por ela",
+            path.display()
+        );
+    }
+    Ok(path.to_path_buf())
 }
 
 /// A pasta existe e é uma pasta de verdade (não symlink), ou é criada 0700.

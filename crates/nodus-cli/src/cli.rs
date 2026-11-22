@@ -32,6 +32,19 @@ pub enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Compara dois snapshots gravados pelo `snapshot` (em `<dotfiles_dir>/.nodus/snapshots/`) e
+    /// mostra o que só existe em cada máquina, por lista. Só lê arquivos (somente leitura). Uma
+    /// máquina sem Flatpak não é acusada de "faltar apps": a lista fica "não comparável". Divergir
+    /// não é erro (código 0); arquivo ausente, versão desconhecida ou symlink são.
+    Compare {
+        /// Rótulo da primeira máquina (o nome do arquivo, sem `.json`).
+        a: String,
+        /// Rótulo da segunda máquina.
+        b: String,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Mostra o que o nodus executou (cada `preset apply` e cada reversão), do mais antigo ao mais
     /// novo, com o número de cada entrada (somente leitura). `undo <n>` desfaz uma instalação.
     History {
