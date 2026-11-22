@@ -806,7 +806,7 @@ fn compare_all_command(json: bool) -> Result<()> {
     let (snapshots, unreadable) = snapshot::read_all(&dir)?;
     let mut comparisons = Vec::new();
     for (i, first) in snapshots.iter().enumerate() {
-        for second in &snapshots[i + 1..] {
+        for second in &snapshots[i..] {
             comparisons.push(nodus_core::compare::compare(first, second));
         }
     }
