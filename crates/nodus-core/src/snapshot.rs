@@ -166,6 +166,7 @@ mod tests {
     use super::*;
     use crate::inventory::OsInfo;
     use crate::preset::{MachinePreset, Preset};
+    use std::path::Path;
 
     fn os() -> OsInfo {
         OsInfo {
@@ -198,11 +199,24 @@ mod tests {
         assert_eq!(to_json(&a), to_json(&b));
     }
 
+    fn entrada(path: &str, state: DotfileState) -> DotfileEntry {
+        DotfileEntry {
+            path: path.into(),
+            state,
+        }
+    }
+
     #[test]
-    fn o_formato_v1_e_exatamente_este() {
-        let s = montar("meu-pc", &["git", "base"], &["org.a.A"]).unwrap();
+    fn o_formato_v2_com_dotfiles_e_exatamente_este() {
+        let s = montar("meu-pc", &["git", "base"], &["org.a.A"])
+            .unwrap()
+            .with_dotfiles(vec![
+                entrada(".gitconfig", DotfileState::Missing),
+                entrada(".bashrc", DotfileState::Linked),
+            ])
+            .unwrap();
         let esperado = r#"{
-  "version": 1,
+  "version": 2,
   "name": "meu-pc",
   "os": {
     "name": "Arch Linux",
@@ -210,7 +224,8 @@ mod tests {
   },
   "capabilities": {
     "pacman": true,
-    "flatpak": true
+    "flatpak": true,
+    "dotfiles": true
   },
   "pacman": [
     "base",
@@ -218,10 +233,323 @@ mod tests {
   ],
   "flatpak": [
     "org.a.A"
+  ],
+  "dotfiles": [
+    {
+      "path": ".bashrc",
+      "state": "linked"
+    },
+    {
+      "path": ".gitconfig",
+      "state": "missing"
+    }
   ]
 }
 "#;
         assert_eq!(to_json(&s), esperado);
+    }
+
+    #[test]
+    fn build_sozinho_nao_observou_dotfiles() {
+        let s = montar("meu-pc", &["base"], &[]).unwrap();
+        assert_eq!(s.version, 2);
+        assert!(!s.capabilities.dotfiles);
+        assert!(s.dotfiles.is_empty());
+        assert_eq!(parse(&to_json(&s)).unwrap(), s);
+    }
+
+    #[test]
+    fn with_dotfiles_liga_a_capacidade_e_ordena_por_caminho() {
+        let s = montar("meu-pc", &["base"], &[])
+            .unwrap()
+            .with_dotfiles(vec![
+                entrada(".vimrc", DotfileState::File),
+                entrada(".bashrc", DotfileState::Linked),
+                entrada(".config/git/config", DotfileState::Other),
+            ])
+            .unwrap();
+        assert!(s.capabilities.dotfiles);
+        let caminhos: Vec<&str> = s.dotfiles.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(caminhos, [".bashrc", ".config/git/config", ".vimrc"]);
+        // A mesma lista em outra ordem dá os mesmos bytes (o `git diff` só mostra mudança real).
+        let outra = montar("meu-pc", &["base"], &[])
+            .unwrap()
+            .with_dotfiles(vec![
+                entrada(".config/git/config", DotfileState::Other),
+                entrada(".vimrc", DotfileState::File),
+                entrada(".bashrc", DotfileState::Linked),
+            ])
+            .unwrap();
+        assert_eq!(to_json(&s), to_json(&outra));
+    }
+
+    #[test]
+    fn lista_vazia_com_a_capacidade_e_diferente_de_sem_a_capacidade() {
+        // Todos os caminhos em `dotfiles_skip`: a máquina olhou e não há nada a listar.
+        let olhou = montar("meu-pc", &["base"], &[])
+            .unwrap()
+            .with_dotfiles(vec![])
+            .unwrap();
+        assert!(olhou.capabilities.dotfiles);
+        assert!(olhou.dotfiles.is_empty());
+        let nao_olhou = montar("meu-pc", &["base"], &[]).unwrap();
+        assert_ne!(to_json(&olhou), to_json(&nao_olhou));
+    }
+
+    #[test]
+    fn with_dotfiles_recusa_caminho_da_denylist_invalido_e_repetido() {
+        for ruim in [
+            ".ssh/id_rsa",
+            ".gnupg/pubring.kbx",
+            ".config/gh/hosts.yml",
+            ".claude/settings.json",
+            ".zsh_history",
+            "../x",
+            "/etc/passwd",
+            "",
+            ".bashrc/../.ssh/id_rsa",
+        ] {
+            let erro = montar("meu-pc", &["base"], &[])
+                .unwrap()
+                .with_dotfiles(vec![entrada(ruim, DotfileState::File)])
+                .unwrap_err();
+            assert_eq!(
+                erro,
+                SnapshotError::InvalidItem {
+                    list: "dotfiles",
+                    name: ruim.into()
+                },
+                "{ruim:?}"
+            );
+        }
+        let erro = montar("meu-pc", &["base"], &[])
+            .unwrap()
+            .with_dotfiles(vec![
+                entrada(".bashrc", DotfileState::File),
+                entrada(".bashrc", DotfileState::Linked),
+            ])
+            .unwrap_err();
+        assert_eq!(
+            erro,
+            SnapshotError::Duplicate {
+                list: "dotfiles",
+                name: ".bashrc".into()
+            }
+        );
+    }
+
+    const V1: &str = r#"{
+  "version": 1,
+  "name": "antigo",
+  "os": {"name": "Arch Linux", "version": null},
+  "capabilities": {"pacman": true, "flatpak": true},
+  "pacman": ["base"],
+  "flatpak": ["org.a.A"]
+}"#;
+
+    #[test]
+    fn parse_le_o_formato_v1_como_sem_dotfiles() {
+        let s = parse(V1).unwrap();
+        assert_eq!(s.version, 1);
+        assert_eq!(s.name, "antigo");
+        assert_eq!(s.pacman, ["base"]);
+        assert_eq!(s.flatpak, ["org.a.A"]);
+        assert!(s.capabilities.pacman && s.capabilities.flatpak);
+        assert!(!s.capabilities.dotfiles, "o v1 não observou dotfiles");
+        assert!(s.dotfiles.is_empty());
+    }
+
+    #[test]
+    fn o_v1_continua_estrito() {
+        // `dotfiles` no v1 é campo desconhecido, e capacidade nova também: não se adivinha.
+        let com_lista = V1.replacen(
+            "\"flatpak\": [\"org.a.A\"]",
+            "\"flatpak\": [\"org.a.A\"], \"dotfiles\": []",
+            1,
+        );
+        assert!(matches!(parse(&com_lista), Err(SnapshotError::Json(_))));
+        let com_capacidade = V1.replacen(
+            "\"flatpak\": true",
+            "\"flatpak\": true, \"dotfiles\": true",
+            1,
+        );
+        assert!(matches!(
+            parse(&com_capacidade),
+            Err(SnapshotError::Json(_))
+        ));
+        let sem_os = V1.replacen("\"os\"", "\"os_\"", 1);
+        assert!(parse(&sem_os).is_err());
+    }
+
+    #[test]
+    fn parse_v2_devolve_o_que_to_json_escreveu_com_dotfiles() {
+        let s = montar("meu-pc", &["base"], &["org.a.A"])
+            .unwrap()
+            .with_dotfiles(vec![
+                entrada(".bashrc", DotfileState::Linked),
+                entrada(".gitconfig", DotfileState::File),
+                entrada(".vimrc", DotfileState::Missing),
+                entrada(".zshrc", DotfileState::Other),
+            ])
+            .unwrap();
+        assert_eq!(parse(&to_json(&s)).unwrap(), s);
+    }
+
+    fn v2_com(dotfiles: &str) -> String {
+        format!(
+            "{{\"version\": 2, \"name\": \"meu-pc\", \"os\": {{\"name\": \"Arch Linux\", \"version\": null}}, \
+             \"capabilities\": {{\"pacman\": true, \"flatpak\": true, \"dotfiles\": true}}, \
+             \"pacman\": [], \"flatpak\": [], \"dotfiles\": {dotfiles}}}"
+        )
+    }
+
+    #[test]
+    fn parse_v2_revalida_os_dotfiles_do_arquivo_de_outra_maquina() {
+        for ruim in [
+            ".ssh/id_rsa",
+            "../x",
+            "/etc/passwd",
+            ".config/gh/hosts.yml",
+            "",
+        ] {
+            let texto = v2_com(&format!("[{{\"path\": {ruim:?}, \"state\": \"file\"}}]"));
+            assert!(
+                matches!(
+                    parse(&texto),
+                    Err(SnapshotError::InvalidItem {
+                        list: "dotfiles",
+                        ..
+                    })
+                ),
+                "{ruim:?}"
+            );
+        }
+        let repetido = v2_com(
+            "[{\"path\": \".bashrc\", \"state\": \"file\"}, {\"path\": \".bashrc\", \"state\": \"linked\"}]",
+        );
+        assert!(matches!(
+            parse(&repetido),
+            Err(SnapshotError::Duplicate {
+                list: "dotfiles",
+                ..
+            })
+        ));
+        for ruim in [
+            "[{\"path\": \".bashrc\", \"state\": \"symlink\"}]",
+            "[{\"path\": \".bashrc\", \"state\": \"Linked\"}]",
+            "[{\"path\": \".bashrc\", \"state\": \"file\", \"size\": 10}]",
+            "[{\"path\": \".bashrc\", \"state\": \"linked\", \"target\": \"/home/x/dotfiles/.bashrc\"}]",
+            "[{\"path\": \".bashrc\"}]",
+            "[{\"state\": \"file\"}]",
+            "[\".bashrc\"]",
+            "null",
+        ] {
+            assert!(
+                matches!(parse(&v2_com(ruim)), Err(SnapshotError::Json(_))),
+                "{ruim}"
+            );
+        }
+    }
+
+    #[test]
+    fn v2_sem_a_capacidade_ou_sem_a_lista_e_erro() {
+        let sem_capacidade = v2_com("[]").replacen(", \"dotfiles\": true", "", 1);
+        assert!(matches!(
+            parse(&sem_capacidade),
+            Err(SnapshotError::Json(_))
+        ));
+        let sem_lista = v2_com("[]").replacen(", \"dotfiles\": []", "", 1);
+        assert!(matches!(parse(&sem_lista), Err(SnapshotError::Json(_))));
+    }
+
+    #[test]
+    fn dotfile_state_olha_so_o_texto_do_alvo_e_nunca_o_tamanho() {
+        use crate::dotfiles::Observed;
+        let dir = Path::new("/home/u/dotfiles");
+        let ligado = |path: &str, alvo: &str| {
+            dotfile_state(
+                dir,
+                path,
+                &Observed::Symlink {
+                    target: alvo.into(),
+                },
+            )
+        };
+        assert_eq!(
+            dotfile_state(dir, ".bashrc", &Observed::Missing),
+            DotfileState::Missing
+        );
+        assert_eq!(
+            dotfile_state(dir, ".bashrc", &Observed::File { size: 0 }),
+            DotfileState::File
+        );
+        assert_eq!(
+            dotfile_state(dir, ".bashrc", &Observed::File { size: 1 << 30 }),
+            DotfileState::File
+        );
+        assert_eq!(
+            dotfile_state(dir, ".bashrc", &Observed::Dir),
+            DotfileState::Other
+        );
+        assert_eq!(
+            dotfile_state(dir, ".bashrc", &Observed::Other),
+            DotfileState::Other
+        );
+        assert_eq!(
+            ligado(".bashrc", "/home/u/dotfiles/.bashrc"),
+            DotfileState::Linked
+        );
+        assert_eq!(
+            ligado(".config/git/config", "/home/u/dotfiles/.config/git/config"),
+            DotfileState::Linked
+        );
+        // Texto idêntico, como no `undo` (ADR 0025): barra final, relativo e outro arquivo não valem.
+        for (path, alvo) in [
+            (".bashrc", "/home/u/dotfiles/.bashrc/"),
+            (".bashrc", "../dotfiles/.bashrc"),
+            (".bashrc", "/home/u/dotfiles/.zshrc"),
+            (".bashrc", "/home/u/outra/.bashrc"),
+            (".bashrc", "/home/u/dotfiles/sub/.bashrc"),
+            (".bashrc", "/home/u/dotfiles//.bashrc"),
+            (".bashrc", ""),
+            (".config/git/config", "/home/u/dotfiles/.gitconfig"),
+        ] {
+            assert_eq!(ligado(path, alvo), DotfileState::Other, "{path} -> {alvo}");
+        }
+    }
+
+    #[test]
+    fn o_json_nao_tem_alvo_tamanho_nem_o_caminho_do_home() {
+        use crate::dotfiles::Observed;
+        let dir = Path::new("/home/maria/dotfiles");
+        let estados = [
+            (
+                ".bashrc",
+                Observed::Symlink {
+                    target: "/home/maria/dotfiles/.bashrc".into(),
+                },
+            ),
+            (".gitconfig", Observed::File { size: 4242 }),
+            (".vimrc", Observed::Missing),
+            (
+                ".zshrc",
+                Observed::Symlink {
+                    target: "/home/maria/outra/.zshrc".into(),
+                },
+            ),
+        ];
+        let entradas = estados
+            .iter()
+            .map(|(path, obs)| entrada(path, dotfile_state(dir, path, obs)))
+            .collect();
+        let s = montar("meu-pc", &["base"], &[])
+            .unwrap()
+            .with_dotfiles(entradas)
+            .unwrap();
+        let json = to_json(&s);
+        for proibido in ["/home", "maria", "4242", "size", "target", "outra"] {
+            assert!(!json.contains(proibido), "{proibido} vazou:\n{json}");
+        }
     }
 
     #[test]
@@ -326,14 +654,16 @@ mod tests {
 
     #[test]
     fn parse_recusa_versao_desconhecida_sem_adivinhar() {
-        for v in ["0", "2", "99", "-1", "1.5", "\"1\"", "null"] {
-            let texto = valido().replacen("\"version\": 1", &format!("\"version\": {v}"), 1);
+        for v in ["0", "3", "99", "-1", "1.5", "\"2\"", "null"] {
+            let texto = valido().replacen("\"version\": 2", &format!("\"version\": {v}"), 1);
             assert!(parse(&texto).is_err(), "versão {v}");
         }
-        let texto = valido().replacen("\"version\": 1", "\"version\": 2", 1);
-        assert_eq!(
-            parse(&texto).unwrap_err(),
-            SnapshotError::UnsupportedVersion(2)
+        let texto = valido().replacen("\"version\": 2", "\"version\": 3", 1);
+        let erro = parse(&texto).unwrap_err();
+        assert_eq!(erro, SnapshotError::UnsupportedVersion(3));
+        assert!(
+            erro.to_string().contains("1 e a 2"),
+            "a mensagem diz o que este nodus entende: {erro}"
         );
     }
 

@@ -318,6 +318,24 @@ mod tests {
         add_flatpak = [\"org.b.B\"]\n";
 
     #[test]
+    fn o_status_nao_depende_do_formato_do_snapshot_v1_ou_v2() {
+        // Os dotfiles não entram no preset: um snapshot v1 (sem dotfiles) e um v2 dão o mesmo status.
+        let v1 = crate::snapshot::parse(
+            "{\"version\": 1, \"name\": \"pc-a\", \"os\": {\"name\": \"Arch Linux\", \"version\": null}, \
+             \"capabilities\": {\"pacman\": true, \"flatpak\": true}, \"pacman\": [\"base\"], \"flatpak\": []}",
+        )
+        .unwrap();
+        let v2 = snap("pc-a", &["base"], Some(&[]))
+            .with_dotfiles(vec![crate::snapshot::DotfileEntry {
+                path: ".bashrc".into(),
+                state: crate::snapshot::DotfileState::Linked,
+            }])
+            .unwrap();
+        let p = preset(&["base", "htop"], &[]);
+        assert_eq!(status(&p, &v1), status(&p, &v2));
+    }
+
+    #[test]
     fn item_acrescentado_e_nao_instalado_conta_como_faltando() {
         let arquivo = parse_preset_file(PRESET_COM_ADD).unwrap();
         let s = snap("desktop", &["base"], Some(&["org.a.A"]));

@@ -126,7 +126,7 @@ mod tests {
     use super::*;
     use crate::inventory::OsInfo;
     use crate::preset::{MachinePreset, Preset};
-    use crate::snapshot::{Snapshot, build};
+    use crate::snapshot::{DotfileEntry, DotfileState, Snapshot, build};
 
     fn os(name: &str) -> OsInfo {
         OsInfo {
@@ -147,7 +147,41 @@ mod tests {
             },
             flatpak_installed: flatpak.is_some(),
         };
-        build(label, &os("Arch Linux"), &machine).unwrap()
+        // As duas máquinas "olharam" os dotfiles (lista vazia): os testes de pacman e Flatpak não
+        // dependem de a lista de dotfiles ser comparável ou não.
+        build(label, &os("Arch Linux"), &machine)
+            .unwrap()
+            .with_dotfiles(vec![])
+            .unwrap()
+    }
+
+    fn com_dotfiles(label: &str, estados: &[(&str, DotfileState)]) -> Snapshot {
+        let entradas = estados
+            .iter()
+            .map(|(path, state)| DotfileEntry {
+                path: (*path).into(),
+                state: *state,
+            })
+            .collect();
+        snap(label, &["base"], Some(&[]))
+            .with_dotfiles(entradas)
+            .unwrap()
+    }
+
+    /// Um snapshot v1 (anterior aos dotfiles): `build` + `with_dotfiles` nunca o produz.
+    fn v1(label: &str) -> Snapshot {
+        crate::snapshot::parse(&format!(
+            "{{\"version\": 1, \"name\": \"{label}\", \"os\": {{\"name\": \"Arch Linux\", \"version\": null}}, \
+             \"capabilities\": {{\"pacman\": true, \"flatpak\": true}}, \"pacman\": [\"base\"], \"flatpak\": []}}"
+        ))
+        .unwrap()
+    }
+
+    fn diferem(d: &DotfilesComparison) -> (&[DotfileDiff], usize) {
+        match d {
+            DotfilesComparison::Compared { differ, same } => (differ, *same),
+            outro => panic!("devia ser comparável: {outro:?}"),
+        }
     }
 
     fn compared(c: &ListComparison) -> (&[String], &[String], usize) {
@@ -310,8 +344,192 @@ mod tests {
                 "only_b": ["git"],
                 "common": 1
             },
-            "flatpak": {"status": "not_comparable", "lacks": ["pc-b"]}
+            "flatpak": {"status": "not_comparable", "lacks": ["pc-b"]},
+            "dotfiles": {"status": "compared", "differ": [], "same": 0}
         });
         assert_eq!(json, esperado);
+    }
+
+    // Dotfiles (Fase 2, fatia 6): só se compara se as duas máquinas olharam; `linked`, `file`,
+    // `missing` e `other` são os estados, e um caminho fora da lista de uma máquina é `None`.
+
+    use DotfileState::{File, Linked, Missing, Other};
+
+    #[test]
+    fn dotfiles_iguais_contam_em_same_e_nao_divergem() {
+        let a = com_dotfiles("pc-a", &[(".bashrc", Linked), (".vimrc", Missing)]);
+        let b = com_dotfiles("pc-b", &[(".vimrc", Missing), (".bashrc", Linked)]);
+        let c = compare(&a, &b);
+        let (differ, same) = diferem(&c.dotfiles);
+        assert!(differ.is_empty());
+        assert_eq!(same, 2);
+        assert!(!c.has_differences());
+        assert!(!c.has_not_comparable());
+    }
+
+    #[test]
+    fn ausente_nos_dois_lados_e_igual() {
+        let a = com_dotfiles("pc-a", &[(".zshrc", Missing)]);
+        let b = com_dotfiles("pc-b", &[(".zshrc", Missing)]);
+        let (differ, same) = {
+            let c = compare(&a, &b);
+            let (d, s) = diferem(&c.dotfiles);
+            (d.len(), s)
+        };
+        assert_eq!((differ, same), (0, 1));
+    }
+
+    #[test]
+    fn estado_diferente_diverge_e_mostra_os_dois_lados() {
+        let a = com_dotfiles(
+            "pc-a",
+            &[(".bashrc", Linked), (".gitconfig", File), (".vimrc", Other)],
+        );
+        let b = com_dotfiles(
+            "pc-b",
+            &[(".bashrc", File), (".gitconfig", File), (".vimrc", Missing)],
+        );
+        let c = compare(&a, &b);
+        let (differ, same) = diferem(&c.dotfiles);
+        assert_eq!(same, 1);
+        assert_eq!(
+            differ,
+            [
+                DotfileDiff {
+                    path: ".bashrc".into(),
+                    a: Some(Linked),
+                    b: Some(File)
+                },
+                DotfileDiff {
+                    path: ".vimrc".into(),
+                    a: Some(Other),
+                    b: Some(Missing)
+                },
+            ]
+        );
+        assert!(c.has_differences(), "só os dotfiles diferem");
+    }
+
+    #[test]
+    fn caminho_so_na_lista_de_uma_maquina_aparece_com_none_do_outro_lado() {
+        let a = com_dotfiles("pc-a", &[(".bashrc", Linked), (".config/foo/conf", File)]);
+        let b = com_dotfiles("pc-b", &[(".bashrc", Linked), (".zshrc", Missing)]);
+        let c = compare(&a, &b);
+        let (differ, same) = diferem(&c.dotfiles);
+        assert_eq!(same, 1);
+        assert_eq!(
+            differ,
+            [
+                DotfileDiff {
+                    path: ".config/foo/conf".into(),
+                    a: Some(File),
+                    b: None
+                },
+                DotfileDiff {
+                    path: ".zshrc".into(),
+                    a: None,
+                    b: Some(Missing)
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn as_diferencas_de_dotfiles_saem_ordenadas_por_caminho() {
+        let a = com_dotfiles(
+            "pc-a",
+            &[(".zshrc", File), (".bashrc", File), (".profile", File)],
+        );
+        let b = com_dotfiles("pc-b", &[]);
+        let c = compare(&a, &b);
+        let caminhos: Vec<&str> = diferem(&c.dotfiles)
+            .0
+            .iter()
+            .map(|d| d.path.as_str())
+            .collect();
+        assert_eq!(caminhos, [".bashrc", ".profile", ".zshrc"]);
+    }
+
+    #[test]
+    fn trocar_a_ordem_dos_argumentos_troca_os_lados_dos_dotfiles() {
+        let a = com_dotfiles("pc-a", &[(".bashrc", Linked)]);
+        let b = com_dotfiles("pc-b", &[(".bashrc", File)]);
+        let ba = compare(&b, &a);
+        assert_eq!(
+            diferem(&ba.dotfiles).0,
+            [DotfileDiff {
+                path: ".bashrc".into(),
+                a: Some(File),
+                b: Some(Linked)
+            }]
+        );
+    }
+
+    #[test]
+    fn v1_contra_v2_nao_e_comparavel_e_cita_so_o_v1() {
+        let antigo = v1("antigo");
+        let novo = com_dotfiles("novo", &[(".bashrc", Linked)]);
+        for c in [compare(&antigo, &novo), compare(&novo, &antigo)] {
+            assert_eq!(
+                c.dotfiles,
+                DotfilesComparison::NotComparable {
+                    lacks: vec!["antigo".into()]
+                }
+            );
+            assert!(!c.has_differences(), "não comparável não é diferente");
+            assert!(c.has_not_comparable());
+        }
+    }
+
+    #[test]
+    fn v1_contra_v1_cita_os_dois_na_ordem_dos_argumentos() {
+        let c = compare(&v1("pc-a"), &v1("pc-b"));
+        assert_eq!(
+            c.dotfiles,
+            DotfilesComparison::NotComparable {
+                lacks: vec!["pc-a".into(), "pc-b".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn a_capacidade_de_dotfiles_manda_mesmo_que_o_arquivo_traga_a_lista() {
+        // Um v2 editado à mão com a capacidade falsa e uma lista: a lista é ignorada na comparação.
+        let mut sem = com_dotfiles("pc-a", &[(".bashrc", File)]);
+        sem.capabilities.dotfiles = false;
+        let com = com_dotfiles("pc-b", &[(".bashrc", Linked)]);
+        let c = compare(&sem, &com);
+        assert_eq!(
+            c.dotfiles,
+            DotfilesComparison::NotComparable {
+                lacks: vec!["pc-a".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn o_json_dos_dotfiles_tem_este_formato() {
+        let a = com_dotfiles(
+            "pc-a",
+            &[(".bashrc", Linked), (".vimrc", File), (".zshrc", Missing)],
+        );
+        let b = com_dotfiles("pc-b", &[(".bashrc", File), (".vimrc", File)]);
+        let json = serde_json::to_value(compare(&a, &b).dotfiles).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "status": "compared",
+                "differ": [
+                    {"path": ".bashrc", "a": "linked", "b": "file"},
+                    {"path": ".zshrc", "a": "missing", "b": null}
+                ],
+                "same": 1
+            })
+        );
+        let nao = serde_json::to_value(compare(&v1("pc-a"), &b).dotfiles).unwrap();
+        assert_eq!(
+            nao,
+            serde_json::json!({"status": "not_comparable", "lacks": ["pc-a"]})
+        );
     }
 }

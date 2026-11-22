@@ -442,10 +442,10 @@ mod tests {
     fn versao_desconhecida_e_json_ruim_dao_erro_com_o_motivo() {
         let tmp = TmpDir::novo();
         let snaps = pasta_de_snapshots(&tmp);
-        let v2 = to_json(&snap("pc-a", &["base"])).replacen("\"version\": 1", "\"version\": 2", 1);
-        fs::write(snaps.join("pc-a.json"), v2).unwrap();
+        let v3 = to_json(&snap("pc-a", &["base"])).replacen("\"version\": 2", "\"version\": 3", 1);
+        fs::write(snaps.join("pc-a.json"), v3).unwrap();
         let erro = format!("{:#}", read(tmp.path(), "pc-a").unwrap_err());
-        assert!(erro.contains("versão 2"), "{erro}");
+        assert!(erro.contains("versão 3"), "{erro}");
         fs::write(snaps.join("pc-b.json"), "não é json").unwrap();
         assert!(read(tmp.path(), "pc-b").is_err());
         fs::write(snaps.join("pc-c.json"), "").unwrap();
@@ -466,6 +466,43 @@ mod tests {
 
     fn rotulos(snaps: &[Snapshot]) -> Vec<&str> {
         snaps.iter().map(|s| s.name.as_str()).collect()
+    }
+
+    const V1_ANTIGO: &str = "{\"version\": 1, \"name\": \"antigo\", \"os\": {\"name\": \"Arch Linux\", \"version\": null}, \
+        \"capabilities\": {\"pacman\": true, \"flatpak\": false}, \"pacman\": [\"base\"], \"flatpak\": []}\n";
+
+    #[test]
+    fn le_snapshots_v1_e_v2_na_mesma_pasta() {
+        // Os snapshots que o dono já tem no repo são v1: `read`, `read_all` e `read_labels` (o que o
+        // `compare` e o `preset status` usam) continuam lendo, ao lado dos v2.
+        let tmp = TmpDir::novo();
+        write(tmp.path(), &snap("novo", &["base"])).unwrap();
+        let snaps = pasta_de_snapshots(&tmp);
+        fs::write(snaps.join("antigo.json"), V1_ANTIGO).unwrap();
+        let antigo = read(tmp.path(), "antigo").unwrap();
+        assert_eq!(antigo.version, 1);
+        assert!(!antigo.capabilities.dotfiles);
+        let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
+        assert_eq!(rotulos(&lidos), ["antigo", "novo"]);
+        assert!(ilegiveis.is_empty(), "{ilegiveis:?}");
+        let pedidos = read_labels(tmp.path(), &["novo".to_string(), "antigo".to_string()]).unwrap();
+        assert_eq!(rotulos(&pedidos), ["antigo", "novo"]);
+    }
+
+    #[test]
+    fn grava_o_v2_com_os_dotfiles_e_le_de_volta() {
+        let tmp = TmpDir::novo();
+        let s = snap("meu-pc", &["base"])
+            .with_dotfiles(vec![nodus_core::snapshot::DotfileEntry {
+                path: ".bashrc".into(),
+                state: nodus_core::snapshot::DotfileState::Linked,
+            }])
+            .unwrap();
+        let caminho = write(tmp.path(), &s).unwrap();
+        let texto = fs::read_to_string(&caminho).unwrap();
+        assert!(texto.contains("\"version\": 2"), "{texto}");
+        assert!(texto.contains("\"dotfiles\": true"), "{texto}");
+        assert_eq!(read(tmp.path(), "meu-pc").unwrap(), s);
     }
 
     #[test]
@@ -497,8 +534,8 @@ mod tests {
         let tmp = TmpDir::novo();
         write(tmp.path(), &snap("pc-a", &["base"])).unwrap();
         let snaps = tmp.path().join(".nodus/snapshots");
-        let v2 = to_json(&snap("pc-b", &["base"])).replacen("\"version\": 1", "\"version\": 2", 1);
-        fs::write(snaps.join("pc-b.json"), v2).unwrap();
+        let v3 = to_json(&snap("pc-b", &["base"])).replacen("\"version\": 2", "\"version\": 3", 1);
+        fs::write(snaps.join("pc-b.json"), v3).unwrap();
         let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
         assert_eq!(rotulos(&lidos), ["pc-a"]);
         assert_eq!(ilegiveis.len(), 1);
