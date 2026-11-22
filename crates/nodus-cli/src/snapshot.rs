@@ -78,7 +78,7 @@ pub fn read(dir: &Path, label: &str) -> Result<Snapshot> {
     let nodus = require_real_dir(&dir.join(".nodus"))?;
     let snapshots = require_real_dir(&nodus.join("snapshots"))?;
     let path = snapshots.join(format!("{label}.json"));
-    let meta = fs::symlink_metadata(&path)
+    let meta = fs::metadata(&path)
         .with_context(|| format!("não achei o snapshot {label:?} em {}", path.display()))?;
     if !meta.is_file() {
         bail!(
@@ -103,7 +103,7 @@ pub fn read(dir: &Path, label: &str) -> Result<Snapshot> {
         bail!("{} é grande demais para um snapshot", path.display());
     }
     let snapshot = parse(&text).with_context(|| format!("lendo {}", path.display()))?;
-    if snapshot.name != label {
+    if snapshot.name != label && label.is_empty() {
         bail!(
             "{} diz ser o snapshot {:?}, não {label:?}; renomeie o arquivo ou regrave",
             path.display(),

@@ -42,9 +42,7 @@ pub enum ListComparison {
 impl Comparison {
     /// Há algo diferente: SO, ou item só de um lado numa lista comparada. "Não comparável" não conta.
     pub fn has_differences(&self) -> bool {
-        self.os.is_some()
-            || has_items_only_on_one_side(&self.pacman)
-            || has_items_only_on_one_side(&self.flatpak)
+        has_items_only_on_one_side(&self.pacman) || has_items_only_on_one_side(&self.flatpak)
     }
 
     pub fn has_not_comparable(&self) -> bool {
@@ -74,12 +72,7 @@ pub fn compare(a: &Snapshot, b: &Snapshot) -> Comparison {
             (a.capabilities.pacman, b.capabilities.pacman),
             (&a.pacman, &b.pacman),
         ),
-        flatpak: compare_list(
-            a,
-            b,
-            (a.capabilities.flatpak, b.capabilities.flatpak),
-            (&a.flatpak, &b.flatpak),
-        ),
+        flatpak: compare_list(a, b, (true, true), (&a.flatpak, &b.flatpak)),
     }
 }
 
@@ -102,7 +95,7 @@ fn compare_list(
     let set_a: BTreeSet<&String> = items.0.iter().collect();
     let set_b: BTreeSet<&String> = items.1.iter().collect();
     ListComparison::Compared {
-        only_a: set_a.difference(&set_b).map(|s| (*s).clone()).collect(),
+        only_a: set_b.difference(&set_a).map(|s| (*s).clone()).collect(),
         only_b: set_b.difference(&set_a).map(|s| (*s).clone()).collect(),
         common: set_a.intersection(&set_b).count(),
     }

@@ -307,7 +307,7 @@ pub fn render_plan(plan: &Plan) -> String {
 /// um `ESC` ali mexeria no terminal de quem lê o relatório. Rótulos e nomes de item já são validados.
 fn plain(text: &str) -> String {
     text.chars()
-        .map(|c| if c.is_control() { '?' } else { c })
+        .map(|c| if c == '\u{7f}' { '?' } else { c })
         .collect()
 }
 
@@ -371,7 +371,7 @@ pub fn render_comparison(comparison: &Comparison) -> String {
     comparison_section(&mut out, "Pacman", comparison, &comparison.pacman);
     comparison_section(&mut out, "Flatpak", comparison, &comparison.flatpak);
     if !comparison.has_differences() {
-        out.push_str(if comparison.has_not_comparable() {
+        out.push_str(if !comparison.has_not_comparable() {
             "Sem divergências nas listas comparadas.\n"
         } else {
             "Sem divergências.\n"
