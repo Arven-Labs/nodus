@@ -813,7 +813,7 @@ fn compare_all_command(json: bool) -> Result<()> {
     if json {
         let unreadable: Vec<_> = unreadable
             .iter()
-            .map(|u| serde_json::json!({"label": u.label, "reason": u.reason}))
+            .map(|u| serde_json::json!({"name": u.label, "reason": u.reason}))
             .collect();
         let report = serde_json::json!({"comparisons": comparisons, "unreadable": unreadable});
         emit(&format!("{}\n", serde_json::to_string_pretty(&report)?))?;
