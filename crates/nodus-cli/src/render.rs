@@ -479,7 +479,7 @@ pub fn render_all_comparisons(
     comparisons: &[Comparison],
     unreadable: &[Unreadable],
 ) -> String {
-    let mut out = if comparisons.is_empty() {
+    let mut out = if comparisons.is_empty() && readable == 0 {
         format!("Preciso de pelo menos dois snapshots legíveis para comparar (há {readable}).\n")
     } else {
         comparisons
