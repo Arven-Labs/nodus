@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 48, `compare --all` na CLI (Fase 2, fatia 7, PR 1, ADR 0032 emenda 2, PR #181)
+
+- **Pedido**: "quero código" (sem frente dita). Escolhi a aba Compare da GUI e avisei que o dono tem **1** snapshot, então na janela real ela só mostraria o estado vazio até existir uma segunda máquina ou um forjado. Plan mode; escolha do dono: `compare --all` na CLI e aba só leitura sobre ele (descartado: dois rótulos na tela, que seria o primeiro argumento livre numa leitura). A fatia tem dois PRs; este é o primeiro (CLI). Aprovou a tabela de testes com "sim".
+- **Feito**: `compare --all` em `crates/nodus-cli/src/{cli,main,render}.rs` (`Compare` com `a`/`b` opcionais e `all`; `compare_all_command` lê com `read_all` e compara cada par `i < j`; `render_all_comparisons`). Sem mudança em `nodus-core`. Desvio do plano: nenhum.
+- **Testes**: primeiro, CI vermelho pelo motivo certo (`render_all_comparisons`, campo `all` e `Option` inexistentes); depois verde de primeira (CLI e testes de integração com o binário real em `tests/snapshot_dotfiles.rs`). Mudei um teste existente (`compare_recebe_dois_rotulos_e_json_opcional`, que agora destrutura `all` e compara `Option`). Mutações em PRs descartáveis (#182 a #188, fechados, branches apagadas): pares com cada snapshot consigo mesmo (4 testes), pares sem linha em branco (2), mensagem só para zero (3), avisos de ilegível sumindo (3), `label` por `name` no JSON (1), `--all` sem conflito (1), lados do par trocados (2). Conferi `headSha` e que nenhuma falhou só por compilador, clippy ou `fmt`.
+- **Não verificado**: o Arch real; a GUI (PR 2, a aba Compare).
+- **Fica**: PR 2 (aba Compare em `desktop/`), e depois o dono verificar no Arch (com dois snapshots forjados, como na fatia 6) e na janela.
+
 ### 2026-11-22 — Sessão 47, dotfiles no snapshot v2 e no `compare` (Fase 2, fatia 6, ADR 0032 emendado, PR #171)
 
 - **Pedido**: "outra frente, quero código"; do que ofereci, o dono escolheu "dotfiles no snapshot (v2) e no compare". Plan mode; escolha dele: quatro estados (`linked`, `file`, `missing`, `other`). Aprovou a tabela de testes com "manda bala". Corrigi no plano o que eu tinha dito ao oferecer: o `preset status` **não** muda (o preset não tem dotfiles).
