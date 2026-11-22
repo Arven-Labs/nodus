@@ -18,6 +18,7 @@ mod history;
 mod preset_file;
 mod process;
 mod render;
+mod snapshot;
 #[cfg(test)]
 mod testutil;
 mod undo;
@@ -43,6 +44,7 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Inventory { json } => inventory(json),
         Command::Updates { json } => updates(json),
+        Command::Snapshot { name } => snapshot_command(name),
         Command::History { json, action } => match action {
             None => show_history(json),
             Some(HistoryAction::Undo { n }) => history_undo(n),
@@ -612,6 +614,36 @@ fn updates(json: bool) -> Result<()> {
         emit(&render::render_updates(&updates))?;
     }
     Ok(())
+}
+
+/// Rótulo padrão: o hostname. Fora da regra do rótulo (maiúsculas, por exemplo), recusa e pede
+/// `--name`, em vez de trocar o nome em silêncio.
+fn default_snapshot_name() -> Result<String> {
+    let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .context("lendo /proc/sys/kernel/hostname")?;
+    let host = host.trim().to_string();
+    nodus_core::snapshot::validate_name(&host)
+        .with_context(|| format!("o hostname {host:?} não serve de rótulo; use --name"))?;
+    Ok(host)
+}
+
+fn snapshot_command(name: Option<String>) -> Result<()> {
+    let dir = dotfiles_source_dir()?;
+    let name = match name {
+        Some(name) => name,
+        None => default_snapshot_name()?,
+    };
+    // Falha antes de rodar qualquer programa externo.
+    nodus_core::snapshot::validate_name(&name)?;
+    let os_release = std::fs::read_to_string("/etc/os-release").context("lendo /etc/os-release")?;
+    let os = nodus_core::inventory::parse_os_release(&os_release)?;
+    let machine = nodus_core::preset::preset_from_machine(&process::RealRunner)?;
+    let snapshot = nodus_core::snapshot::build(&name, &os, &machine)?;
+    let path = snapshot::write(&dir, &snapshot)?;
+    emit(&format!(
+        "Snapshot gravado em {}\nO commit e o push são seus: o nodus não roda git.\n",
+        path.display()
+    ))
 }
 
 fn inventory(json: bool) -> Result<()> {

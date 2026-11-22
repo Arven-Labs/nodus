@@ -23,6 +23,15 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Grava um snapshot desta máquina (SO, capacidades, pacotes instalados de propósito e apps
+    /// Flatpak) em `<dotfiles_dir>/.nodus/snapshots/<rótulo>.json`, para versionar no seu
+    /// repositório e comparar máquinas. Sem segredos, hora ou versões. O nodus não roda git: o
+    /// commit é seu. Regravar substitui o arquivo do mesmo rótulo.
+    Snapshot {
+        /// Rótulo da máquina (`[a-z0-9._-]`, até 63 caracteres). Sem ele, usa o hostname.
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Mostra o que o nodus executou (cada `preset apply` e cada reversão), do mais antigo ao mais
     /// novo, com o número de cada entrada (somente leitura). `undo <n>` desfaz uma instalação.
     History {
@@ -251,6 +260,20 @@ mod tests {
         }
         // sem caminho, é erro de uso
         assert!(Cli::try_parse_from(["nodus", "dotfiles", "adopt"]).is_err());
+    }
+
+    #[test]
+    fn snapshot_aceita_nome_opcional_e_recusa_o_resto() {
+        let cli = Cli::try_parse_from(["nodus", "snapshot"]).unwrap();
+        assert!(matches!(cli.command, Command::Snapshot { name: None }));
+        let cli = Cli::try_parse_from(["nodus", "snapshot", "--name", "meu-pc"]).unwrap();
+        match cli.command {
+            Command::Snapshot { name } => assert_eq!(name.as_deref(), Some("meu-pc")),
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        // O rótulo é uma opção, não um argumento solto; e não há outra opção.
+        assert!(Cli::try_parse_from(["nodus", "snapshot", "meu-pc"]).is_err());
+        assert!(Cli::try_parse_from(["nodus", "snapshot", "--out", "/tmp"]).is_err());
     }
 
     #[test]

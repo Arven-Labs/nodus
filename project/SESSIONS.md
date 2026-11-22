@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 35, `nodusctl snapshot` (Fase 2, fatia 1, PR #122)
+
+- **Pedido**: o dono quis seguir com código e escolheu a Fase 2 no recorte do ADR 0031. Plan mode; escolhas dele: conteúdo = resumo do preset + capacidades; local = dentro da pasta-fonte dos dotfiles; fatia = só gravar (o `compare` fica para a fatia 2, depois de ver um snapshot real). Assumi, com o "sim" do dono: rótulo padrão = hostname; regravar substitui sem `[s/N]`.
+- **Feito**: `crates/nodus-core/src/snapshot.rs` (formato v1: `version`, `name`, `os`, `capabilities`, `pacman`, `flatpak`; listas ordenadas, JSON estável, leitura estrita com `deny_unknown_fields` e versão conferida antes do resto, rótulo `[a-z0-9][a-z0-9._-]{0,62}`) e `crates/nodus-cli/src/snapshot.rs` (grava `<dotfiles_dir>/.nodus/snapshots/<rótulo>.json`: arquivo 0600, pastas 0700, temporário `create_new` e `rename`, recusa symlink em `.nodus`, `snapshots` e no destino). Subcomando `nodusctl snapshot [--name]` em `cli.rs`/`main.rs`. Reusa `preset_from_machine` e `parse_os_release`. O nodus não roda git: o commit é do dono.
+- **Testes**: primeiro, com CI vermelho pelo motivo certo (itens inexistentes, E0425/E0433); depois CI verde (21 testes do snapshot no core e no CLI, mais 1 de `clap`). Mutações numa branch descartável (apagada): lista invertida, rótulo aceitando `/`, arquivo 0644, seguir symlink e ignorar a versão derrubaram 6 testes, cada mutação por pelo menos um. Duas tentativas anteriores da mutação foram barradas antes dos testes por `rustfmt` (o passo `Format` do CI), então a mutação tem de ser formatada.
+- **Não verificado**: no Arch real (`nodusctl snapshot` com `dotfiles_dir` configurado e duas execuções seguidas dando `git diff` vazio); o hostname real como rótulo; o ADR 0032 (formato do snapshot) ainda não foi criado, falta o dono aprovar. A escolha de gravar o `os.version` do `os-release` (hoje `null` no Arch) não foi medida em outra distro.
+
 ### 2026-11-22 — Sessão 34, "Ligar todos no terminal" na GUI (PR #120)
 
 - **Pedido**: o dono quis código e pediu a Fase 2; ao ver a tarefa de acabamento da GUI, trocou de rumo e escolheu o botão do `dotfiles link --all` (ADR 0030), que a GUI ainda não tinha. A Fase 2 (ADR 0031) segue sem implementação. Plan mode; plano aprovado.
