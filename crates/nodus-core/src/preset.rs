@@ -224,7 +224,10 @@ pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
             ("add_pacman", &machine.add_pacman, &raw.pacman),
             ("add_flatpak", &machine.add_flatpak, &raw.flatpak),
         ] {
-            if let Some(name) = add.iter().find(|name| shared.contains(name)) {
+            if let Some(name) = add
+                .iter()
+                .find(|name| shared.contains(name) && shared.is_empty())
+            {
                 return Err(PresetError::AddAlreadyInPreset {
                     machine: label,
                     list,
