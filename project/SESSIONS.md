@@ -2,6 +2,13 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 40, `preset apply --skip-flatpak` (critério 2, PR #130)
+
+- **Pedido**: "vamos pelo 2": auditar se o `preset apply` respeita capacidades diferentes entre máquinas (critério 2 do SPEC §16). Plan mode. Achado: o `apply` sem Flatpak e com app Flatpak no preset recusa tudo antes de qualquer pergunta, inclusive o pacman (`apply.rs`, ADR 0015 item 4, decisão deliberada); num preset compartilhado por git isso obrigaria a editar o arquivo e tirar os apps da outra máquina. Escolha do dono: flag opt-in `--skip-flatpak` (descartados: pular sempre com aviso, que reverte o ADR 0015; e manter como está).
+- **Feito**: flag em `cli.rs`; `without_flatpak(&Plan) -> (Plan, Vec<String>)` em `apply.rs` (só zera `flatpak_missing`); `render_skipped_flatpak` em `render.rs`; `main.rs` aplica o filtro e emite o aviso antes do plano. `apply()` e `apply_with_history()` não mudaram. Sem a flag o comportamento é o de antes. Nada é gravado no histórico para o que foi pulado. Com a flag e um preset só de apps Flatpak, sai com código 0 e "Nada a fazer" (suposição aceita pelo dono com o "manda bala").
+- **Testes**: primeiro, com CI vermelho pelo motivo certo (7 erros de compilação, 3 itens inexistentes); depois CI verde (7 testes novos conferidos no log, 427 + 339 passando). Mutações em branches descartáveis (PRs fechados, branches apagadas): não zerar `flatpak_missing`, zerar o pacman também, inverter o aviso e ligar a flag por padrão derrubaram 4, 3, 2 e 1 testes. A primeira versão da mutação 1 foi barrada pelo compilador (`unused_mut` com `-D warnings`), não por teste, e foi refeita para compilar.
+- **Não verificado**: no Arch real (`preset apply --skip-flatpak` numa máquina sem Flatpak, ou com a flag e um app no preset, respondendo `n`); **a ligação em `main.rs` não tem teste** (esquecer de chamar `without_flatpak` ou o `render_skipped_flatpak` não derrubaria nenhum teste; `main.rs` não tem teste unitário); o `render_plan` com a flag mostra "Flatpak não instalado (apps do preset: 0)" numa máquina sem Flatpak, porque os apps já saíram do plano; o `Depois:` recalculado mostra os apps como faltando, de propósito.
+
 ### 2026-11-22 — Sessão 39, verificação da Fase 2 no Arch real (docs)
 
 - **Pedido**: o dono quis código "corrigir o que a verificação achar". Não havia defeito conhecido: `snapshot`, `compare` e `preset status` (PRs #122, #125, #127) nunca tinham rodado numa máquina real. Li `status.rs` e `collect_plan` antes (sem achar defeito) e o dono rodou o roteiro no PC dele.
