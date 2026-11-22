@@ -769,7 +769,7 @@ fn snapshot_command(name: Option<String>) -> Result<()> {
     // Falha antes de rodar qualquer programa externo.
     nodus_core::snapshot::validate_name(&name)?;
     let config = config::read(&config_file()?)?;
-    let list = nodus_core::dotfiles::effective_list(&config.dotfiles_extra, &config.dotfiles_skip);
+    let list = nodus_core::dotfiles::effective_list(&config.dotfiles_skip, &config.dotfiles_extra);
     let entries = dotfiles::dotfile_entries(&home, &dir, &list)?;
     let os_release = std::fs::read_to_string("/etc/os-release").context("lendo /etc/os-release")?;
     let os = nodus_core::inventory::parse_os_release(&os_release)?;
