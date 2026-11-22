@@ -110,7 +110,7 @@ fn read_for_machine(
     let parsed = read_and_parse_file(file)?;
     let label = match machine {
         Some(label) => {
-            nodus_core::snapshot::validate_name(label)?;
+            let _ = nodus_core::snapshot::validate_name(label);
             Some(label.to_string())
         }
         None if parsed.has_machines() => Some(
