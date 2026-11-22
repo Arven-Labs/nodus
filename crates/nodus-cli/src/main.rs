@@ -73,7 +73,10 @@ fn main() -> Result<()> {
             PresetAction::Adopt { file } => preset_adopt(&file),
             PresetAction::Ignored => preset_ignored(),
             PresetAction::Unignore { names } => preset_unignore(&names),
-            PresetAction::Apply { file, skip_flatpak } => preset_apply(&file, skip_flatpak),
+            PresetAction::Apply {
+                file,
+                skip_flatpak: _,
+            } => preset_apply(&file, false),
         },
     }
 }
