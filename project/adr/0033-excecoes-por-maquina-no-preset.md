@@ -1,7 +1,7 @@
 # 0033: Exceções por máquina no preset (`[machines.<rótulo>]`)
 
 **Data:** 2026-11-22
-**Estado:** decidido e implementado (PR #148, fatia 3 da Fase 2); **não verificado no Arch real**. Segue o ADR 0031 (snapshot e compare por git) e o ADR 0032 (rótulo da máquina).
+**Estado:** decidido e implementado (PR #148, fatia 3 da Fase 2); verificado no Arch real em 2026-11-22 (ver Lacunas). Segue o ADR 0031 (snapshot e compare por git) e o ADR 0032 (rótulo da máquina).
 
 ## Contexto
 O preset é um arquivo só, compartilhado por git entre as máquinas do dono. O `preset status` (PR #127) e o `compare` mostram o que difere, mas não distinguem "faltando por esquecimento" de "esta máquina não quer isso": um item que só vale no desktop aparece como divergência no notebook para sempre, e o `preset apply` o instalaria lá. O critério 2 do SPEC §16 (aplicar o mesmo preset "respeitando capacidades diferentes") só estava coberto para Flatpak (`--skip-flatpak`, ADR 0015).
@@ -33,7 +33,8 @@ O preset é um arquivo só, compartilhado por git entre as máquinas do dono. O 
 - Custo de reverter: baixo enquanto ninguém tiver `[machines]` no preset; depois disso, um nodus sem o recurso recusa o arquivo.
 
 ## Lacunas
-- Verificação no Arch real pendente: `--machine`, hostname como padrão e o aviso de pulados.
-- O hostname vem de `/proc/sys/kernel/hostname`, igual ao `snapshot`; não testei hostname com maiúsculas, nem a GUI.
+- **Verificado no Arch real em 2026-11-22** (binário da `main` em `ed0451b`, hostname `archlinux`): `plan` pelo hostname e com `--machine`, `--json`, rótulo inválido, typo em `skip` (erro, saída 1), `apply` respondendo `n`, `adopt` num preset com tabelas (só a linha de `pacman` mudou) e `status` com e sem a exceção (0 contra 1 ocorrência de `"sl"`).
+- **Não verificado:** a GUI (abas Preset e Sugestões sem `--machine`); `suggest --machine`; `apply` real confirmando com `s`; hostname com maiúsculas (o `archlinux` é um rótulo válido); o conteúdo do `--json` do `status` (só contei ocorrências).
+- O hostname vem de `/proc/sys/kernel/hostname`, igual ao `snapshot`.
 - Mutações pegas por testes (CI): `for_machine` sem filtrar (9), `status_for` ignorando as exceções (2), `skip` fora da lista principal aceito (2), CLI filtrando com rótulo vazio (3), `--machine` não validado (1).
 - Este ADR foi escrito por IA e revisado só pelo dono.
