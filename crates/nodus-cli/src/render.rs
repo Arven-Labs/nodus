@@ -6,7 +6,7 @@ use nodus_core::compare::{Comparison, ListComparison};
 use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
-use nodus_core::preset::{Plan, Suggestions};
+use nodus_core::preset::{Plan, Preset, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::snapshot::SnapshotOs;
 use nodus_core::status::{MachineStatus, StatusList};
