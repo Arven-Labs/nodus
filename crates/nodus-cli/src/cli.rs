@@ -277,6 +277,24 @@ mod tests {
     }
 
     #[test]
+    fn compare_recebe_dois_rotulos_e_json_opcional() {
+        let cli = Cli::try_parse_from(["nodus", "compare", "pc-a", "pc-b"]).unwrap();
+        match cli.command {
+            Command::Compare { a, b, json } => {
+                assert_eq!((a.as_str(), b.as_str()), ("pc-a", "pc-b"));
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let cli = Cli::try_parse_from(["nodus", "compare", "pc-a", "pc-b", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Compare { json: true, .. }));
+        // São exatamente dois rótulos.
+        assert!(Cli::try_parse_from(["nodus", "compare"]).is_err());
+        assert!(Cli::try_parse_from(["nodus", "compare", "pc-a"]).is_err());
+        assert!(Cli::try_parse_from(["nodus", "compare", "a", "b", "c"]).is_err());
+    }
+
+    #[test]
     fn dotfiles_link_recebe_o_caminho_relativo() {
         let cli = Cli::try_parse_from(["nodus", "dotfiles", "link", ".config/git/config"]).unwrap();
         match cli.command {

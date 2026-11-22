@@ -216,4 +216,110 @@ mod tests {
         let caminho = write(tmp.path(), &s).unwrap();
         assert_eq!(parse(&fs::read_to_string(caminho).unwrap()).unwrap(), s);
     }
+
+    // --- read: o snapshot de outra máquina é entrada externa (veio por git) ---
+
+    fn pasta_de_snapshots(tmp: &TmpDir) -> std::path::PathBuf {
+        let dir = tmp.path().join(".nodus/snapshots");
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn le_o_que_write_gravou() {
+        let tmp = TmpDir::novo();
+        let s = snap("pc-a", &["git", "base"]);
+        write(tmp.path(), &s).unwrap();
+        assert_eq!(read(tmp.path(), "pc-a").unwrap(), s);
+    }
+
+    #[test]
+    fn rotulo_invalido_e_recusado_antes_de_montar_o_caminho() {
+        let tmp = TmpDir::novo();
+        // Um arquivo válido em `.nodus/x.json`: `../x` o alcançaria se o rótulo não fosse validado.
+        let s = snap("x", &["base"]);
+        fs::create_dir_all(tmp.path().join(".nodus")).unwrap();
+        pasta_de_snapshots(&tmp);
+        fs::write(tmp.path().join(".nodus/x.json"), to_json(&s)).unwrap();
+        for ruim in ["../x", "", "A", "a/b", "..", "/etc/passwd", "x\0"] {
+            assert!(read(tmp.path(), ruim).is_err(), "{ruim:?}");
+        }
+    }
+
+    #[test]
+    fn arquivo_ou_pasta_fonte_ausente_e_erro_e_nada_e_criado() {
+        let tmp = TmpDir::novo();
+        assert!(read(tmp.path(), "pc-a").is_err());
+        assert!(!tmp.path().join(".nodus").exists(), "ler não cria pasta");
+        assert!(read(&tmp.path().join("nao-existe"), "pc-a").is_err());
+        assert!(!tmp.path().join("nao-existe").exists());
+    }
+
+    #[test]
+    fn recusa_symlink_no_arquivo_e_nas_pastas() {
+        let tmp = TmpDir::novo();
+        let fora = TmpDir::novo();
+        let s = snap("pc-a", &["base"]);
+        fs::write(fora.path().join("pc-a.json"), to_json(&s)).unwrap();
+        // O arquivo é um symlink para um snapshot válido fora do repositório.
+        let snaps = pasta_de_snapshots(&tmp);
+        symlink(fora.path().join("pc-a.json"), snaps.join("pc-a.json")).unwrap();
+        assert!(read(tmp.path(), "pc-a").is_err());
+        // `snapshots` é um symlink para uma pasta de fora.
+        let tmp2 = TmpDir::novo();
+        fs::create_dir(tmp2.path().join(".nodus")).unwrap();
+        symlink(fora.path(), tmp2.path().join(".nodus/snapshots")).unwrap();
+        assert!(read(tmp2.path(), "pc-a").is_err());
+        // `.nodus` é um symlink.
+        let tmp3 = TmpDir::novo();
+        symlink(fora.path(), tmp3.path().join(".nodus")).unwrap();
+        assert!(read(tmp3.path(), "pc-a").is_err());
+    }
+
+    #[test]
+    fn recusa_destino_que_e_pasta_e_arquivo_grande_demais() {
+        let tmp = TmpDir::novo();
+        let snaps = pasta_de_snapshots(&tmp);
+        fs::create_dir(snaps.join("pc-a.json")).unwrap();
+        assert!(read(tmp.path(), "pc-a").is_err());
+        // Entrada externa: um arquivo enorme não é lido inteiro.
+        let grande = "x".repeat(MAX_SNAPSHOT_BYTES as usize + 1);
+        fs::write(snaps.join("pc-b.json"), grande).unwrap();
+        let erro = read(tmp.path(), "pc-b").unwrap_err().to_string();
+        assert!(erro.contains("grande"), "{erro}");
+    }
+
+    #[test]
+    fn recusa_arquivo_cujo_nome_interno_nao_e_o_rotulo() {
+        let tmp = TmpDir::novo();
+        let snaps = pasta_de_snapshots(&tmp);
+        // `pc-a.json` copiado para `pc-b.json`: o relatório diria "pc-b" sobre os dados de "pc-a".
+        fs::write(snaps.join("pc-b.json"), to_json(&snap("pc-a", &["base"]))).unwrap();
+        let erro = read(tmp.path(), "pc-b").unwrap_err().to_string();
+        assert!(erro.contains("pc-a") && erro.contains("pc-b"), "{erro}");
+    }
+
+    #[test]
+    fn versao_desconhecida_e_json_ruim_dao_erro_com_o_motivo() {
+        let tmp = TmpDir::novo();
+        let snaps = pasta_de_snapshots(&tmp);
+        let v2 = to_json(&snap("pc-a", &["base"])).replacen("\"version\": 1", "\"version\": 2", 1);
+        fs::write(snaps.join("pc-a.json"), v2).unwrap();
+        let erro = format!("{:#}", read(tmp.path(), "pc-a").unwrap_err());
+        assert!(erro.contains("versão 2"), "{erro}");
+        fs::write(snaps.join("pc-b.json"), "não é json").unwrap();
+        assert!(read(tmp.path(), "pc-b").is_err());
+        fs::write(snaps.join("pc-c.json"), "").unwrap();
+        assert!(read(tmp.path(), "pc-c").is_err());
+    }
+
+    #[test]
+    fn ler_nao_altera_nada() {
+        let tmp = TmpDir::novo();
+        let caminho = write(tmp.path(), &snap("pc-a", &["base"])).unwrap();
+        let antes = fs::read(&caminho).unwrap();
+        read(tmp.path(), "pc-a").unwrap();
+        assert_eq!(fs::read(&caminho).unwrap(), antes);
+        assert_eq!(quantos(&tmp.path().join(".nodus/snapshots")), 1);
+    }
 }

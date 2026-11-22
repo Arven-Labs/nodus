@@ -1261,4 +1261,122 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
     fn dotfiles_com_lista_vazia_diz_que_nao_ha_nada() {
         assert_eq!(render_dotfiles(&[]), "Nenhum dotfile na lista.\n");
     }
+
+    // --- compare (ADR 0031, fatia 2) ---
+
+    fn snapshot_de(
+        label: &str,
+        os: &str,
+        pacman: &[&str],
+        flatpak: Option<&[&str]>,
+    ) -> nodus_core::snapshot::Snapshot {
+        let os = nodus_core::inventory::OsInfo {
+            name: os.into(),
+            version: None,
+        };
+        let machine = nodus_core::preset::MachinePreset {
+            preset: nodus_core::preset::Preset {
+                pacman: pacman.iter().map(|s| s.to_string()).collect(),
+                flatpak: flatpak
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            },
+            flatpak_installed: flatpak.is_some(),
+        };
+        nodus_core::snapshot::build(label, &os, &machine).unwrap()
+    }
+
+    #[test]
+    fn compare_mostra_o_que_so_tem_em_cada_lado() {
+        let a = snapshot_de(
+            "pc-a",
+            "Arch Linux",
+            &["base", "git", "vim"],
+            Some(&["org.a.A"]),
+        );
+        let b = snapshot_de(
+            "pc-b",
+            "Arch Linux",
+            &["base", "git", "htop"],
+            Some(&["org.a.A"]),
+        );
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 2 em comum
+  só em pc-a (1):
+    vim
+  só em pc-b (1):
+    htop
+Flatpak: 1 em comum
+";
+        assert_eq!(
+            render_comparison(&nodus_core::compare::compare(&a, &b)),
+            esperado
+        );
+    }
+
+    #[test]
+    fn compare_de_maquinas_iguais_diz_que_nao_ha_divergencia() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base", "git"], Some(&["org.a.A"]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["git", "base"], Some(&["org.a.A"]));
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 2 em comum
+Flatpak: 1 em comum
+Sem divergências.
+";
+        assert_eq!(
+            render_comparison(&nodus_core::compare::compare(&a, &b)),
+            esperado
+        );
+    }
+
+    #[test]
+    fn compare_sem_flatpak_num_lado_nao_acusa_falta_e_nao_diz_que_esta_tudo_igual() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&["org.a.A"]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 1 em comum
+Flatpak: não comparável, pc-b não tem Flatpak
+Sem divergências nas listas comparadas.
+";
+        assert_eq!(texto, esperado);
+        assert!(!texto.contains("só em"));
+    }
+
+    #[test]
+    fn compare_com_as_duas_sem_flatpak_cita_as_duas() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], None);
+        let b = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        assert!(
+            texto.contains("Flatpak: não comparável, pc-a e pc-b não têm Flatpak\n"),
+            "{texto}"
+        );
+    }
+
+    #[test]
+    fn compare_avisa_quando_o_so_e_diferente() {
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], None);
+        let mut b = snapshot_de("pc-b", "Fedora Linux", &["base"], None);
+        b.os.version = Some("41".into());
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        let aviso = "Aviso: sistemas diferentes: pc-a é Arch Linux, pc-b é Fedora Linux 41\n";
+        assert!(texto.contains(aviso), "{texto}");
+        assert!(!texto.contains("Sem divergências"), "{texto}");
+    }
+
+    #[test]
+    fn compare_nao_escapa_nome_hostil_do_arquivo_de_outra_maquina() {
+        // Os nomes de pacote são validados na leitura; ainda assim, nada de byte de controle na saída.
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], None);
+        let mut b = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        b.os.name = "Arch\x1b[31m Linux".into();
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        assert!(!texto.contains('\x1b'), "{texto:?}");
+    }
 }
