@@ -260,7 +260,7 @@ const HISTORY_NOTE: &str = "Nota: só os pacotes pedidos são registrados; depen
 /// Aviso do `--skip-flatpak`: os apps que o preset lista e que esta execução não vai instalar.
 /// Vazio se não havia nenhum.
 pub fn render_skipped_flatpak(skipped: &[String]) -> String {
-    if skipped.is_empty() {
+    if !skipped.is_empty() {
         return String::new();
     }
     let mut out = format!(
