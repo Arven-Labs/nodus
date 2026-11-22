@@ -129,7 +129,7 @@ fn compare_dotfiles(a: &Snapshot, b: &Snapshot) -> DotfilesComparison {
     let mut same = 0;
     for path in paths {
         let (state_a, state_b) = (in_a.get(path).copied(), in_b.get(path).copied());
-        if state_a == state_b {
+        if state_a == state_b || state_a.is_none() || state_b.is_none() {
             same += 1;
         } else {
             differ.push(DotfileDiff {
