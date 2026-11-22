@@ -59,6 +59,9 @@ pub enum Allowed {
     /// Só a sugestão (`preset suggest`, sem `--all`; só lê o pacman, o Flatpak e o `config.toml`). Mesmo arquivo de `NODUS_PRESET`.
     /// `preset adopt`, `ignored` e `unignore` escrevem e ficam de fora.
     PresetSuggest,
+    /// Só o status por máquina (`preset status`, sem rótulos; lê o preset e os snapshots da pasta-fonte, não roda pacman nem flatpak).
+    /// Mesmo arquivo de `NODUS_PRESET`. O `snapshot` escreve e fica de fora.
+    PresetStatus,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -76,6 +79,7 @@ impl Allowed {
             "history" => Some(Self::History),
             "preset_plan" => Some(Self::PresetPlan),
             "preset_suggest" => Some(Self::PresetSuggest),
+            "preset_status" => Some(Self::PresetStatus),
             _ => None,
         }
     }
@@ -91,15 +95,21 @@ impl Allowed {
             Self::History => vec!["history", "--json"],
             Self::PresetPlan => vec!["preset", "plan", "--json"],
             Self::PresetSuggest => vec!["preset", "suggest", "--json"],
+            Self::PresetStatus => vec!["preset", "status", "--json"],
         }
     }
 
     /// Quanto a GUI espera por este comando antes de matá-lo. Cada comando tem o seu: os de rede (a tela de atualizações) precisam de mais.
     pub fn timeout(self) -> Duration {
         match self {
-            Self::Inventory | Self::Repos | Self::Dotfiles | Self::Workspace | Self::History | Self::PresetPlan | Self::PresetSuggest => {
-                DEFAULT_TIMEOUT
-            }
+            Self::Inventory
+            | Self::Repos
+            | Self::Dotfiles
+            | Self::Workspace
+            | Self::History
+            | Self::PresetPlan
+            | Self::PresetSuggest
+            | Self::PresetStatus => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
@@ -322,7 +332,7 @@ pub fn read_with(
         .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
     // O caminho é conferido antes de executar qualquer coisa. Um argumento só (sem shell), então espaço não separa nada.
     let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
-    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest) {
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest | Allowed::PresetStatus) {
         argv.push(resolve_preset(preset)?.into_os_string());
     }
 
@@ -839,6 +849,52 @@ echo "argumentos inesperados: $*" >&2; exit 64
         let (dir, bin) = falso(PLANO_FALSO);
         ler_preset(&bin, "preset_plan", (0, 1, 0), Some("/tmp/p.toml")).unwrap();
         assert_eq!(chamadas(&dir), ["--version", "preset plan --json /tmp/p.toml"]);
+    }
+
+    // --- preset status: mesmo mecanismo do plan (arquivo vindo de NODUS_PRESET); sem rótulos, só leitura ---
+
+    const STATUS_FALSO: &str = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+if [ "$1" = "preset" ] && [ "$2" = "status" ] && [ "$3" = "--json" ] && [ -n "$4" ] && [ -z "$5" ]; then echo '{"status":true}'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+
+    #[test]
+    fn preset_status_so_o_status_sem_rotulos() {
+        assert_eq!(Allowed::parse("preset_status"), Some(Allowed::PresetStatus));
+        assert_eq!(Allowed::PresetStatus.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::PresetStatus.args(), vec!["preset", "status", "--json"]);
+    }
+
+    #[test]
+    fn preset_status_nomes_vizinhos_nao_passam() {
+        for nome in [
+            "preset status", "preset_status /tmp/p.toml", "preset_status --json", "preset_status snapshot", "Preset_status", "PRESET_STATUS",
+            "preset_status ", " preset_status", "preset_status\n", "preset_status;ls", "preset-status", "preset_statusx", "preset_statuses",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: a lista de leitura é fechada e o status não leva rótulo");
+        }
+    }
+
+    #[test]
+    fn preset_status_roda_com_o_arquivo_da_variavel() {
+        let (dir, bin) = falso(STATUS_FALSO);
+        let saida = ler_preset(&bin, "preset_status", (0, 1, 0), Some("/tmp/minha pasta/p.toml")).unwrap();
+        assert_eq!(saida.trim(), r#"{"status":true}"#);
+        assert_eq!(chamadas(&dir), ["--version", "preset status --json /tmp/minha pasta/p.toml"]);
+    }
+
+    #[test]
+    fn preset_status_sem_caminho_valido_nada_executa() {
+        let (dir, bin) = falso(STATUS_FALSO);
+        let erro = ler_preset(&bin, "preset_status", (0, 1, 0), None).unwrap_err();
+        assert_eq!(erro.kind, "preset_not_set");
+        assert!(erro.message.contains("NODUS_PRESET"), "{}", erro.message);
+        for valor in ["", "p.toml", "./p.toml", "../p.toml", "~/p.toml", "-p.toml", "--json"] {
+            let erro = ler_preset(&bin, "preset_status", (0, 1, 0), Some(valor)).unwrap_err();
+            assert_eq!(erro.kind, "invalid_preset", "{valor:?}");
+        }
+        assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
     }
 
     #[test]

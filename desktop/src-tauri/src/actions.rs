@@ -447,7 +447,7 @@ mod tests {
             "preset adopt", "preset_adopt /tmp/p.toml", "preset_adopt --yes", "Preset_adopt", "PRESET_ADOPT", "preset_adopt ", " preset_adopt",
             "preset_adopt\n", "preset_adopt;ls", "preset-adopt", "preset_adoptx", "preset_adopts", "preset_ignore",
             "preset unignore", "preset_unignore --", "Preset_unignore", "PRESET_UNIGNORE", "preset_unignore ", "preset_unignorex", "preset-unignore",
-            "preset_suggest",
+            "preset_suggest", "preset_status",
             "workspace unset", "workspace_unset /tmp/ws", "workspace_unset --yes", "Workspace_unset", "WORKSPACE_UNSET", "workspace_unset ",
             " workspace_unset", "workspace_unset\n", "workspace_unset;ls", "workspace-unset", "workspace_unsetx", "workspace_unsets",
             "workspace",
@@ -463,6 +463,7 @@ mod tests {
         assert_eq!(crate::nodusctl::Allowed::parse("history_undo"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(crate::nodusctl::Allowed::parse("preset_adopt"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(Action::parse("preset_suggest", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
+        assert_eq!(Action::parse("preset_status", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
         assert_eq!(crate::nodusctl::Allowed::parse("workspace_unset"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(crate::nodusctl::Allowed::parse("workspace_set"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(Action::parse("workspace", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
