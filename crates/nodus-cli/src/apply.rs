@@ -88,7 +88,7 @@ pub fn apply(
 /// Sem apps no plano, o passo Flatpak não existe, então o `apply` nem consulta o `flathub`.
 pub fn without_flatpak(plan: &Plan) -> (Plan, Vec<String>) {
     let mut sem = plan.clone();
-    let skipped = std::mem::take(&mut sem.flatpak_missing);
+    let skipped = sem.flatpak_missing.clone();
     (sem, skipped)
 }
 
