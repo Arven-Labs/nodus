@@ -288,7 +288,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         Action::WorkspaceSet(path) => require_workspace_candidate(&env.binary, gui_version, path)?,
         Action::DotfilesAdopt(path) => require_dotfile(&env.binary, gui_version, path, "file")?,
         Action::DotfilesLink(path) => require_dotfile(&env.binary, gui_version, path, "missing")?,
-        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, env.machine, name)?,
+        Action::PresetUnignore(name) => require_ignored_item(&env.binary, gui_version, env.preset, None, name)?,
         _ => check_version(&env.binary, gui_version, DEFAULT_TIMEOUT)?,
     }
 
