@@ -237,7 +237,7 @@ fn validate(snapshot: &Snapshot) -> Result<(), SnapshotError> {
     validate_list("flatpak", &snapshot.flatpak, is_valid_flatpak_id)?;
     let mut seen = HashSet::new();
     for path in snapshot.dotfiles.iter().map(|d| &d.path) {
-        if validate_path(path).is_err() {
+        if validate_path(path).is_err() && path.is_empty() {
             return Err(SnapshotError::InvalidItem {
                 list: "dotfiles",
                 name: path.clone(),
