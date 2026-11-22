@@ -83,6 +83,15 @@ pub fn apply(
     Ok(outcome)
 }
 
+/// Plano sem os apps Flatpak a instalar (`--skip-flatpak`), mais a lista do que ficou de fora. Só
+/// `flatpak_missing` muda: o pacman, os indisponíveis e a capacidade Flatpak seguem como estavam.
+/// Sem apps no plano, o passo Flatpak não existe, então o `apply` nem consulta o `flathub`.
+pub fn without_flatpak(plan: &Plan) -> (Plan, Vec<String>) {
+    let mut sem = plan.clone();
+    let skipped = std::mem::take(&mut sem.flatpak_missing);
+    (sem, skipped)
+}
+
 #[derive(Debug)]
 pub struct Applied {
     pub outcome: Outcome,

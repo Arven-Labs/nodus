@@ -257,6 +257,22 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
 /// O histórico guarda a intenção, não o efeito (ADR 0011, item 8).
 const HISTORY_NOTE: &str = "Nota: só os pacotes pedidos são registrados; dependências instaladas ou removidas junto não aparecem aqui.\n";
 
+/// Aviso do `--skip-flatpak`: os apps que o preset lista e que esta execução não vai instalar.
+/// Vazio se não havia nenhum.
+pub fn render_skipped_flatpak(skipped: &[String]) -> String {
+    if skipped.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "Flatpak pulado por --skip-flatpak: estes apps NÃO serão instalados ({}):\n",
+        skipped.len()
+    );
+    for id in skipped {
+        let _ = writeln!(out, "  {id}");
+    }
+    out
+}
+
 pub fn render_plan(plan: &Plan) -> String {
     let mut out = String::from("Plano (nada foi executado):\n");
     let _ = writeln!(
