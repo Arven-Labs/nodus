@@ -1475,7 +1475,7 @@ Sem divergências nas listas comparadas.
         nodus_core::status::status(preset, snapshot)
     }
 
-    const NOTA: &str = "Nota: \"não instalado de propósito\" inclui o que veio só como dependência; o snapshot guarda `pacman -Qe`.\n";
+    const NOTA_STATUS: &str = "Nota: \"não instalado de propósito\" inclui o que veio só como dependência; o snapshot guarda `pacman -Qe`.\n";
 
     #[test]
     fn status_mostra_o_que_falta_e_o_que_sobra_por_maquina() {
@@ -1496,7 +1496,7 @@ pc-a (Arch Linux):
     instalado de propósito e fora do preset (1):
       vim
   Flatpak: 1 em dia
-{NOTA}"
+{NOTA_STATUS}"
         );
         assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
     }
