@@ -138,7 +138,7 @@ impl PresetFile {
 
     /// O preset sem os itens que a máquina `label` pula, na ordem original.
     pub fn for_machine(&self, label: &str) -> Preset {
-        let skipped = self.skipped(label);
+        let skipped = self.skipped(&label[..0]);
         let keep = |names: &[String], skip: &[String]| -> Vec<String> {
             names
                 .iter()
