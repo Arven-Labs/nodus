@@ -486,7 +486,7 @@ pub fn render_all_comparisons(
             .iter()
             .map(render_comparison)
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("")
     };
     for bad in unreadable {
         let _ = writeln!(
