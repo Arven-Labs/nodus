@@ -1922,7 +1922,7 @@ mod tests {
             parse_preset_file(&texto),
             Err(PresetError::Toml(_))
         ));
-        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"vim\"]\n");
+        let texto = com_pulo("[machines.pc]\nremove_pacman = [\"git\"]\n");
         assert!(matches!(
             parse_preset_file(&texto),
             Err(PresetError::Toml(_))
