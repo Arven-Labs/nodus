@@ -1917,4 +1917,158 @@ mod tests {
             Err(PresetError::Edit(_))
         ));
     }
+
+    // Acréscimos por máquina (Fase 2, fatia 4): `add_pacman` e `add_flatpak`. O preset efetivo é
+    // lista principal sem os pulados, seguida dos acrescentados.
+
+    const COM_ADD: &str = "version = 1\n\
+        pacman = [\"base\", \"git\"]\n\
+        flatpak = [\"org.x.Y\"]\n\
+        \n\
+        [machines.desktop]\n\
+        add_pacman = [\"steam\", \"htop\"]\n\
+        add_flatpak = [\"org.z.Z\"]\n";
+
+    #[test]
+    fn maquina_com_add_recebe_a_lista_principal_mais_os_acrescentados() {
+        let efetivo = parse_preset_file(COM_ADD).unwrap().for_machine("desktop");
+        assert_eq!(efetivo.pacman, nomes(&["base", "git", "steam", "htop"]));
+        assert_eq!(efetivo.flatpak, nomes(&["org.x.Y", "org.z.Z"]));
+    }
+
+    #[test]
+    fn outra_maquina_nao_recebe_os_acrescentados() {
+        let arquivo = parse_preset_file(COM_ADD).unwrap();
+        let efetivo = arquivo.for_machine("notebook");
+        assert_eq!(efetivo.pacman, nomes(&["base", "git"]));
+        assert_eq!(efetivo.flatpak, nomes(&["org.x.Y"]));
+        assert!(arquivo.added("notebook").is_empty());
+    }
+
+    #[test]
+    fn added_lista_o_que_foi_acrescentado_naquela_maquina() {
+        let arquivo = parse_preset_file(COM_ADD).unwrap();
+        let acrescentados = arquivo.added("desktop");
+        assert_eq!(acrescentados.pacman, nomes(&["steam", "htop"]));
+        assert_eq!(acrescentados.flatpak, nomes(&["org.z.Z"]));
+        assert!(arquivo.skipped("desktop").is_empty());
+    }
+
+    #[test]
+    fn so_add_ja_conta_como_ter_tabelas() {
+        assert!(parse_preset_file(COM_ADD).unwrap().has_machines());
+    }
+
+    #[test]
+    fn skip_e_add_na_mesma_maquina_pulam_e_acrescentam() {
+        let texto = "version = 1\npacman = [\"base\", \"git\"]\nflatpak = []\n\n\
+            [machines.pc]\nskip_pacman = [\"git\"]\nadd_pacman = [\"steam\"]\n";
+        let arquivo = parse_preset_file(texto).unwrap();
+        assert_eq!(arquivo.for_machine("pc").pacman, nomes(&["base", "steam"]));
+        assert_eq!(arquivo.skipped("pc").pacman, nomes(&["git"]));
+        assert_eq!(arquivo.added("pc").pacman, nomes(&["steam"]));
+    }
+
+    #[test]
+    fn parse_preset_continua_devolvendo_so_a_lista_principal() {
+        let completo = parse_preset(COM_ADD).unwrap();
+        assert_eq!(completo.pacman, nomes(&["base", "git"]));
+        assert_eq!(completo.flatpak, nomes(&["org.x.Y"]));
+    }
+
+    #[test]
+    fn acrescentar_o_que_ja_esta_na_lista_principal_e_erro() {
+        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"git\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::AddAlreadyInPreset {
+                machine: "pc".into(),
+                list: "add_pacman",
+                name: "git".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nadd_flatpak = [\"org.x.Y\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::AddAlreadyInPreset {
+                machine: "pc".into(),
+                list: "add_flatpak",
+                name: "org.x.Y".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn o_mesmo_item_em_skip_e_add_da_mesma_maquina_e_erro() {
+        let texto = com_pulo("[machines.pc]\nskip_pacman = [\"git\"]\nadd_pacman = [\"git\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::AddAlreadyInPreset {
+                machine: "pc".into(),
+                list: "add_pacman",
+                name: "git".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn nome_invalido_ou_repetido_em_add_e_recusado() {
+        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"vim\", \"--overwrite=*\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::InvalidName {
+                list: "add_pacman",
+                number: 2,
+                name: "--overwrite=*".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"vim\", \"vim\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::Duplicate {
+                list: "add_pacman",
+                name: "vim".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nadd_flatpak = [\"lingot\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::InvalidName {
+                list: "add_flatpak",
+                number: 1,
+                name: "lingot".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn campo_com_nome_parecido_com_add_continua_sendo_erro() {
+        let texto = com_pulo("[machines.pc]\nadd_pacmna = [\"vim\"]\n");
+        assert!(matches!(
+            parse_preset_file(&texto),
+            Err(PresetError::Toml(_))
+        ));
+    }
+
+    #[test]
+    fn adotar_numa_lista_existente_mantem_as_tabelas_com_add_intactas() {
+        let novo = add_to_preset(COM_ADD, &nomes(&["vim"]), &[]).unwrap();
+        let arquivo = parse_preset_file(&novo).unwrap();
+        assert_eq!(arquivo.preset.pacman, nomes(&["base", "git", "vim"]));
+        assert_eq!(
+            arquivo.for_machine("desktop").pacman,
+            nomes(&["base", "git", "vim", "steam", "htop"])
+        );
+        assert!(novo.contains("[machines.desktop]\nadd_pacman = [\"steam\", \"htop\"]\n"));
+    }
+
+    #[test]
+    fn adotar_o_que_outra_maquina_acrescenta_recusa_sem_gravar() {
+        // O item iria para a lista principal e `add_pacman` da outra máquina viraria redundante:
+        // o texto novo não passa no parse, então nada é devolvido.
+        assert!(matches!(
+            add_to_preset(COM_ADD, &nomes(&["steam"]), &[]),
+            Err(PresetError::Edit(_))
+        ));
+    }
 }
