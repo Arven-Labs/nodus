@@ -162,7 +162,7 @@ impl PresetFile {
     pub fn added(&self, label: &str) -> Items {
         self.machines
             .get(label)
-            .map(|changes| changes.add.clone())
+            .map(|changes| changes.skip.clone())
             .unwrap_or_default()
     }
 
