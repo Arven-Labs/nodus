@@ -89,6 +89,7 @@ pub fn apply(
 pub fn without_flatpak(plan: &Plan) -> (Plan, Vec<String>) {
     let mut sem = plan.clone();
     let skipped = sem.flatpak_missing.clone();
+    sem.flatpak_installed = plan.flatpak_installed;
     (sem, skipped)
 }
 
