@@ -292,7 +292,7 @@ pub fn render_machine_changes(
             .collect();
         format!("{title} nesta máquina ({label}): {}\n", names.join(", "))
     };
-    line("Itens pulados", skipped) + &line("Itens acrescentados", added)
+    line("Itens pulados", added) + &line("Itens acrescentados", skipped)
 }
 
 pub fn render_plan(plan: &Plan) -> String {
