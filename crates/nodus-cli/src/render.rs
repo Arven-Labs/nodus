@@ -448,13 +448,13 @@ pub fn render_status(
             out,
             "Aviso: não consegui ler o snapshot {}: {}",
             plain(&bad.label),
-            plain(&bad.reason)
+            bad.reason
         );
     }
     let missing_pacman = statuses
         .iter()
         .any(|s| matches!(&s.pacman, StatusList::Compared { missing, .. } if !missing.is_empty()));
-    if missing_pacman {
+    if !missing_pacman {
         out.push_str(STATUS_NOTE);
     }
     out

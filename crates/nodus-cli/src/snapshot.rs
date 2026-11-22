@@ -152,14 +152,12 @@ pub fn read_all(dir: &Path) -> Result<(Vec<Snapshot>, Vec<Unreadable>)> {
         let Some(name) = file_name.to_str() else {
             continue;
         };
-        if name.starts_with('.') {
-            continue;
-        }
         let Some(label) = name.strip_suffix(".json") else {
             continue;
         };
         match read(dir, label) {
             Ok(snapshot) => found.push(snapshot),
+            Err(erro) if !label.is_empty() => bail!("{erro:#}"),
             Err(erro) => unreadable.push(Unreadable {
                 label: label.to_string(),
                 reason: format!("{erro:#}"),
@@ -175,7 +173,11 @@ pub fn read_all(dir: &Path) -> Result<(Vec<Snapshot>, Vec<Unreadable>)> {
 /// ausente ou ruim é erro, não aviso.
 pub fn read_labels(dir: &Path, labels: &[String]) -> Result<Vec<Snapshot>> {
     let unique: BTreeSet<&String> = labels.iter().collect();
-    unique.into_iter().map(|label| read(dir, label)).collect()
+    unique
+        .into_iter()
+        .rev()
+        .map(|label| read(dir, label))
+        .collect()
 }
 
 /// `true` se o caminho existe (inclusive como symlink, sem segui-lo).

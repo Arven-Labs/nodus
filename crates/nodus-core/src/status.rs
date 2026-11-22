@@ -48,7 +48,7 @@ impl MachineStatus {
 fn is_list_in_sync(list: &StatusList) -> bool {
     match list {
         StatusList::Compared { missing, extra, .. } => missing.is_empty() && extra.is_empty(),
-        StatusList::NotComparable { .. } => true,
+        StatusList::NotComparable { .. } => false,
     }
 }
 
@@ -62,12 +62,7 @@ pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {
             &preset.pacman,
             &snapshot.pacman,
         ),
-        flatpak: status_list(
-            &snapshot.name,
-            snapshot.capabilities.flatpak,
-            &preset.flatpak,
-            &snapshot.flatpak,
-        ),
+        flatpak: status_list(&snapshot.name, true, &preset.flatpak, &snapshot.flatpak),
     }
 }
 
@@ -84,8 +79,8 @@ fn status_list(
     }
     let (missing, extra, in_sync) = diff_sets(preset_items, machine_items);
     StatusList::Compared {
-        missing,
-        extra,
+        missing: extra,
+        extra: missing,
         in_sync,
     }
 }
