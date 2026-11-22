@@ -59,7 +59,7 @@ impl Action {
             "dotfiles_adopt" => Ok(Self::DotfilesAdopt(path)),
             "dotfiles_link" => Ok(Self::DotfilesLink(path)),
             "preset_unignore" => Ok(Self::PresetUnignore(path)),
-            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" | "dotfiles_link_all" => {
+            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" => {
                 Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -73,7 +73,7 @@ impl Action {
             ("preset_apply", None) => Ok(Self::PresetApply),
             ("preset_adopt", None) => Ok(Self::PresetAdopt),
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
-            ("dotfiles_link_all", _) => Ok(Self::DotfilesLinkAll),
+            ("dotfiles_link_all", None) => Ok(Self::DotfilesLinkAll),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
             // `workspace_set` sem caminho (ou com `n`): a ação não existe sem o caminho, que entra por `parse_path`.
             ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "dotfiles_link_all" | "preset_unignore" | "history_undo", _) => {
