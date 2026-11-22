@@ -201,7 +201,7 @@ pub enum PresetAction {
         file: PathBuf,
         /// Não instala os apps Flatpak desta vez (máquina sem Flatpak, ou preset compartilhado com
         /// outra máquina). Aplica só o pacman e lista o que ficou de fora.
-        #[arg(long)]
+        #[arg(long, default_value_t = true)]
         skip_flatpak: bool,
     },
 }
