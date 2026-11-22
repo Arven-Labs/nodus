@@ -807,7 +807,7 @@ fn compare_all_command(json: bool) -> Result<()> {
     let mut comparisons = Vec::new();
     for (i, first) in snapshots.iter().enumerate() {
         for second in &snapshots[i + 1..] {
-            comparisons.push(nodus_core::compare::compare(first, second));
+            comparisons.push(nodus_core::compare::compare(second, first));
         }
     }
     if json {
