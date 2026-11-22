@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 44, exceções por máquina no preset (Fase 2, fatia 3, ADR 0033, PR #148)
+
+- **Pedido**: "vamos de fatia 3". A fatia 3 não estava definida no ADR 0031 nem no SPEC; plan mode, escolha do dono: exceções por máquina no preset (`[machines.<rótulo>]` com `skip_pacman` e `skip_flatpak`), hostname como rótulo padrão com `--machine` para sobrescrever, só pular (sem `add_*`). Aprovou a tabela de testes com "manda bala" sem responder as 3 perguntas; ficaram as minhas suposições (item pulado e instalado vira "sobram"/sugestão; `adopt` que criaria lista ausente recusa; typo em `skip` derruba o arquivo todo).
+- **Feito**: `PresetFile`, `Skipped`, `parse_preset_file` e `for_machine` em `crates/nodus-core/src/preset.rs` (`parse_preset` segue devolvendo o preset inteiro); `status_for` em `status.rs`; `--machine` em `preset plan|apply|suggest` (`cli.rs`) com `read_for_machine` em `main.rs` (hostname só se o preset tem `[machines]`); `render_skipped_machine` em `render.rs`; `add_to_preset` aceita o campo `machines`. Desvio do plano: `status()` não mudou, criei `status_for` ao lado.
+- **Testes**: primeiro, CI vermelho pelo motivo certo (`parse_preset_file`, `SkipNotInPreset` e o campo `machine` inexistentes); depois verde (core 429, cli 359, `tests/preset_machine.rs` 8, binário real com `pacman` e `flatpak` falsos). Uma falha minha no teste (o `pacman` falso não respondia `-Qe`/`-Qem`, que o `suggest` usa) corrigida e o `suggest` ganhou asserção de verdade. Mutações em PRs descartáveis (#149 a #153, fechados, branches apagadas): `for_machine` sem filtrar (9 testes), `status_for` ignorando as exceções (2), `skip` fora da lista principal aceito (2), CLI filtrando com rótulo vazio (3), `--machine` não validado (1). Duas saíram barradas pelo `fmt` do CI antes de valer (m3) ou sem log do job (m1, refeito com `gh run rerun --failed`) e só contam depois de refeitas.
+- **Não verificado**: Arch real (`--machine`, hostname como padrão, aviso de pulados); a GUI (as abas Preset e Sugestões chamam sem `--machine`; com `[machines]` dependem do hostname servir de rótulo); hostname com maiúsculas; `adopt` real num preset com tabelas (só em teste); `ROADMAP.md` não foi atualizado com a fatia 3.
+- **Fica**: o dono rodar o roteiro no Arch (`which nodusctl` e `nodusctl --version` antes), decidir se a GUI passa a mandar `--machine`, e se `add_*` por máquina vale uma fatia.
+
 ### 2026-11-22 — Sessão 43, `url 2.5.9` (RUSTSEC-2026-0592, lockfile do desktop)
 
 - **Pedido**: "faz a triagem do url agora", depois "sim" para o PR de correção. Triagem pela skill `/dependencias`, só leitura; correção só depois do "sim".
