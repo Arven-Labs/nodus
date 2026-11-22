@@ -193,7 +193,7 @@ function DotfilesScreen({ onRefresh }: { onRefresh: () => void }) {
         <>
           {/* O lote só tem o que ligar se a CLI listou alguma entrada ausente. Quem decide o que entra e o que é pulado é a CLI, no
               terminal (plano e `[s/N]`); a tela não manda caminho nenhum. */}
-          {present < entries.length && (
+          {present <= entries.length && (
             <TerminalAction
               prefix="dotfiles-ligar-todos"
               buttonId="dotfiles-ligar-todos"
