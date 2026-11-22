@@ -181,6 +181,19 @@ pub enum PresetAction {
         #[arg(required = true)]
         names: Vec<String>,
     },
+    /// Mostra, por máquina, o que do preset ela não tem e o que ela tem fora do preset, lendo os
+    /// snapshots de `<dotfiles_dir>/.nodus/snapshots/` (somente leitura; não roda pacman nem
+    /// flatpak). Sem rótulos, olha todos os snapshots (um ilegível vira aviso); com rótulos, só
+    /// esses (um ausente ou ruim é erro). O snapshot guarda só o que foi instalado de propósito.
+    Status {
+        /// Arquivo TOML do preset.
+        file: PathBuf,
+        /// Rótulos das máquinas a mostrar (o nome do arquivo, sem `.json`). Sem eles, todas.
+        labels: Vec<String>,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Instala o que falta: pacotes pacman (`sudo pacman -S --needed`) e depois apps Flatpak
     /// (`flatpak install --user`, remote `flathub`). Cada passo mostra o comando e pede confirmação.
     Apply {

@@ -69,6 +69,7 @@ fn main() -> Result<()> {
             PresetAction::Init => preset_init(),
             PresetAction::Plan { file, json } => preset_plan(&file, json),
             PresetAction::Suggest { file, json, all } => preset_suggest(&file, json, all),
+            PresetAction::Status { file, labels, json } => preset_status(&file, &labels, json),
             PresetAction::Adopt { file } => preset_adopt(&file),
             PresetAction::Ignored => preset_ignored(),
             PresetAction::Unignore { names } => preset_unignore(&names),
@@ -310,6 +311,31 @@ fn preset_plan(file: &std::path::Path, json: bool) -> Result<()> {
         emit(&format!("{}\n", serde_json::to_string_pretty(&plan)?))?;
     } else {
         emit(&render::render_plan(&plan))?;
+    }
+    Ok(())
+}
+
+fn preset_status(file: &std::path::Path, labels: &[String], json: bool) -> Result<()> {
+    let preset = read_and_parse(file)?;
+    let dir = dotfiles_source_dir()?;
+    let (snapshots, unreadable) = if labels.is_empty() {
+        snapshot::read_all(&dir)?
+    } else {
+        (snapshot::read_labels(&dir, labels)?, Vec::new())
+    };
+    let statuses: Vec<_> = snapshots
+        .iter()
+        .map(|snapshot| nodus_core::status::status(&preset, snapshot))
+        .collect();
+    if json {
+        let unreadable: Vec<_> = unreadable
+            .iter()
+            .map(|u| serde_json::json!({"label": u.label, "reason": u.reason}))
+            .collect();
+        let report = serde_json::json!({"machines": statuses, "unreadable": unreadable});
+        emit(&format!("{}\n", serde_json::to_string_pretty(&report)?))?;
+    } else {
+        emit(&render::render_status(&preset, &statuses, &unreadable))?;
     }
     Ok(())
 }

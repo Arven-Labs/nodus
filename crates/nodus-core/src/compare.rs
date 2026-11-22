@@ -99,13 +99,24 @@ fn compare_list(
     if !lacks.is_empty() {
         return ListComparison::NotComparable { lacks };
     }
-    let set_a: BTreeSet<&String> = items.0.iter().collect();
-    let set_b: BTreeSet<&String> = items.1.iter().collect();
+    let (only_a, only_b, common) = diff_sets(items.0, items.1);
     ListComparison::Compared {
-        only_a: set_a.difference(&set_b).map(|s| (*s).clone()).collect(),
-        only_b: set_b.difference(&set_a).map(|s| (*s).clone()).collect(),
-        common: set_a.intersection(&set_b).count(),
+        only_a,
+        only_b,
+        common,
     }
+}
+
+/// Diferença de dois conjuntos de nomes: (só em `a`, só em `b`, quantos em comum), as duas listas
+/// ordenadas. Compartilhada com o `status` do preset.
+pub(crate) fn diff_sets(a: &[String], b: &[String]) -> (Vec<String>, Vec<String>, usize) {
+    let set_a: BTreeSet<&String> = a.iter().collect();
+    let set_b: BTreeSet<&String> = b.iter().collect();
+    (
+        set_a.difference(&set_b).map(|s| (*s).clone()).collect(),
+        set_b.difference(&set_a).map(|s| (*s).clone()).collect(),
+        set_a.intersection(&set_b).count(),
+    )
 }
 
 #[cfg(test)]

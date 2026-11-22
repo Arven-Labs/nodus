@@ -1,3 +1,95 @@
+//! Status do preset numa máquina, lido do snapshot dela (critério 3 do SPEC §16). Puro: quem lê
+//! o preset e os arquivos é o CLI.
+//!
+//! O snapshot guarda `pacman -Qe` (instalados de propósito). Logo `missing` é "no preset e não
+//! instalado de propósito": um item que veio só como dependência está instalado, mas aparece aqui
+//! (o `preset plan` usa `pacman -Q` e o vê). E uma máquina sem Flatpak não "perdeu" os apps do
+//! preset: a lista fica "não comparável", como no `compare`.
+
+use crate::compare::diff_sets;
+use crate::preset::Preset;
+use crate::snapshot::{Snapshot, SnapshotOs};
+use serde::Serialize;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MachineStatus {
+    pub machine: String,
+    pub os: SnapshotOs,
+    pub pacman: StatusList,
+    pub flatpak: StatusList,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum StatusList {
+    Compared {
+        /// No preset e fora dos instalados de propósito da máquina, ordenados.
+        missing: Vec<String>,
+        /// Instalados de propósito na máquina e fora do preset, ordenados.
+        extra: Vec<String>,
+        in_sync: usize,
+    },
+    /// A máquina não tem a capacidade; `lacks` traz o rótulo dela.
+    NotComparable { lacks: Vec<String> },
+}
+
+impl MachineStatus {
+    /// Nenhuma lista comparada tem item faltando ou sobrando. "Não comparável" não conta.
+    pub fn is_in_sync(&self) -> bool {
+        is_list_in_sync(&self.pacman) && is_list_in_sync(&self.flatpak)
+    }
+
+    pub fn has_not_comparable(&self) -> bool {
+        matches!(self.pacman, StatusList::NotComparable { .. })
+            || matches!(self.flatpak, StatusList::NotComparable { .. })
+    }
+}
+
+fn is_list_in_sync(list: &StatusList) -> bool {
+    match list {
+        StatusList::Compared { missing, extra, .. } => missing.is_empty() && extra.is_empty(),
+        StatusList::NotComparable { .. } => true,
+    }
+}
+
+pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {
+    MachineStatus {
+        machine: snapshot.name.clone(),
+        os: snapshot.os.clone(),
+        pacman: status_list(
+            &snapshot.name,
+            snapshot.capabilities.pacman,
+            &preset.pacman,
+            &snapshot.pacman,
+        ),
+        flatpak: status_list(
+            &snapshot.name,
+            snapshot.capabilities.flatpak,
+            &preset.flatpak,
+            &snapshot.flatpak,
+        ),
+    }
+}
+
+fn status_list(
+    machine: &str,
+    has_capability: bool,
+    preset_items: &[String],
+    machine_items: &[String],
+) -> StatusList {
+    if !has_capability {
+        return StatusList::NotComparable {
+            lacks: vec![machine.to_string()],
+        };
+    }
+    let (missing, extra, in_sync) = diff_sets(preset_items, machine_items);
+    StatusList::Compared {
+        missing,
+        extra,
+        in_sync,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Status do preset numa máquina, a partir do snapshot (critério 3 do SPEC §16). Puro. O

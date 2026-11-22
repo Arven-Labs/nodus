@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result, bail};
 use nodus_core::snapshot::{Snapshot, parse, to_json, validate_name};
+use std::collections::BTreeSet;
 use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -111,6 +112,79 @@ pub fn read(dir: &Path, label: &str) -> Result<Snapshot> {
         );
     }
     Ok(snapshot)
+}
+
+/// Um snapshot que existe na pasta mas não pôde ser lido (versão nova, symlink, nome divergente,
+/// grande demais...). Mostrado como aviso: não derruba a leitura dos outros.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unreadable {
+    pub label: String,
+    pub reason: String,
+}
+
+/// Lê todos os `*.json` de `<dir>/.nodus/snapshots/`, ordenados por rótulo. Só leitura. Entradas
+/// que não são snapshot (sem `.json`, ou começadas por `.`, como o temporário de uma gravação) são
+/// ignoradas; um snapshot ruim vira `Unreadable` e os outros seguem. Sem `.nodus` ou sem
+/// `snapshots` não é erro (ainda não há snapshots); symlink nessas pastas é.
+pub fn read_all(dir: &Path) -> Result<(Vec<Snapshot>, Vec<Unreadable>)> {
+    let meta = fs::metadata(dir).with_context(|| format!("lendo {}", dir.display()))?;
+    if !meta.is_dir() {
+        bail!("{} não é uma pasta", dir.display());
+    }
+    let nodus = dir.join(".nodus");
+    if !exists(&nodus)? {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let nodus = require_real_dir(&nodus)?;
+    let snapshots = nodus.join("snapshots");
+    if !exists(&snapshots)? {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let snapshots = require_real_dir(&snapshots)?;
+
+    let mut found = Vec::new();
+    let mut unreadable = Vec::new();
+    for entry in
+        fs::read_dir(&snapshots).with_context(|| format!("lendo {}", snapshots.display()))?
+    {
+        let entry = entry.with_context(|| format!("lendo {}", snapshots.display()))?;
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        let Some(label) = name.strip_suffix(".json") else {
+            continue;
+        };
+        match read(dir, label) {
+            Ok(snapshot) => found.push(snapshot),
+            Err(erro) => unreadable.push(Unreadable {
+                label: label.to_string(),
+                reason: format!("{erro:#}"),
+            }),
+        }
+    }
+    found.sort_by(|a, b| a.name.cmp(&b.name));
+    unreadable.sort_by(|a, b| a.label.cmp(&b.label));
+    Ok((found, unreadable))
+}
+
+/// Lê só os rótulos pedidos, ordenados e sem repetição. Pedido explícito erra alto: um rótulo
+/// ausente ou ruim é erro, não aviso.
+pub fn read_labels(dir: &Path, labels: &[String]) -> Result<Vec<Snapshot>> {
+    let unique: BTreeSet<&String> = labels.iter().collect();
+    unique.into_iter().map(|label| read(dir, label)).collect()
+}
+
+/// `true` se o caminho existe (inclusive como symlink, sem segui-lo).
+fn exists(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(erro) if erro.kind() == ErrorKind::NotFound => Ok(false),
+        Err(erro) => Err(erro).with_context(|| format!("lendo {}", path.display())),
+    }
 }
 
 /// A pasta existe e é uma pasta de verdade (não symlink). Não cria.

@@ -1,5 +1,6 @@
 //! Formatação do inventário para o terminal.
 
+use crate::snapshot::Unreadable;
 use crate::workspace::{Report, Source};
 use nodus_core::compare::{Comparison, ListComparison};
 use nodus_core::dotfiles::Entry;
@@ -8,6 +9,7 @@ use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::snapshot::SnapshotOs;
+use nodus_core::status::{MachineStatus, StatusList};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
@@ -376,6 +378,84 @@ pub fn render_comparison(comparison: &Comparison) -> String {
         } else {
             "Sem divergências.\n"
         });
+    }
+    out
+}
+
+/// O snapshot guarda `pacman -Qe`: "ausente" inclui o que veio só como dependência.
+const STATUS_NOTE: &str = "Nota: \"não instalado de propósito\" inclui o que veio só como dependência; o snapshot guarda `pacman -Qe`.\n";
+
+fn status_section(out: &mut String, title: &str, machine: &str, list: &StatusList) {
+    match list {
+        StatusList::Compared {
+            missing,
+            extra,
+            in_sync,
+        } => {
+            let _ = writeln!(out, "  {title}: {in_sync} em dia");
+            let groups = [
+                ("no preset e não instalado de propósito", missing),
+                ("instalado de propósito e fora do preset", extra),
+            ];
+            for (heading, items) in groups {
+                if items.is_empty() {
+                    continue;
+                }
+                let _ = writeln!(out, "    {heading} ({}):", items.len());
+                for name in items {
+                    let _ = writeln!(out, "      {name}");
+                }
+            }
+        }
+        StatusList::NotComparable { .. } => {
+            let _ = writeln!(out, "  {title}: não comparável, {machine} não tem {title}");
+        }
+    }
+}
+
+pub fn render_status(
+    preset: &Preset,
+    statuses: &[MachineStatus],
+    unreadable: &[Unreadable],
+) -> String {
+    if statuses.is_empty() && unreadable.is_empty() {
+        return "Nenhum snapshot encontrado; rode `nodusctl snapshot` em cada máquina e traga os arquivos pelo git.\n".to_string();
+    }
+    let mut out = format!(
+        "Preset: pacman {}, flatpak {} (só leitura, a partir dos snapshots):\n",
+        preset.pacman.len(),
+        preset.flatpak.len()
+    );
+    for status in statuses {
+        let header = if !status.is_in_sync() {
+            ""
+        } else if status.has_not_comparable() {
+            " em dia nas listas comparadas"
+        } else {
+            " em dia com o preset"
+        };
+        let _ = writeln!(
+            out,
+            "{} ({}):{header}",
+            status.machine,
+            os_label(&status.os)
+        );
+        status_section(&mut out, "Pacman", &status.machine, &status.pacman);
+        status_section(&mut out, "Flatpak", &status.machine, &status.flatpak);
+    }
+    for bad in unreadable {
+        let _ = writeln!(
+            out,
+            "Aviso: não consegui ler o snapshot {}: {}",
+            plain(&bad.label),
+            plain(&bad.reason)
+        );
+    }
+    let missing_pacman = statuses
+        .iter()
+        .any(|s| matches!(&s.pacman, StatusList::Compared { missing, .. } if !missing.is_empty()));
+    if missing_pacman {
+        out.push_str(STATUS_NOTE);
     }
     out
 }
