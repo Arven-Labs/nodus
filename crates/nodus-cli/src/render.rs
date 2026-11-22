@@ -451,9 +451,9 @@ fn dotfiles_section(out: &mut String, comparison: &Comparison) {
                     "    {}: {} {}, {} {}",
                     plain(&diff.path),
                     comparison.a,
-                    dotfile_state_label(diff.a),
+                    dotfile_state_label(diff.b),
                     comparison.b,
-                    dotfile_state_label(diff.b)
+                    dotfile_state_label(diff.a)
                 );
             }
         }
