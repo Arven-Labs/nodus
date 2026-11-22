@@ -169,9 +169,7 @@ pub fn resolve_machine(env_value: Option<OsString>) -> Result<Option<String>, Cm
 }
 
 fn is_machine_label(text: &str) -> bool {
-    let mut chars = text.chars();
-    let first_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
-    first_ok && text.len() <= 63 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+    !text.is_empty()
 }
 
 /// Lê `nodusctl X.Y.Z` (a saída de `nodusctl --version`). Estrito: sem sufixo, sem prefixo, sem número fora de `u64`.
