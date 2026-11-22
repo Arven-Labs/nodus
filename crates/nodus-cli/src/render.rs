@@ -649,6 +649,19 @@ mod tests {
     use nodus_core::preset::{Plan, Suggestions};
     use nodus_core::updates::{FlatpakUpdate, PacmanUpdate};
 
+    #[test]
+    fn aviso_dos_apps_flatpak_pulados() {
+        assert_eq!(
+            render_skipped_flatpak(&["org.a.B".to_string(), "org.c.D".to_string()]),
+            "Flatpak pulado por --skip-flatpak: estes apps NÃO serão instalados (2):\n  org.a.B\n  org.c.D\n"
+        );
+    }
+
+    #[test]
+    fn sem_app_pulado_nao_ha_aviso() {
+        assert_eq!(render_skipped_flatpak(&[]), "");
+    }
+
     fn inventario(os_version: Option<&str>) -> Inventory {
         Inventory {
             system: SystemInfo {

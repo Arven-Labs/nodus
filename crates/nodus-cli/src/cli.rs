@@ -580,6 +580,21 @@ mod tests {
     }
 
     #[test]
+    fn preset_apply_skip_flatpak_e_opt_in() {
+        let sem = Cli::try_parse_from(["nodus", "preset", "apply", "p.toml"]).unwrap();
+        let com =
+            Cli::try_parse_from(["nodus", "preset", "apply", "p.toml", "--skip-flatpak"]).unwrap();
+        let flag = |cli: Cli| match cli.command {
+            Command::Preset {
+                action: PresetAction::Apply { skip_flatpak, .. },
+            } => skip_flatpak,
+            outro => panic!("comando errado: {outro:?}"),
+        };
+        assert!(!flag(sem), "sem a flag o padrão continua recusando");
+        assert!(flag(com));
+    }
+
+    #[test]
     fn preset_apply_nao_tem_modo_sim_para_tudo() {
         for flag in ["--yes", "-y", "--noconfirm"] {
             let erro =
