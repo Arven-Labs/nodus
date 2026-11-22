@@ -1,4 +1,4 @@
-# 0032: Formato e gravação do snapshot da máquina (v1)
+# 0032: Formato e gravação do snapshot da máquina (v1; v2 na emenda abaixo)
 
 **Data:** 2026-11-22
 **Estado:** decidido e implementado (PR #122, `nodusctl snapshot`); **não verificado no Arch real**. Detalha a fatia 1 do ADR 0031.
@@ -37,8 +37,20 @@ O ADR 0031 escolheu "snapshot e compare por git, sem Core" como primeiro recorte
 - A fatia 2 (`nodusctl compare`, PR #125) herda as regras de leitura e decidiu as capacidades (critério 2 do SPEC §16): uma lista só é comparada se **as duas** máquinas têm a capacidade; sem ela, a lista é "não comparável" (cita quem não tem), nunca "faltam apps", e a capacidade manda mesmo que o arquivo traga a lista. SO diferente é aviso e conta como divergência. A regra foi decidida e testada, **não medida** com snapshots reais. A leitura do `compare` acrescenta o que o ADR não previa: `.nodus`, `snapshots` e o arquivo sem symlink, teto de 1 MiB e o `name` de dentro do arquivo igual ao rótulo pedido. A leitura do core **não valida `os.name`**: o `compare` troca byte de controle por `?` ao mostrar.
 - O snapshot não prova que o preset foi aplicado: guarda o estado instalado, não o desejado. Comparar com um preset é outra decisão.
 
+## Emenda (2026-11-22, fatia 6): formato v2, dotfiles
+Escolha do dono em plan mode (os quatro estados); implementado no PR #171, **ainda não verificado no Arch real**.
+1. `version: 2` acrescenta `capabilities.dotfiles` e a lista `dotfiles: [{"path", "state"}]`, ordenada por caminho (mesmo determinismo do item 2). O `state` é um de `linked` (symlink cujo alvo é, **em texto**, `<pasta-fonte>/<caminho>`, a regra do `undo`, ADR 0025), `file`, `missing` ou `other` (pasta, symlink para outro lugar ou outro tipo). **Nunca** o alvo do symlink (tem o caminho do HOME), o tamanho (suja o `git diff`) ou o conteúdo.
+2. A lista é a efetiva **desta** máquina (padrão mais `dotfiles_extra`, menos `dotfiles_skip`); os extras do dono entram, então ficam visíveis se o repo for público. A denylist de segredos vale na escrita (`with_dotfiles`) e na leitura (o arquivo é entrada externa).
+3. **Leitura dos dois formatos** (como previa a seção Consequências): o v1 vira `capabilities.dotfiles: false` e lista vazia; versão diferente de 1 e 2 é recusada ("entende a 1 e a 2"); a versão é conferida antes do resto; o v1 continua estrito (`dotfiles` nele é campo desconhecido). `build` sozinho produz v2 com `dotfiles: false`; `with_dotfiles` liga a capacidade.
+4. **Compare:** só compara dotfiles se **as duas** máquinas têm a capacidade; v1 contra v2 (ou v1 contra v1) é "não comparável" e cita quem não olhou, nunca "diferente" (o mesmo raciocínio do Flatpak ausente). Entre v2, estado diferente ou caminho só na lista de uma das máquinas (`fora da lista`) é divergência; igual, inclusive `missing` nos dois lados, conta em `same`. O `compare --json` ganhou o campo `dotfiles`. Duas máquinas com listas diferentes não chamam de `missing` o que a outra não monitora.
+5. `nodusctl snapshot` passa a exigir `$HOME` válido (como o `dotfiles`): sem ele erra e não grava, em vez de gravar `dotfiles: false` em silêncio. Os testes existentes que fixavam o v1 mudaram de propósito.
+6. `preset status` não mudou (o preset não tem dotfiles); só lê os snapshots v1 e v2.
+7. Descartado: gravar só presente/ausente (não distingue gerenciado de solto, que é a divergência que importa); gravar o alvo (expõe o HOME); `compare` exigir v2 (quebraria os snapshots que o dono já tem no repo).
+8. Mutações pegas por testes (CI): qualquer symlink absoluto como `linked` (3), v1 lido como se tivesse olhado (8), denylist fora da validação (2), `compare` ignorando a capacidade (7), caminho de um lado só como igual (4), lista em ordem inversa (3), `extra` e `skip` trocados (1), estados de `a` e `b` trocados no texto (2).
+9. **Não verificado:** o Arch real (snapshot v2 de verdade, `compare` entre dois snapshots reais, v1 contra v2 com o snapshot que o dono já tem); a GUI (sem aba Compare); o texto em português dos estados na tela.
+
 ## Lacunas
 - **Verificado no Arch real em 2026-11-22:** duas gravações seguidas deram o mesmo sha256 (o `git diff` vazio não serviria, a pasta ainda não era versionada), arquivo 0600 e o hostname como rótulo.
 - `os.version` é `null` no Arch (o `os-release` dele não tem `VERSION_ID`); não medido em outra distribuição.
-- `pacman -Qe` como conjunto de comparação, medido em 2026-11-22: um item do preset instalado só como dependência aparece como "não instalado de propósito" no `preset status`, enquanto o `preset plan` (que usa `pacman -Q`) o vê como presente. **Decisão do dono: manter** (opção A). Descartado: gravar também `pacman -Q` (formato v2), porque o snapshot passaria a mudar a cada atualização de dependência e contraria o conteúdo mínimo. Não escolhido: sugerir `pacman -D --asexplicit` na nota.
+- `pacman -Qe` como conjunto de comparação, medido em 2026-11-22: um item do preset instalado só como dependência aparece como "não instalado de propósito" no `preset status`, enquanto o `preset plan` (que usa `pacman -Q`) o vê como presente. **Decisão do dono: manter** (opção A). Descartado: gravar também `pacman -Q` (um formato que mudaria o conteúdo; o v2 que existe hoje é o dos dotfiles, na emenda), porque o snapshot passaria a mudar a cada atualização de dependência e contraria o conteúdo mínimo. Não escolhido: sugerir `pacman -D --asexplicit` na nota.
 - Este ADR foi escrito por IA e revisado só pelo dono.
