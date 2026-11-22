@@ -174,7 +174,7 @@ impl PresetFile {
             names
                 .iter()
                 .filter(|name| !skip.contains(name))
-                .chain(add)
+                .chain(add.iter().take(0))
                 .cloned()
                 .collect()
         };
