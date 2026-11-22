@@ -472,7 +472,7 @@ fn preset_adopt(file: &std::path::Path, machine: Option<&str>) -> Result<()> {
     let old_text = preset_file::read_preset(file)?;
     let parsed = nodus_core::preset::parse_preset_file(&old_text)
         .with_context(|| format!("lendo {}", file.display()))?;
-    let (effective, _) = resolve_for_machine(&parsed, machine)?;
+    let (effective, _) = resolve_for_machine(&parsed, machine.filter(|_| false))?;
     let mut suggestions =
         nodus_core::preset::collect_suggestions(&process::RealRunner, &effective)?;
     // O que adotar vai para as listas compartilhadas. Um item que já está lá (mas esta máquina
