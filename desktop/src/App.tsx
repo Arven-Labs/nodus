@@ -751,7 +751,7 @@ function StatusScreen() {
   return (
     <section>
       <h1>Status do preset</h1>
-      {machines.length === 0 && unreadable.length === 0 && (
+      {machines.length === 0 && (
         <p data-testid="status-vazio">Nenhum snapshot encontrado. Rode `nodusctl snapshot` em cada máquina e traga os arquivos pelo git.</p>
       )}
       {machines.map((m, i) => (
