@@ -16,6 +16,8 @@ use std::sync::OnceLock;
 const PACMAN: &str = r#"#!/bin/sh
 case "$1" in
   -Q) echo "base 1-1" ;;
+  -Qe) echo "steam 1-1" ;;
+  -Qem) exit 0 ;;
   -S) exit 0 ;;
   *) exit 1 ;;
 esac
@@ -186,9 +188,15 @@ fn apply_em_outra_maquina_oferece_tudo_e_nao_avisa_pulados() {
 }
 
 #[test]
-fn suggest_com_a_maquina_nao_quebra_e_aceita_a_flag() {
+fn suggest_usa_o_preset_efetivo_da_maquina() {
+    // `steam` está instalado de propósito. No notebook ele é pulado, então está fora do preset
+    // efetivo e é sugerido; no desktop o preset o tem, então não há o que sugerir.
     let s = rodar("suggest", "com-tabelas.toml", &["--machine", "notebook"]);
     assert!(s.sucesso, "{}", s.stderr);
+    assert!(s.stdout.contains("steam"), "{}", s.stdout);
+    let s = rodar("suggest", "com-tabelas.toml", &["--machine", "desktop"]);
+    assert!(s.sucesso, "{}", s.stderr);
+    assert!(!s.stdout.contains("steam"), "{}", s.stdout);
 }
 
 #[test]
