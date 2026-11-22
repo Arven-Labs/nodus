@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result, bail};
 use nodus_core::dotfiles::{Entry, Observed, classify, validate_path};
+use nodus_core::snapshot::{DotfileEntry, dotfile_state};
 use std::path::{Path, PathBuf};
 
 /// O `$HOME`, que precisa ser absoluto: é a raiz de todos os caminhos da lista.
@@ -38,6 +39,21 @@ pub fn observe(home: &Path, path: &str) -> Result<Observed> {
     }
 }
 
+/// O estado de cada item da lista para o snapshot v2, na ordem dela. `dir` é a pasta-fonte: só um
+/// symlink cujo alvo é, em texto, `<dir>/<caminho>` conta como `linked`. Valida cada caminho de novo
+/// (denylist) e, como o relatório, não abre arquivo nem segue symlink.
+pub fn dotfile_entries(home: &Path, dir: &Path, list: &[String]) -> Result<Vec<DotfileEntry>> {
+    list.iter()
+        .map(|path| {
+            validate_path(path).with_context(|| format!("dotfile {path:?}"))?;
+            Ok(DotfileEntry {
+                path: path.clone(),
+                state: dotfile_state(dir, path, &observe(home, path)?),
+            })
+        })
+        .collect()
+}
+
 /// Uma entrada por item da lista, na ordem dela. Valida cada caminho de novo, mesmo vindo do
 /// config (que já valida): o relatório não confia em quem o chamou para barrar segredo.
 pub fn report(home: &Path, list: &[String]) -> Result<Vec<Entry>> {
@@ -56,6 +72,112 @@ mod tests {
     use nodus_core::dotfiles::{Kind, Observed};
     use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    // --- estados para o snapshot v2 (Fase 2, fatia 6) ---
+
+    fn lista(caminhos: &[&str]) -> Vec<String> {
+        caminhos.iter().map(|c| (*c).to_string()).collect()
+    }
+
+    #[test]
+    fn entries_classifica_ligado_arquivo_ausente_e_outro_na_ordem_da_lista() {
+        use nodus_core::snapshot::DotfileState::{File, Linked, Missing, Other};
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("fonte");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(dir.join(".config/git")).unwrap();
+        fs::write(dir.join(".bashrc"), "x").unwrap();
+        fs::write(dir.join(".config/git/config"), "x").unwrap();
+        symlink(dir.join(".bashrc"), home.join(".bashrc")).unwrap();
+        fs::write(home.join(".gitconfig"), "oi").unwrap();
+        symlink("/etc/hostname", home.join(".zshrc")).unwrap();
+        fs::create_dir_all(home.join(".tmux.conf")).unwrap();
+        fs::create_dir_all(home.join(".config/git")).unwrap();
+        symlink(
+            dir.join(".config/git/config"),
+            home.join(".config/git/config"),
+        )
+        .unwrap();
+        let entradas = dotfile_entries(
+            &home,
+            &dir,
+            &lista(&[
+                ".bashrc",
+                ".gitconfig",
+                ".vimrc",
+                ".zshrc",
+                ".tmux.conf",
+                ".config/git/config",
+            ]),
+        )
+        .unwrap();
+        let visto: Vec<(&str, nodus_core::snapshot::DotfileState)> = entradas
+            .iter()
+            .map(|e| (e.path.as_str(), e.state))
+            .collect();
+        assert_eq!(
+            visto,
+            [
+                (".bashrc", Linked),
+                (".gitconfig", File),
+                (".vimrc", Missing),
+                (".zshrc", Other),
+                (".tmux.conf", Other),
+                (".config/git/config", Linked),
+            ]
+        );
+    }
+
+    #[test]
+    fn entries_symlink_quebrado_para_a_fonte_ainda_e_ligado_e_nao_segue_nada() {
+        // Só o texto do alvo conta: a fonte pode nem ter o arquivo (ligado por engano) e o link vale.
+        use nodus_core::snapshot::DotfileState::Linked;
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("fonte");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        symlink(dir.join(".bashrc"), home.join(".bashrc")).unwrap();
+        let entradas = dotfile_entries(&home, &dir, &lista(&[".bashrc"])).unwrap();
+        assert_eq!(entradas[0].state, Linked);
+    }
+
+    #[test]
+    fn entries_recusa_caminho_da_denylist_mesmo_vindo_de_fora_do_config() {
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("fonte");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        for ruim in [
+            ".ssh/id_rsa",
+            ".gnupg/x",
+            ".config/gh/hosts.yml",
+            "../x",
+            "/etc/passwd",
+        ] {
+            let erro = format!(
+                "{:#}",
+                dotfile_entries(&home, &dir, &lista(&[".bashrc", ruim])).unwrap_err()
+            );
+            assert!(erro.contains(ruim), "{ruim}: {erro}");
+        }
+    }
+
+    #[test]
+    fn entries_nao_abre_o_arquivo() {
+        use nodus_core::snapshot::DotfileState::File;
+        let tmp = TmpDir::novo();
+        let home = tmp.path().join("home");
+        let dir = tmp.path().join("fonte");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(home.join(".bashrc"), "segredo").unwrap();
+        fs::set_permissions(home.join(".bashrc"), fs::Permissions::from_mode(0o000)).unwrap();
+        let entradas = dotfile_entries(&home, &dir, &lista(&[".bashrc"])).unwrap();
+        assert_eq!(entradas[0].state, File);
+    }
 
     #[test]
     fn home_precisa_ser_absoluto_e_o_erro_diz_a_variavel() {

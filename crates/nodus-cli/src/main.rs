@@ -758,6 +758,9 @@ fn default_snapshot_name() -> Result<String> {
 }
 
 fn snapshot_command(name: Option<String>) -> Result<()> {
+    // O HOME e a pasta-fonte vêm antes de qualquer programa externo: sem HOME o snapshot erra, em
+    // vez de gravar `dotfiles: false` em silêncio.
+    let home = dotfiles::home_dir(std::env::var("HOME").ok().as_deref())?;
     let dir = dotfiles_source_dir()?;
     let name = match name {
         Some(name) => name,
@@ -765,10 +768,13 @@ fn snapshot_command(name: Option<String>) -> Result<()> {
     };
     // Falha antes de rodar qualquer programa externo.
     nodus_core::snapshot::validate_name(&name)?;
+    let config = config::read(&config_file()?)?;
+    let list = nodus_core::dotfiles::effective_list(&config.dotfiles_extra, &config.dotfiles_skip);
+    let entries = dotfiles::dotfile_entries(&home, &dir, &list)?;
     let os_release = std::fs::read_to_string("/etc/os-release").context("lendo /etc/os-release")?;
     let os = nodus_core::inventory::parse_os_release(&os_release)?;
     let machine = nodus_core::preset::preset_from_machine(&process::RealRunner)?;
-    let snapshot = nodus_core::snapshot::build(&name, &os, &machine)?;
+    let snapshot = nodus_core::snapshot::build(&name, &os, &machine)?.with_dotfiles(entries)?;
     let path = snapshot::write(&dir, &snapshot)?;
     emit(&format!(
         "Snapshot gravado em {}\nO commit e o push são seus: o nodus não roda git.\n",

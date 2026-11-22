@@ -2,13 +2,13 @@
 
 use crate::snapshot::Unreadable;
 use crate::workspace::{Report, Source};
-use nodus_core::compare::{Comparison, ListComparison};
+use nodus_core::compare::{Comparison, DotfilesComparison, ListComparison};
 use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
 use nodus_core::preset::{Plan, Preset, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
-use nodus_core::snapshot::SnapshotOs;
+use nodus_core::snapshot::{DotfileState, SnapshotOs};
 use nodus_core::status::{MachineStatus, StatusList};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
@@ -410,6 +410,7 @@ pub fn render_comparison(comparison: &Comparison) -> String {
     }
     comparison_section(&mut out, "Pacman", comparison, &comparison.pacman);
     comparison_section(&mut out, "Flatpak", comparison, &comparison.flatpak);
+    dotfiles_section(&mut out, comparison);
     if !comparison.has_differences() {
         out.push_str(if comparison.has_not_comparable() {
             "Sem divergências nas listas comparadas.\n"
@@ -418,6 +419,57 @@ pub fn render_comparison(comparison: &Comparison) -> String {
         });
     }
     out
+}
+
+fn dotfile_state_label(state: Option<DotfileState>) -> &'static str {
+    match state {
+        Some(DotfileState::Linked) => "ligado",
+        Some(DotfileState::File) => "arquivo",
+        Some(DotfileState::Missing) => "ausente",
+        Some(DotfileState::Other) => "outro",
+        None => "fora da lista",
+    }
+}
+
+/// Dotfiles do `compare`: sem seção quando as duas olharam e nenhuma lista tem caminho; "não
+/// comparável" cita quem não olhou (snapshot v1) e como resolver. O caminho vem de um arquivo de
+/// outra máquina: nada de byte de controle na tela.
+fn dotfiles_section(out: &mut String, comparison: &Comparison) {
+    match &comparison.dotfiles {
+        DotfilesComparison::Compared { differ, same } => {
+            if differ.is_empty() && *same == 0 {
+                return;
+            }
+            let _ = writeln!(out, "Dotfiles: {same} em comum");
+            if differ.is_empty() {
+                return;
+            }
+            let _ = writeln!(out, "  diferem ({}):", differ.len());
+            for diff in differ {
+                let _ = writeln!(
+                    out,
+                    "    {}: {} {}, {} {}",
+                    plain(&diff.path),
+                    comparison.a,
+                    dotfile_state_label(diff.a),
+                    comparison.b,
+                    dotfile_state_label(diff.b)
+                );
+            }
+        }
+        DotfilesComparison::NotComparable { lacks } => {
+            let verb = if lacks.len() == 1 {
+                "não registrou"
+            } else {
+                "não registraram"
+            };
+            let _ = writeln!(
+                out,
+                "Dotfiles: não comparável, {} {verb} dotfiles (snapshot v1; rode `nodusctl snapshot` de novo)",
+                lacks.join(" e ")
+            );
+        }
+    }
 }
 
 /// O snapshot guarda `pacman -Qe`: "ausente" inclui o que veio só como dependência.
@@ -1495,7 +1547,133 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
             },
             flatpak_installed: flatpak.is_some(),
         };
-        nodus_core::snapshot::build(label, &os, &machine).unwrap()
+        // As máquinas "olharam" os dotfiles (lista vazia): uma seção de dotfiles sem itens não sai.
+        nodus_core::snapshot::build(label, &os, &machine)
+            .unwrap()
+            .with_dotfiles(vec![])
+            .unwrap()
+    }
+
+    fn com_dotfiles(
+        snapshot: nodus_core::snapshot::Snapshot,
+        estados: &[(&str, nodus_core::snapshot::DotfileState)],
+    ) -> nodus_core::snapshot::Snapshot {
+        let entradas = estados
+            .iter()
+            .map(|(path, state)| nodus_core::snapshot::DotfileEntry {
+                path: (*path).into(),
+                state: *state,
+            })
+            .collect();
+        snapshot.with_dotfiles(entradas).unwrap()
+    }
+
+    fn snapshot_v1(label: &str) -> nodus_core::snapshot::Snapshot {
+        nodus_core::snapshot::parse(&format!(
+            "{{\"version\": 1, \"name\": \"{label}\", \"os\": {{\"name\": \"Arch Linux\", \"version\": null}}, \
+             \"capabilities\": {{\"pacman\": true, \"flatpak\": true}}, \"pacman\": [\"base\"], \"flatpak\": []}}"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn compare_com_dotfiles_iguais_mostra_quantos_em_comum() {
+        use nodus_core::snapshot::DotfileState::{Linked, Missing};
+        let a = com_dotfiles(
+            snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[])),
+            &[(".bashrc", Linked), (".vimrc", Missing)],
+        );
+        let b = com_dotfiles(
+            snapshot_de("pc-b", "Arch Linux", &["base"], Some(&[])),
+            &[(".bashrc", Linked), (".vimrc", Missing)],
+        );
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 1 em comum
+Flatpak: 0 em comum
+Dotfiles: 2 em comum
+Sem divergências.
+";
+        assert_eq!(
+            render_comparison(&nodus_core::compare::compare(&a, &b)),
+            esperado
+        );
+    }
+
+    #[test]
+    fn compare_com_dotfiles_diferentes_lista_cada_caminho_com_os_dois_estados() {
+        use nodus_core::snapshot::DotfileState::{File, Linked, Missing, Other};
+        let a = com_dotfiles(
+            snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[])),
+            &[
+                (".bashrc", Linked),
+                (".gitconfig", File),
+                (".vimrc", Other),
+                (".zshrc", File),
+            ],
+        );
+        let b = com_dotfiles(
+            snapshot_de("pc-b", "Arch Linux", &["base"], Some(&[])),
+            &[(".bashrc", File), (".gitconfig", File), (".vimrc", Missing)],
+        );
+        let esperado = "\
+Comparando pc-a com pc-b (só leitura):
+Pacman: 1 em comum
+Flatpak: 0 em comum
+Dotfiles: 1 em comum
+  diferem (3):
+    .bashrc: pc-a ligado, pc-b arquivo
+    .vimrc: pc-a outro, pc-b ausente
+    .zshrc: pc-a arquivo, pc-b fora da lista
+";
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        assert_eq!(texto, esperado);
+        assert!(!texto.contains("Sem divergências"), "{texto}");
+    }
+
+    #[test]
+    fn compare_com_v1_de_um_lado_diz_que_dotfiles_nao_sao_comparaveis_e_como_resolver() {
+        use nodus_core::snapshot::DotfileState::Linked;
+        let antigo = snapshot_v1("antigo");
+        let novo = com_dotfiles(
+            snapshot_de("novo", "Arch Linux", &["base"], Some(&[])),
+            &[(".bashrc", Linked)],
+        );
+        let texto = render_comparison(&nodus_core::compare::compare(&antigo, &novo));
+        assert!(
+            texto.contains("Dotfiles: não comparável, antigo não registrou dotfiles (snapshot v1; rode `nodusctl snapshot` de novo)\n"),
+            "{texto}"
+        );
+        assert!(
+            texto.ends_with("Sem divergências nas listas comparadas.\n"),
+            "{texto}"
+        );
+    }
+
+    #[test]
+    fn compare_com_v1_dos_dois_lados_cita_os_dois() {
+        let texto = render_comparison(&nodus_core::compare::compare(
+            &snapshot_v1("pc-a"),
+            &snapshot_v1("pc-b"),
+        ));
+        assert!(
+            texto.contains("Dotfiles: não comparável, pc-a e pc-b não registraram dotfiles (snapshot v1; rode `nodusctl snapshot` de novo)\n"),
+            "{texto}"
+        );
+    }
+
+    #[test]
+    fn compare_nao_escapa_caminho_de_dotfile_hostil() {
+        // O caminho é validado na leitura; ainda assim, nada de byte de controle na saída.
+        use nodus_core::snapshot::DotfileState::File;
+        let mut a = com_dotfiles(
+            snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[])),
+            &[(".bashrc", File)],
+        );
+        a.dotfiles[0].path = ".bashrc\x1b[31m".into();
+        let b = snapshot_de("pc-b", "Arch Linux", &["base"], Some(&[]));
+        let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
+        assert!(!texto.contains('\x1b'), "{texto:?}");
     }
 
     #[test]
