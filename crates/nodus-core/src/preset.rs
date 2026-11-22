@@ -43,6 +43,14 @@ pub enum PresetError {
         list: &'static str,
         name: String,
     },
+    #[error(
+        "`{list}` da máquina {machine:?} cita {name:?}, que já está na lista principal do preset"
+    )]
+    AddAlreadyInPreset {
+        machine: String,
+        list: &'static str,
+        name: String,
+    },
     #[error("não consegui acrescentar ao preset sem alterar o resto: {0}")]
     Edit(String),
 }
@@ -94,7 +102,8 @@ struct RawPreset {
     machines: BTreeMap<String, RawMachine>,
 }
 
-/// `[machines.<rótulo>]`: o que o preset compartilhado não vale para aquela máquina.
+/// `[machines.<rótulo>]`: o que o preset compartilhado não vale para aquela máquina (`skip_*`) e o
+/// que só ela quer a mais (`add_*`).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawMachine {
@@ -102,19 +111,29 @@ struct RawMachine {
     skip_pacman: Vec<String>,
     #[serde(default)]
     skip_flatpak: Vec<String>,
+    #[serde(default)]
+    add_pacman: Vec<String>,
+    #[serde(default)]
+    add_flatpak: Vec<String>,
 }
 
-/// O que uma máquina pula do preset compartilhado.
+/// Itens por gerenciador: o que uma máquina pula ou acrescenta.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Skipped {
+pub struct Items {
     pub pacman: Vec<String>,
     pub flatpak: Vec<String>,
 }
 
-impl Skipped {
+impl Items {
     pub fn is_empty(&self) -> bool {
         self.pacman.is_empty() && self.flatpak.is_empty()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MachineChanges {
+    skip: Items,
+    add: Items,
 }
 
 /// O preset como está no arquivo: as listas compartilhadas mais as exceções por máquina.
@@ -123,7 +142,7 @@ impl Skipped {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresetFile {
     pub preset: Preset,
-    machines: BTreeMap<String, Skipped>,
+    machines: BTreeMap<String, MachineChanges>,
 }
 
 impl PresetFile {
@@ -132,23 +151,36 @@ impl PresetFile {
     }
 
     /// O que a máquina `label` pula (vazio se não há tabela para ela; o rótulo é comparado inteiro).
-    pub fn skipped(&self, label: &str) -> Skipped {
-        self.machines.get(label).cloned().unwrap_or_default()
+    pub fn skipped(&self, label: &str) -> Items {
+        self.machines
+            .get(label)
+            .map(|changes| changes.skip.clone())
+            .unwrap_or_default()
     }
 
-    /// O preset sem os itens que a máquina `label` pula, na ordem original.
+    /// O que a máquina `label` acrescenta (vazio se não há tabela para ela).
+    pub fn added(&self, label: &str) -> Items {
+        self.machines
+            .get(label)
+            .map(|changes| changes.add.clone())
+            .unwrap_or_default()
+    }
+
+    /// O preset da máquina `label`: a lista principal sem o que ela pula, seguida do que ela
+    /// acrescenta (o parse garante que nenhum acrescentado já está na lista principal).
     pub fn for_machine(&self, label: &str) -> Preset {
-        let skipped = self.skipped(label);
-        let keep = |names: &[String], skip: &[String]| -> Vec<String> {
+        let (skipped, added) = (self.skipped(label), self.added(label));
+        let effective = |names: &[String], skip: &[String], add: &[String]| -> Vec<String> {
             names
                 .iter()
                 .filter(|name| !skip.contains(name))
+                .chain(add)
                 .cloned()
                 .collect()
         };
         Preset {
-            pacman: keep(&self.preset.pacman, &skipped.pacman),
-            flatpak: keep(&self.preset.flatpak, &skipped.flatpak),
+            pacman: effective(&self.preset.pacman, &skipped.pacman, &added.pacman),
+            flatpak: effective(&self.preset.flatpak, &skipped.flatpak, &added.flatpak),
         }
     }
 }
@@ -171,6 +203,8 @@ pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
             .map_err(|_| PresetError::InvalidMachineLabel(label.clone()))?;
         validate("skip_pacman", &machine.skip_pacman, is_valid_pacman_name)?;
         validate("skip_flatpak", &machine.skip_flatpak, is_valid_flatpak_id)?;
+        validate("add_pacman", &machine.add_pacman, is_valid_pacman_name)?;
+        validate("add_flatpak", &machine.add_flatpak, is_valid_flatpak_id)?;
         // Um pulo que não bate com nenhum item é quase sempre typo: erro, não "não faz nada".
         for (list, skip, shared) in [
             ("skip_pacman", &machine.skip_pacman, &raw.pacman),
@@ -184,11 +218,31 @@ pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
                 });
             }
         }
+        // Acrescentar o que já está na lista principal é redundância ou engano (inclusive pular e
+        // acrescentar o mesmo item): erro, para o efetivo ter uma só leitura possível.
+        for (list, add, shared) in [
+            ("add_pacman", &machine.add_pacman, &raw.pacman),
+            ("add_flatpak", &machine.add_flatpak, &raw.flatpak),
+        ] {
+            if let Some(name) = add.iter().find(|name| shared.contains(name)) {
+                return Err(PresetError::AddAlreadyInPreset {
+                    machine: label,
+                    list,
+                    name: name.clone(),
+                });
+            }
+        }
         machines.insert(
             label,
-            Skipped {
-                pacman: machine.skip_pacman,
-                flatpak: machine.skip_flatpak,
+            MachineChanges {
+                skip: Items {
+                    pacman: machine.skip_pacman,
+                    flatpak: machine.skip_flatpak,
+                },
+                add: Items {
+                    pacman: machine.add_pacman,
+                    flatpak: machine.add_flatpak,
+                },
             },
         );
     }

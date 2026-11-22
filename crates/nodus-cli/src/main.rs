@@ -79,7 +79,7 @@ fn main() -> Result<()> {
                 machine,
             } => preset_suggest(&file, json, all, machine.as_deref()),
             PresetAction::Status { file, labels, json } => preset_status(&file, &labels, json),
-            PresetAction::Adopt { file } => preset_adopt(&file),
+            PresetAction::Adopt { file, machine } => preset_adopt(&file, machine.as_deref()),
             PresetAction::Ignored => preset_ignored(),
             PresetAction::Unignore { names } => preset_unignore(&names),
             PresetAction::Apply {
@@ -97,17 +97,27 @@ fn read_and_parse_file(file: &std::path::Path) -> Result<nodus_core::preset::Pre
         .with_context(|| format!("lendo {}", file.display()))
 }
 
-/// O preset desta máquina: sem as exceções de `[machines.<rótulo>]`. O rótulo é o de `--machine`
-/// (validado sempre) ou, só se o arquivo tem tabelas, o hostname; sem tabelas o hostname nem é
-/// lido. Devolve também o que foi pulado, para o plano dizer.
+/// O que `[machines.<rótulo>]` fez no preset desta máquina, para o plano dizer.
+struct MachineNotes {
+    label: String,
+    skipped: nodus_core::preset::Items,
+    added: nodus_core::preset::Items,
+}
+
 fn read_for_machine(
     file: &std::path::Path,
     machine: Option<&str>,
-) -> Result<(
-    nodus_core::preset::Preset,
-    Option<(String, nodus_core::preset::Skipped)>,
-)> {
-    let parsed = read_and_parse_file(file)?;
+) -> Result<(nodus_core::preset::Preset, Option<MachineNotes>)> {
+    resolve_for_machine(&read_and_parse_file(file)?, machine)
+}
+
+/// O preset desta máquina: sem o que `[machines.<rótulo>]` pula e com o que acrescenta. O rótulo é
+/// o de `--machine` (validado sempre) ou, só se o arquivo tem tabelas, o hostname; sem tabelas o
+/// hostname nem é lido.
+fn resolve_for_machine(
+    parsed: &nodus_core::preset::PresetFile,
+    machine: Option<&str>,
+) -> Result<(nodus_core::preset::Preset, Option<MachineNotes>)> {
     let label = match machine {
         Some(label) => {
             nodus_core::snapshot::validate_name(label)?;
@@ -121,17 +131,26 @@ fn read_for_machine(
     };
     Ok(match label {
         Some(label) => {
-            let skipped = parsed.skipped(&label);
-            (parsed.for_machine(&label), Some((label, skipped)))
+            let preset = parsed.for_machine(&label);
+            let notes = MachineNotes {
+                skipped: parsed.skipped(&label),
+                added: parsed.added(&label),
+                label,
+            };
+            (preset, Some(notes))
         }
-        None => (parsed.preset, None),
+        None => (parsed.preset.clone(), None),
     })
 }
 
-/// Avisa o que esta máquina pulou do preset (nada se não pulou nada).
-fn emit_machine_skips(skips: Option<&(String, nodus_core::preset::Skipped)>) -> Result<()> {
-    if let Some((label, skipped)) = skips {
-        emit(&render::render_skipped_machine(label, skipped))?;
+/// Avisa o que esta máquina pulou e acrescentou (nada se não mexeu em nada).
+fn emit_machine_notes(notes: Option<&MachineNotes>) -> Result<()> {
+    if let Some(notes) = notes {
+        emit(&render::render_machine_changes(
+            &notes.label,
+            &notes.skipped,
+            &notes.added,
+        ))?;
     }
     Ok(())
 }
@@ -299,9 +318,9 @@ fn history_undo(n: u32) -> Result<()> {
 fn preset_apply(file: &std::path::Path, skip_flatpak: bool, machine: Option<&str>) -> Result<()> {
     use std::io::IsTerminal;
     let history_path = history_file()?;
-    let (preset, skips) = read_for_machine(file, machine)?;
+    let (preset, notes) = read_for_machine(file, machine)?;
     let mut plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
-    emit_machine_skips(skips.as_ref())?;
+    emit_machine_notes(notes.as_ref())?;
     if skip_flatpak {
         let (without, skipped) = apply::without_flatpak(&plan);
         plan = without;
@@ -364,12 +383,12 @@ fn preset_init() -> Result<()> {
 }
 
 fn preset_plan(file: &std::path::Path, json: bool, machine: Option<&str>) -> Result<()> {
-    let (preset, skips) = read_for_machine(file, machine)?;
+    let (preset, notes) = read_for_machine(file, machine)?;
     let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
     if json {
         emit(&format!("{}\n", serde_json::to_string_pretty(&plan)?))?;
     } else {
-        emit_machine_skips(skips.as_ref())?;
+        emit_machine_notes(notes.as_ref())?;
         emit(&render::render_plan(&plan))?;
     }
     Ok(())
@@ -448,12 +467,27 @@ fn preset_unignore(names: &[String]) -> Result<()> {
     ))
 }
 
-fn preset_adopt(file: &std::path::Path) -> Result<()> {
+fn preset_adopt(file: &std::path::Path, machine: Option<&str>) -> Result<()> {
     use std::io::IsTerminal;
     let old_text = preset_file::read_preset(file)?;
-    let preset = nodus_core::preset::parse_preset(&old_text)
+    let parsed = nodus_core::preset::parse_preset_file(&old_text)
         .with_context(|| format!("lendo {}", file.display()))?;
-    let suggestions = nodus_core::preset::collect_suggestions(&process::RealRunner, &preset)?;
+    let (effective, _) = resolve_for_machine(&parsed, machine)?;
+    let mut suggestions =
+        nodus_core::preset::collect_suggestions(&process::RealRunner, &effective)?;
+    // O que adotar vai para as listas compartilhadas. Um item que já está lá (mas esta máquina
+    // pula) ficaria de fora do efetivo e seria oferecido, e `add_to_preset` o ignoraria: o
+    // relatório diria "adotado" sem ter gravado nada.
+    let known = &parsed.preset;
+    suggestions
+        .pacman_extra
+        .retain(|name| !known.pacman.contains(name));
+    suggestions
+        .foreign_extra
+        .retain(|name| !known.pacman.contains(name));
+    suggestions
+        .flatpak_extra
+        .retain(|name| !known.flatpak.contains(name));
     // O que foi ignorado antes não é perguntado de novo.
     let config_path = config_file()?;
     let config = config::read(&config_path)?;

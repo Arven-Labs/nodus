@@ -164,6 +164,11 @@ pub enum PresetAction {
     Adopt {
         /// Arquivo TOML do preset (é editado no lugar; se for um symlink, grava no alvo).
         file: PathBuf,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset: o que ela
+        /// acrescenta não é oferecido. Sem ele, usa o hostname (só se o preset tem `[machines]`).
+        /// O que for adotado entra sempre nas listas compartilhadas.
+        #[arg(long)]
+        machine: Option<String>,
     },
     /// Lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para
     /// colar nele (não executa nem escreve nada). Os itens ignorados ficam de fora e são contados.
