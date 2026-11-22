@@ -2,6 +2,12 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 36, ADR 0032: formato do snapshot (docs)
+
+- **Pedido**: o dono aprovou criar o ADR 0032 que a Sessão 35 deixou pendente.
+- **Feito**: `adr/0032-formato-do-snapshot.md` (conteúdo mínimo, determinismo, capacidades explícitas, rótulo, leitura estrita e versionada, local, gravação segura, alternativas descartadas e lacunas). O `Estado` do ADR 0031 e a linha da Fase 2 no `ROADMAP.md` estavam velhos ("nada implementado") e foram corrigidos. Nenhum código.
+- **Não verificado**: o que o ADR afirma do código foi conferido só contra o que a Sessão 35 escreveu e o CI verde; o `nodusctl snapshot` no Arch real continua sem rodar.
+
 ### 2026-11-22 — Sessão 35, `nodusctl snapshot` (Fase 2, fatia 1, PR #122)
 
 - **Pedido**: o dono quis seguir com código e escolheu a Fase 2 no recorte do ADR 0031. Plan mode; escolhas dele: conteúdo = resumo do preset + capacidades; local = dentro da pasta-fonte dos dotfiles; fatia = só gravar (o `compare` fica para a fatia 2, depois de ver um snapshot real). Assumi, com o "sim" do dono: rótulo padrão = hostname; regravar substitui sem `[s/N]`.

@@ -1,7 +1,7 @@
 # 0031: Fase 2 começa por snapshot e compare por git, sem Core
 
 **Data:** 2026-11-21
-**Estado:** decidido; **nada implementado** (o dono não quer implementar agora).
+**Estado:** decidido. Em 2026-11-22 o dono passou a implementar: a fatia 1 (`nodusctl snapshot`) está mesclada (ADR 0032, PR #122); o `compare` (fatia 2) segue sem plano. O item 4 abaixo descreve o estado de 2026-11-21.
 
 ## Contexto
 O `ROADMAP.md` descreve a Fase 2 como "Windows (WinGet), Core central, multi-device, tarefas remotas com aprovação": quatro frentes. A dor concreta vem do `SPEC.md` §16 (critérios multi-device): dois computadores, o mesmo preset nos dois, mudanças sincronizadas, divergências e falhas visíveis, operação local sem o Core. A pesquisa de reuso do workspace (2026-11-13) deixou em aberto se o nodus orquestra ferramentas prontas (osquery, Ansible, MeshCentral, Headscale) ou reimplementa. O Core remoto está fora do modelo de ameaças (`SECURITY.md` §8) e é área de risco (AGENTS §4): autenticação, enrollment, credenciais. O SPEC §15 diz para não construir solução empresarial antes de validar o uso pessoal e multi-device.
