@@ -176,7 +176,10 @@ pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
             ("skip_pacman", &machine.skip_pacman, &raw.pacman),
             ("skip_flatpak", &machine.skip_flatpak, &raw.flatpak),
         ] {
-            if let Some(name) = skip.iter().find(|name| !shared.contains(name) && shared.is_empty()) {
+            if let Some(name) = skip
+                .iter()
+                .find(|name| !shared.contains(name) && shared.is_empty())
+            {
                 return Err(PresetError::SkipNotInPreset {
                     machine: label,
                     list,
