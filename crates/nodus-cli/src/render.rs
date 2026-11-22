@@ -472,6 +472,33 @@ fn dotfiles_section(out: &mut String, comparison: &Comparison) {
     }
 }
 
+/// `compare --all`: um bloco por par, separados por uma linha em branco, e os snapshots ilegíveis
+/// no fim. Com menos de dois legíveis não há par: diz quantos há (não é erro).
+pub fn render_all_comparisons(
+    readable: usize,
+    comparisons: &[Comparison],
+    unreadable: &[Unreadable],
+) -> String {
+    let mut out = if comparisons.is_empty() {
+        format!("Preciso de pelo menos dois snapshots legíveis para comparar (há {readable}).\n")
+    } else {
+        comparisons
+            .iter()
+            .map(render_comparison)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    for bad in unreadable {
+        let _ = writeln!(
+            out,
+            "Aviso: não consegui ler o snapshot {}: {}",
+            plain(&bad.label),
+            plain(&bad.reason)
+        );
+    }
+    out
+}
+
 /// O snapshot guarda `pacman -Qe`: "ausente" inclui o que veio só como dependência.
 const STATUS_NOTE: &str = "Nota: \"não instalado de propósito\" inclui o que veio só como dependência; o snapshot guarda `pacman -Qe`.\n";
 

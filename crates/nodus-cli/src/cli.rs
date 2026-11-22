@@ -35,12 +35,23 @@ pub enum Command {
     /// Compara dois snapshots gravados pelo `snapshot` (em `<dotfiles_dir>/.nodus/snapshots/`) e
     /// mostra o que só existe em cada máquina, por lista. Só lê arquivos (somente leitura). Uma
     /// máquina sem Flatpak não é acusada de "faltar apps": a lista fica "não comparável". Divergir
-    /// não é erro (código 0); arquivo ausente, versão desconhecida ou symlink são.
+    /// não é erro (código 0); arquivo ausente, versão desconhecida ou symlink são. Com `--all`, em
+    /// vez de dois rótulos, compara todos os pares de snapshots legíveis (em ordem de rótulo); um
+    /// snapshot ilegível vira aviso, e com menos de dois legíveis não há o que comparar (não é erro).
     Compare {
         /// Rótulo da primeira máquina (o nome do arquivo, sem `.json`).
-        a: String,
+        #[arg(
+            required_unless_present = "all",
+            requires = "b",
+            conflicts_with = "all"
+        )]
+        a: Option<String>,
         /// Rótulo da segunda máquina.
-        b: String,
+        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        b: Option<String>,
+        /// Compara todos os pares de snapshots em vez de dois rótulos.
+        #[arg(long)]
+        all: bool,
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
