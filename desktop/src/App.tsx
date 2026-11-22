@@ -191,6 +191,18 @@ function DotfilesScreen({ onRefresh }: { onRefresh: () => void }) {
         <p data-testid="dotfiles-vazio">Nenhum dotfile na lista.</p>
       ) : (
         <>
+          {/* O lote só tem o que ligar se a CLI listou alguma entrada ausente. Quem decide o que entra e o que é pulado é a CLI, no
+              terminal (plano e `[s/N]`); a tela não manda caminho nenhum. */}
+          {present < entries.length && (
+            <TerminalAction
+              prefix="dotfiles-ligar-todos"
+              buttonId="dotfiles-ligar-todos"
+              label="Ligar todos no terminal"
+              confirmWhat="a ligação"
+              run={() => runAction("dotfiles_link_all")}
+              onRefresh={onRefresh}
+            />
+          )}
           <ul data-testid="dotfiles-list" className="repos">
             {entries.map((entry, i) => (
               <li key={i} data-testid="dotfile">

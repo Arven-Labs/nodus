@@ -41,6 +41,9 @@ pub enum Action {
     /// e só chega aqui depois de `run` conferir que é uma entrada `missing` de `nodusctl dotfiles --json` (ADR 0028). A GUI não vê a
     /// pasta-fonte: se o arquivo não estiver lá, a CLI recusa no terminal. A CLI mostra o plano e **pergunta** `[s/N]`.
     DotfilesLink(String),
+    /// `nodusctl dotfiles link --all`: o lote da lista curada (ADR 0030). Sem argumento vindo da tela: quem decide o que entra no
+    /// lote é a CLI, que mostra um plano, pula o que não dá e **pergunta** `[s/N]` no terminal. Escrita sem root, sem preset.
+    DotfilesLinkAll,
     /// `nodusctl preset unignore -- <nome>`: tira um nome da lista de ignorados do `config.toml` (escrita sem root). O nome vem da
     /// tela e só chega aqui depois de `run` conferir que é um item de `ignored` de `nodusctl preset suggest --json`, relido agora
     /// (ADR 0028). Usa `NODUS_PRESET` só para essa leitura. A CLI **não pergunta** nada; é reversível (`preset adopt` com `i`).
@@ -56,7 +59,7 @@ impl Action {
             "dotfiles_adopt" => Ok(Self::DotfilesAdopt(path)),
             "dotfiles_link" => Ok(Self::DotfilesLink(path)),
             "preset_unignore" => Ok(Self::PresetUnignore(path)),
-            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" => {
+            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" | "dotfiles_link_all" => {
                 Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -70,9 +73,10 @@ impl Action {
             ("preset_apply", None) => Ok(Self::PresetApply),
             ("preset_adopt", None) => Ok(Self::PresetAdopt),
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
+            ("dotfiles_link_all", None) => Ok(Self::DotfilesLinkAll),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
             // `workspace_set` sem caminho (ou com `n`): a ação não existe sem o caminho, que entra por `parse_path`.
-            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "preset_unignore" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "dotfiles_link_all" | "preset_unignore" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -90,6 +94,7 @@ impl Action {
             Self::WorkspaceSet(path) => vec!["workspace".into(), "set".into(), "--".into(), path.clone()],
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
             Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
+            Self::DotfilesLinkAll => vec!["dotfiles".into(), "link".into(), "--all".into()],
             Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), "--".into(), name.clone()],
         }
     }
@@ -264,6 +269,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         | Action::WorkspaceSet(_)
         | Action::DotfilesAdopt(_)
         | Action::DotfilesLink(_)
+        | Action::DotfilesLinkAll
         | Action::PresetUnignore(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
@@ -1303,6 +1309,86 @@ mod tests {
             let saida = chamar_path("dotfiles_link", ".vimrc", env(&bin, preset, Some(&term), None)).unwrap();
             assert!(saida.launched, "{preset:?}");
         }
+    }
+
+    // --- dotfiles link --all: o lote da lista curada. Sem argumento vindo da tela (nada de caminho, nada de `n`), sem preset ---
+
+    #[test]
+    fn dotfiles_link_all_e_uma_acao_da_lista_sem_argumento_nenhum() {
+        assert_eq!(Action::parse("dotfiles_link_all", None), Ok(Action::DotfilesLinkAll));
+        assert_eq!(Action::DotfilesLinkAll.args(), vec!["dotfiles", "link", "--all"]);
+        // Argumento que a ação não definiu é recusado, não ignorado: nem número, nem caminho.
+        assert_eq!(Action::parse("dotfiles_link_all", Some(1)).unwrap_err().kind, "invalid_argument");
+        assert_eq!(Action::parse_path("dotfiles_link_all", ".vimrc".into()).unwrap_err().kind, "invalid_argument");
+        // Só o nome exato entra; e o nome do lote não abre a porta da leitura.
+        for nome in ["dotfiles link --all", "Dotfiles_link_all", "dotfiles_link_all ", "dotfiles_linkall", "dotfiles_link_alls", "dotfiles_unlink_all"] {
+            assert_eq!(Action::parse(nome, None).unwrap_err().kind, "not_allowed", "{nome:?}");
+        }
+        assert_eq!(crate::nodusctl::Allowed::parse("dotfiles_link_all"), None, "ação não pode entrar pela porta da leitura");
+    }
+
+    #[test]
+    fn dotfiles_link_all_lanca_o_terminal_com_o_argv_exato() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let saida = chamar("dotfiles_link_all", env(&bin, None, Some(&term), None)).unwrap();
+        assert!(saida.launched);
+        assert_eq!(
+            argumentos_do_terminal(&dir),
+            ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "dotfiles", "link", "--all"]
+        );
+        assert_eq!(saida.command, format!("{} dotfiles link --all", bin.display()));
+        assert_eq!(chamadas(&dir), ["--version"], "a GUI só confere a versão; o plano e o `[s/N]` são da CLI, no terminal");
+    }
+
+    #[test]
+    fn dotfiles_link_all_com_n_ou_caminho_soltos_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        let erro = run("dotfiles_link_all", Some(1), None, env(&bin, None, Some(&term), None), GUI).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        let erro = run("dotfiles_link_all", None, Some(".vimrc".into()), env(&bin, None, Some(&term), None), GUI).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        drop(_guard);
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn dotfiles_link_all_nao_precisa_nem_le_o_preset() {
+        for preset in [None, Some("relativo.toml"), Some(""), Some("/tmp/p.toml")] {
+            let dir = pasta();
+            let bin = nodusctl_falso(&dir, "0.1.4");
+            let term = terminal_que_grava(&dir);
+            let saida = chamar("dotfiles_link_all", env(&bin, preset, Some(&term), None)).unwrap();
+            assert!(saida.launched, "{preset:?}");
+            assert_eq!(argumentos_do_terminal(&dir)[5..], [bin.to_str().unwrap(), "dotfiles", "link", "--all"]);
+        }
+    }
+
+    #[test]
+    fn dotfiles_link_all_segue_as_mesmas_regras_de_terminal_versao_e_fallback() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.2.0");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar("dotfiles_link_all", env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch");
+        nada_lancado(&dir);
+
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let erro = chamar("dotfiles_link_all", env(&bin, None, Some(Path::new("/bin/sh")), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_terminal");
+        assert!(chamadas(&dir).is_empty());
+
+        let vazio = pasta();
+        let saida = chamar("dotfiles_link_all", env(&bin, None, None, Some(&vazio))).unwrap();
+        assert!(!saida.launched);
+        assert_eq!(saida.command, format!("{} dotfiles link --all", bin.display()));
+        nada_lancado(&dir);
     }
 
     // --- preset adopt: escrita sem root (acrescenta ao preset e ao config), mesmo mecanismo, sem argumento vindo da tela ---

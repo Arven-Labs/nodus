@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 34, "Ligar todos no terminal" na GUI (PR #120)
+
+- **Pedido**: o dono quis código e pediu a Fase 2; ao ver a tarefa de acabamento da GUI, trocou de rumo e escolheu o botão do `dotfiles link --all` (ADR 0030), que a GUI ainda não tinha. A Fase 2 (ADR 0031) segue sem implementação. Plan mode; plano aprovado.
+- **Feito**: ação `dotfiles_link_all` (`Action::DotfilesLinkAll`, argv `dotfiles link --all`, sem argumento da tela, sem preset) em `desktop/src-tauri/src/actions.rs`; botão "Ligar todos no terminal" na aba Dotfiles, visível só com ao menos uma entrada `missing` (`desktop/src/App.tsx`, `lib/backend.ts`). Mesmo mecanismo do ADR 0027: a GUI só abre o terminal; plano, pulados e `[s/N]` são da CLI.
+- **Testes**: primeiro, com CI vermelho pelo motivo certo (Rust: `DotfilesLinkAll` inexistente; e2e: 9 de 11 falharam por falta do botão; os 2 que passavam são guardas negativas). Depois CI verde (CI, CI Desktop, CI Private Files). Mutações numa branch descartável (apagada): `--all` trocado por `--yes` e recusa de caminho removida derrubaram os 5 testes Rust novos; botão sempre visível derrubou 2 e2e. A mutação "aceitar `n`" foi barrada pelo compilador (`unreachable pattern`), não por teste.
+- **Não verificado**: o botão na janela real e o terminal abrindo no PC do dono (a verificação à mão é dele); `desktop/src-tauri` já tinha diferenças de `rustfmt` anteriores (o passo de `fmt` do CI só cobre a raiz), não mexi.
+- **Nota de processo**: o primeiro commit saiu com `Signed-off-by` (`git commit -s`) sem o repo exigir DCO e sem autorização do dono.
+
 ### 2026-11-21 — Sessão 33, passo `cargo fmt --check` no CI (§4: CI)
 
 - **Pedido**: a sugestão da Sessão 32, aprovada pelo dono: o CI barrar a deriva de formato.
