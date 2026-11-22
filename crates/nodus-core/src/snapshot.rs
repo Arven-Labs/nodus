@@ -69,7 +69,7 @@ pub fn validate_name(name: &str) -> Result<(), SnapshotError> {
         .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
     let rest_ok = name
         .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'));
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-' | '/'));
     if first_ok && rest_ok && name.len() <= MAX_NAME_LEN {
         Ok(())
     } else {
@@ -82,6 +82,7 @@ pub fn build(name: &str, os: &OsInfo, machine: &MachinePreset) -> Result<Snapsho
     let mut pacman = machine.preset.pacman.clone();
     let mut flatpak = machine.preset.flatpak.clone();
     pacman.sort();
+    pacman.reverse();
     flatpak.sort();
     let snapshot = Snapshot {
         version: FORMAT_VERSION,
@@ -120,7 +121,7 @@ pub fn parse(input: &str) -> Result<Snapshot, SnapshotError> {
         serde_json::from_str(input).map_err(|e| SnapshotError::Json(e.to_string()))?;
     match value.get("version").and_then(serde_json::Value::as_u64) {
         Some(v) if v == u64::from(FORMAT_VERSION) => {}
-        Some(other) => return Err(SnapshotError::UnsupportedVersion(other)),
+        Some(_) => {}
         None => return Err(SnapshotError::Json("`version` ausente ou inválida".into())),
     }
     let snapshot: Snapshot =

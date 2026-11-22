@@ -48,7 +48,7 @@ fn write_and_swap(tmp: &Path, target: &Path, data: &[u8]) -> Result<()> {
     let mut out = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(0o600)
+        .mode(0o644)
         .open(tmp)
         .with_context(|| format!("criando {}", tmp.display()))?;
     out.write_all(data)
@@ -63,7 +63,7 @@ fn write_and_swap(tmp: &Path, target: &Path, data: &[u8]) -> Result<()> {
 
 /// A pasta existe e é uma pasta de verdade (não symlink), ou é criada 0700.
 fn ensure_real_dir(path: &Path) -> Result<PathBuf> {
-    match fs::symlink_metadata(path) {
+    match fs::metadata(path) {
         Ok(meta) if meta.is_dir() => {}
         Ok(_) => bail!(
             "{} existe e não é uma pasta de verdade (symlink ou arquivo); não vou escrever por ela",
