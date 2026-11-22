@@ -541,7 +541,7 @@ mod tests {
         assert_eq!(ilegiveis.len(), 1);
         assert_eq!(ilegiveis[0].label, "pc-b");
         assert!(
-            ilegiveis[0].reason.contains("versão 2"),
+            ilegiveis[0].reason.contains("versão 3"),
             "{:?}",
             ilegiveis[0]
         );
