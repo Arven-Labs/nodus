@@ -309,6 +309,45 @@ mod tests {
         assert_eq!(sobra, ["steam"]);
     }
 
+    const PRESET_COM_ADD: &str = "version = 1\n\
+        pacman = [\"base\"]\n\
+        flatpak = [\"org.a.A\"]\n\
+        \n\
+        [machines.desktop]\n\
+        add_pacman = [\"steam\"]\n\
+        add_flatpak = [\"org.b.B\"]\n";
+
+    #[test]
+    fn item_acrescentado_e_nao_instalado_conta_como_faltando() {
+        let arquivo = parse_preset_file(PRESET_COM_ADD).unwrap();
+        let s = snap("desktop", &["base"], Some(&["org.a.A"]));
+        let st = status_for(&arquivo, &s);
+        assert_eq!(compared(&st.pacman).0, ["steam"]);
+        assert_eq!(compared(&st.flatpak).0, ["org.b.B"]);
+        assert!(!st.is_in_sync());
+    }
+
+    #[test]
+    fn item_acrescentado_e_instalado_esta_em_dia() {
+        let arquivo = parse_preset_file(PRESET_COM_ADD).unwrap();
+        let s = snap("desktop", &["base", "steam"], Some(&["org.a.A", "org.b.B"]));
+        let st = status_for(&arquivo, &s);
+        let (falta, sobra, em_dia) = compared(&st.pacman);
+        assert!(falta.is_empty() && sobra.is_empty(), "{falta:?} {sobra:?}");
+        assert_eq!(em_dia, 2);
+        assert!(st.is_in_sync());
+    }
+
+    #[test]
+    fn o_acrescimo_de_uma_maquina_instalado_em_outra_aparece_como_sobrando() {
+        let arquivo = parse_preset_file(PRESET_COM_ADD).unwrap();
+        let s = snap("notebook", &["base", "steam"], Some(&["org.a.A"]));
+        let st = status_for(&arquivo, &s);
+        let (falta, sobra, _) = compared(&st.pacman);
+        assert!(falta.is_empty());
+        assert_eq!(sobra, ["steam"]);
+    }
+
     #[test]
     fn status_for_sem_tabelas_e_igual_ao_status_de_antes() {
         let texto = "version = 1\npacman = [\"base\", \"htop\"]\nflatpak = []\n";

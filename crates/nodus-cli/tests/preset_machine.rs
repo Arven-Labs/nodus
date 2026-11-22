@@ -16,7 +16,7 @@ use std::sync::OnceLock;
 const PACMAN: &str = r#"#!/bin/sh
 case "$1" in
   -Q) echo "base 1-1" ;;
-  -Qe) echo "steam 1-1" ;;
+  -Qe) printf 'sl 1-1\nsteam 1-1\n' ;;
   -Qem) exit 0 ;;
   -S) exit 0 ;;
   *) exit 1 ;;
@@ -38,6 +38,29 @@ const COM_TABELAS: &str = "version = 1\n\
     skip_pacman = [\"steam\"]\n";
 
 const SEM_TABELAS: &str = "version = 1\npacman = [\"sl\", \"steam\"]\nflatpak = []\n";
+
+/// `desktop` acrescenta `steam`; `notebook` pula `sl`; `n2` faz os dois. `sl` e `steam` são os
+/// dois instalados de propósito no `pacman` falso (`-Qe`).
+const COM_ADD: &str = "version = 1\n\
+    pacman = [\"sl\"]\n\
+    flatpak = []\n\
+    \n\
+    [machines.desktop]\n\
+    add_pacman = [\"steam\"]\n\
+    \n\
+    [machines.notebook]\n\
+    skip_pacman = [\"sl\"]\n\
+    \n\
+    [machines.n2]\n\
+    skip_pacman = [\"sl\"]\n\
+    add_pacman = [\"steam\"]\n";
+
+const ADD_REPETIDO: &str = "version = 1\n\
+    pacman = [\"sl\", \"steam\"]\n\
+    flatpak = []\n\
+    \n\
+    [machines.desktop]\n\
+    add_pacman = [\"steam\"]\n";
 
 const TIPO_ERRADO: &str = "version = 1\n\
     pacman = [\"sl\", \"steam\"]\n\
@@ -73,6 +96,8 @@ fn cenario() -> &'static Cenario {
             ("com-tabelas.toml", COM_TABELAS),
             ("sem-tabelas.toml", SEM_TABELAS),
             ("tipo-errado.toml", TIPO_ERRADO),
+            ("com-add.toml", COM_ADD),
+            ("add-repetido.toml", ADD_REPETIDO),
         ] {
             std::fs::write(raiz.join(nome), texto).unwrap();
         }
@@ -222,4 +247,128 @@ fn preset_sem_tabelas_nao_depende_de_rotulo_nem_do_hostname() {
     let s = rodar("plan", "sem-tabelas.toml", &["--json"]);
     assert!(s.sucesso, "{}", s.stderr);
     assert_eq!(faltando(&s), ["sl", "steam"]);
+}
+
+// Acréscimos por máquina (`add_*`, Fase 2, fatia 4).
+
+fn linha_com<'a>(saida: &'a Saida, trecho: &str) -> &'a str {
+    saida
+        .stdout
+        .lines()
+        .find(|l| l.contains(trecho))
+        .unwrap_or_else(|| panic!("falta a linha com {trecho:?}:\n{}", saida.stdout))
+}
+
+#[test]
+fn plan_inclui_o_que_a_maquina_acrescenta() {
+    for (maquina, esperado) in [
+        ("desktop", vec!["sl", "steam"]),
+        ("n2", vec!["steam"]),
+        ("outra-maquina", vec!["sl"]),
+    ] {
+        let s = rodar("plan", "com-add.toml", &["--machine", maquina, "--json"]);
+        assert!(s.sucesso, "{maquina}: {}", s.stderr);
+        assert_eq!(faltando(&s), esperado, "{maquina}");
+    }
+}
+
+#[test]
+fn apply_oferece_o_acrescentado_e_diz_o_que_acrescentou() {
+    let s = rodar("apply", "com-add.toml", &["--machine", "desktop"]);
+    assert!(!s.sucesso, "sem terminal o apply recusa: {}", s.stderr);
+    assert!(
+        s.stdout
+            .contains("Comando: sudo pacman -S --needed -- sl steam\n"),
+        "{}",
+        s.stdout
+    );
+    let aviso = linha_com(&s, "acrescentados nesta máquina");
+    assert!(
+        aviso.contains("desktop") && aviso.contains("steam"),
+        "{aviso}"
+    );
+    assert!(!s.stdout.contains("pulados nesta máquina"), "{}", s.stdout);
+}
+
+#[test]
+fn apply_com_skip_e_add_na_mesma_maquina_avisa_os_dois() {
+    let s = rodar("apply", "com-add.toml", &["--machine", "n2"]);
+    assert!(!s.sucesso);
+    assert!(
+        s.stdout
+            .contains("Comando: sudo pacman -S --needed -- steam\n"),
+        "{}",
+        s.stdout
+    );
+    let pulados = linha_com(&s, "pulados nesta máquina");
+    assert!(
+        pulados.contains("n2") && pulados.contains("sl"),
+        "{pulados}"
+    );
+    let acrescentados = linha_com(&s, "acrescentados nesta máquina");
+    assert!(
+        acrescentados.contains("n2") && acrescentados.contains("steam"),
+        "{acrescentados}"
+    );
+}
+
+#[test]
+fn maquina_que_so_pula_nao_avisa_acrescentados() {
+    let s = rodar("apply", "com-add.toml", &["--machine", "notebook"]);
+    assert!(s.sucesso, "{}", s.stderr);
+    assert!(s.stdout.contains("Nada a fazer"), "{}", s.stdout);
+    assert!(
+        !s.stdout.contains("acrescentados nesta máquina"),
+        "{}",
+        s.stdout
+    );
+}
+
+#[test]
+fn suggest_trata_o_acrescentado_como_conhecido() {
+    // `steam` está instalado de propósito. No desktop ele é acrescentado: nada a sugerir. Em outra
+    // máquina está fora do preset efetivo: é sugerido.
+    let s = rodar("suggest", "com-add.toml", &["--machine", "desktop"]);
+    assert!(s.sucesso, "{}", s.stderr);
+    assert!(!s.stdout.contains("steam"), "{}", s.stdout);
+    let s = rodar("suggest", "com-add.toml", &["--machine", "outra-maquina"]);
+    assert!(s.sucesso, "{}", s.stderr);
+    assert!(s.stdout.contains("steam"), "{}", s.stdout);
+}
+
+#[test]
+fn adopt_com_a_maquina_nao_oferece_o_que_ela_acrescenta() {
+    let s = rodar("adopt", "com-add.toml", &["--machine", "desktop"]);
+    assert!(s.sucesso, "{}", s.stderr);
+    assert!(s.stdout.contains("Nada fora do preset"), "{}", s.stdout);
+}
+
+#[test]
+fn adopt_nao_oferece_o_que_ja_esta_na_lista_compartilhada_mesmo_pulado() {
+    // Em `n2`, `sl` é pulado e está instalado: fora do preset efetivo, mas já na lista principal.
+    // Oferecer seria mentir (`add_to_preset` ignora o que já está lá). `steam` é acrescentado.
+    let s = rodar("adopt", "com-add.toml", &["--machine", "n2"]);
+    assert!(s.sucesso, "{}", s.stderr);
+    assert!(s.stdout.contains("Nada fora do preset"), "{}", s.stdout);
+}
+
+#[test]
+fn adopt_em_outra_maquina_ainda_oferece_o_que_esta_fora_do_preset() {
+    // `steam` só existe em `[machines.desktop]`: aqui está fora do efetivo e da lista principal.
+    let s = rodar("adopt", "com-add.toml", &["--machine", "outra-maquina"]);
+    assert!(!s.sucesso);
+    assert!(s.stderr.contains("terminal interativo"), "{}", s.stderr);
+}
+
+#[test]
+fn acrescentar_o_que_ja_esta_na_lista_principal_derruba_o_comando() {
+    let s = rodar("plan", "add-repetido.toml", &["--machine", "outra-maquina"]);
+    assert!(!s.sucesso);
+    assert!(s.stderr.contains("steam"), "{}", s.stderr);
+    assert!(
+        s.stderr.contains("já está na lista principal"),
+        "{}",
+        s.stderr
+    );
+    assert!(s.stdout.is_empty(), "{}", s.stdout);
 }

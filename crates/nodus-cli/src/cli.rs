@@ -164,6 +164,11 @@ pub enum PresetAction {
     Adopt {
         /// Arquivo TOML do preset (é editado no lugar; se for um symlink, grava no alvo).
         file: PathBuf,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset: o que ela
+        /// acrescenta não é oferecido. Sem ele, usa o hostname (só se o preset tem `[machines]`).
+        /// O que for adotado entra sempre nas listas compartilhadas.
+        #[arg(long)]
+        machine: Option<String>,
     },
     /// Lista o que está instalado de propósito nesta máquina e fora do preset, com o trecho para
     /// colar nele (não executa nem escreve nada). Os itens ignorados ficam de fora e são contados.
@@ -533,12 +538,13 @@ mod tests {
                     action:
                         PresetAction::Plan { machine, .. }
                         | PresetAction::Apply { machine, .. }
-                        | PresetAction::Suggest { machine, .. },
+                        | PresetAction::Suggest { machine, .. }
+                        | PresetAction::Adopt { machine, .. },
                 } => machine,
                 outro => panic!("comando errado: {outro:?}"),
             }
         };
-        for acao in ["plan", "apply", "suggest"] {
+        for acao in ["plan", "apply", "suggest", "adopt"] {
             assert_eq!(machine(&[acao, "p.toml"]), None, "{acao} sem a flag");
             assert_eq!(
                 machine(&[acao, "p.toml", "--machine", "notebook"]),
@@ -549,14 +555,10 @@ mod tests {
     }
 
     #[test]
-    fn machine_nao_existe_em_adopt_nem_em_status() {
-        for args in [
-            ["nodus", "preset", "adopt", "p.toml", "--machine", "x"],
-            ["nodus", "preset", "status", "p.toml", "--machine", "x"],
-        ] {
-            let erro = Cli::try_parse_from(args).unwrap_err();
-            assert_eq!(erro.kind(), ErrorKind::UnknownArgument, "{args:?}");
-        }
+    fn machine_nao_existe_em_status() {
+        let args = ["nodus", "preset", "status", "p.toml", "--machine", "x"];
+        let erro = Cli::try_parse_from(args).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::UnknownArgument);
     }
 
     #[test]
@@ -666,7 +668,7 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "preset", "adopt", "p.toml"]).unwrap();
         match cli.command {
             Command::Preset {
-                action: PresetAction::Adopt { file },
+                action: PresetAction::Adopt { file, .. },
             } => assert_eq!(file, std::path::PathBuf::from("p.toml")),
             outro => panic!("comando errado: {outro:?}"),
         }

@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 45, `add_*` por máquina (Fase 2, fatia 4, ADR 0033 emendado, PR #156)
+
+- **Pedido**: "vamos de código, vamos de `add_*`", contra a minha recomendação de ver a GUI primeiro (risco do hostname da fatia 3). Plan mode; escolhas do dono: acrescentar o que já está na lista principal é **erro**; o `adopt` usa o preset efetivo da máquina. Aprovou a tabela de testes com "manda bala" sem novas perguntas.
+- **Feito**: `RawMachine` com `add_pacman` e `add_flatpak`, `Items` (renomeado de `Skipped`), `PresetFile::added`, `for_machine` = principal sem os pulados mais os acrescentados, `PresetError::AddAlreadyInPreset` (`preset.rs`); `--machine` em `preset adopt` e `resolve_for_machine` (`main.rs`), com o filtro que tira das sugestões o que já está na lista compartilhada; `render_machine_changes` com as duas linhas (`render.rs`). `status.rs` não mudou. Desvio do plano: o `adopt` de um item que outra máquina acrescenta é recusado pela releitura de `add_to_preset` (não estava no plano; virou teste).
+- **Testes**: primeiro, CI vermelho pelo motivo certo (`added`, `AddAlreadyInPreset` e `Adopt.machine` inexistentes); depois verde (core 374, CLI 429, `tests/preset_machine.rs` 17). Um teste da fatia 3 afirmava que `add_pacman` era campo desconhecido e foi ajustado (agora `remove_pacman`). Mutações em PRs descartáveis (#157 a #162, fechados, branches apagadas): `for_machine` sem acrescentar (11 testes), `add` já na lista principal aceito (4), `adopt` sem filtrar a lista compartilhada (1), `added()` devolvendo os pulados (22), aviso trocando pulados e acrescentados (4), `adopt` ignorando `--machine` (2). Conferi `headSha` e que nenhuma falhou só por compilador ou clippy. Uma primeira versão da a5 era feia demais para o clippy e foi trocada antes de empurrar; rodei `cargo fmt --check` em cada branch antes do push (a2 precisou de ajuste).
+- **Não verificado**: Arch real (tudo da fatia 4); a GUI (aba Preset e Sugestões sem `--machine`; `adopt` não está nela); `adotar` de item que outra máquina acrescenta só em teste (mensagem genérica); hostname com maiúsculas segue sem teste.
+- **Fica**: o dono rodar o roteiro da fatia 4 no Arch, e decidir sobre a GUI com `--machine`.
+
 ### 2026-11-22 — Sessão 44, exceções por máquina no preset (Fase 2, fatia 3, ADR 0033, PR #148)
 
 - **Pedido**: "vamos de fatia 3". A fatia 3 não estava definida no ADR 0031 nem no SPEC; plan mode, escolha do dono: exceções por máquina no preset (`[machines.<rótulo>]` com `skip_pacman` e `skip_flatpak`), hostname como rótulo padrão com `--machine` para sobrescrever, só pular (sem `add_*`). Aprovou a tabela de testes com "manda bala" sem responder as 3 perguntas; ficaram as minhas suposições (item pulado e instalado vira "sobram"/sugestão; `adopt` que criaria lista ausente recusa; typo em `skip` derruba o arquivo todo).

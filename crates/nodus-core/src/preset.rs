@@ -43,6 +43,14 @@ pub enum PresetError {
         list: &'static str,
         name: String,
     },
+    #[error(
+        "`{list}` da máquina {machine:?} cita {name:?}, que já está na lista principal do preset"
+    )]
+    AddAlreadyInPreset {
+        machine: String,
+        list: &'static str,
+        name: String,
+    },
     #[error("não consegui acrescentar ao preset sem alterar o resto: {0}")]
     Edit(String),
 }
@@ -94,7 +102,8 @@ struct RawPreset {
     machines: BTreeMap<String, RawMachine>,
 }
 
-/// `[machines.<rótulo>]`: o que o preset compartilhado não vale para aquela máquina.
+/// `[machines.<rótulo>]`: o que o preset compartilhado não vale para aquela máquina (`skip_*`) e o
+/// que só ela quer a mais (`add_*`).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawMachine {
@@ -102,19 +111,29 @@ struct RawMachine {
     skip_pacman: Vec<String>,
     #[serde(default)]
     skip_flatpak: Vec<String>,
+    #[serde(default)]
+    add_pacman: Vec<String>,
+    #[serde(default)]
+    add_flatpak: Vec<String>,
 }
 
-/// O que uma máquina pula do preset compartilhado.
+/// Itens por gerenciador: o que uma máquina pula ou acrescenta.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Skipped {
+pub struct Items {
     pub pacman: Vec<String>,
     pub flatpak: Vec<String>,
 }
 
-impl Skipped {
+impl Items {
     pub fn is_empty(&self) -> bool {
         self.pacman.is_empty() && self.flatpak.is_empty()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MachineChanges {
+    skip: Items,
+    add: Items,
 }
 
 /// O preset como está no arquivo: as listas compartilhadas mais as exceções por máquina.
@@ -123,7 +142,7 @@ impl Skipped {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresetFile {
     pub preset: Preset,
-    machines: BTreeMap<String, Skipped>,
+    machines: BTreeMap<String, MachineChanges>,
 }
 
 impl PresetFile {
@@ -132,23 +151,36 @@ impl PresetFile {
     }
 
     /// O que a máquina `label` pula (vazio se não há tabela para ela; o rótulo é comparado inteiro).
-    pub fn skipped(&self, label: &str) -> Skipped {
-        self.machines.get(label).cloned().unwrap_or_default()
+    pub fn skipped(&self, label: &str) -> Items {
+        self.machines
+            .get(label)
+            .map(|changes| changes.skip.clone())
+            .unwrap_or_default()
     }
 
-    /// O preset sem os itens que a máquina `label` pula, na ordem original.
+    /// O que a máquina `label` acrescenta (vazio se não há tabela para ela).
+    pub fn added(&self, label: &str) -> Items {
+        self.machines
+            .get(label)
+            .map(|changes| changes.add.clone())
+            .unwrap_or_default()
+    }
+
+    /// O preset da máquina `label`: a lista principal sem o que ela pula, seguida do que ela
+    /// acrescenta (o parse garante que nenhum acrescentado já está na lista principal).
     pub fn for_machine(&self, label: &str) -> Preset {
-        let skipped = self.skipped(label);
-        let keep = |names: &[String], skip: &[String]| -> Vec<String> {
+        let (skipped, added) = (self.skipped(label), self.added(label));
+        let effective = |names: &[String], skip: &[String], add: &[String]| -> Vec<String> {
             names
                 .iter()
                 .filter(|name| !skip.contains(name))
+                .chain(add)
                 .cloned()
                 .collect()
         };
         Preset {
-            pacman: keep(&self.preset.pacman, &skipped.pacman),
-            flatpak: keep(&self.preset.flatpak, &skipped.flatpak),
+            pacman: effective(&self.preset.pacman, &skipped.pacman, &added.pacman),
+            flatpak: effective(&self.preset.flatpak, &skipped.flatpak, &added.flatpak),
         }
     }
 }
@@ -171,6 +203,8 @@ pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
             .map_err(|_| PresetError::InvalidMachineLabel(label.clone()))?;
         validate("skip_pacman", &machine.skip_pacman, is_valid_pacman_name)?;
         validate("skip_flatpak", &machine.skip_flatpak, is_valid_flatpak_id)?;
+        validate("add_pacman", &machine.add_pacman, is_valid_pacman_name)?;
+        validate("add_flatpak", &machine.add_flatpak, is_valid_flatpak_id)?;
         // Um pulo que não bate com nenhum item é quase sempre typo: erro, não "não faz nada".
         for (list, skip, shared) in [
             ("skip_pacman", &machine.skip_pacman, &raw.pacman),
@@ -184,11 +218,31 @@ pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
                 });
             }
         }
+        // Acrescentar o que já está na lista principal é redundância ou engano (inclusive pular e
+        // acrescentar o mesmo item): erro, para o efetivo ter uma só leitura possível.
+        for (list, add, shared) in [
+            ("add_pacman", &machine.add_pacman, &raw.pacman),
+            ("add_flatpak", &machine.add_flatpak, &raw.flatpak),
+        ] {
+            if let Some(name) = add.iter().find(|name| shared.contains(name)) {
+                return Err(PresetError::AddAlreadyInPreset {
+                    machine: label,
+                    list,
+                    name: name.clone(),
+                });
+            }
+        }
         machines.insert(
             label,
-            Skipped {
-                pacman: machine.skip_pacman,
-                flatpak: machine.skip_flatpak,
+            MachineChanges {
+                skip: Items {
+                    pacman: machine.skip_pacman,
+                    flatpak: machine.skip_flatpak,
+                },
+                add: Items {
+                    pacman: machine.add_pacman,
+                    flatpak: machine.add_flatpak,
+                },
             },
         );
     }
@@ -1868,7 +1922,7 @@ mod tests {
             parse_preset_file(&texto),
             Err(PresetError::Toml(_))
         ));
-        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"vim\"]\n");
+        let texto = com_pulo("[machines.pc]\nremove_pacman = [\"git\"]\n");
         assert!(matches!(
             parse_preset_file(&texto),
             Err(PresetError::Toml(_))
@@ -1914,6 +1968,160 @@ mod tests {
         let texto = "version = 1\npacman = [\"git\"]\n\n[machines.pc]\nskip_pacman = [\"git\"]\n";
         assert!(matches!(
             add_to_preset(texto, &[], &nomes(&["org.x.Y"])),
+            Err(PresetError::Edit(_))
+        ));
+    }
+
+    // Acréscimos por máquina (Fase 2, fatia 4): `add_pacman` e `add_flatpak`. O preset efetivo é
+    // lista principal sem os pulados, seguida dos acrescentados.
+
+    const COM_ADD: &str = "version = 1\n\
+        pacman = [\"base\", \"git\"]\n\
+        flatpak = [\"org.x.Y\"]\n\
+        \n\
+        [machines.desktop]\n\
+        add_pacman = [\"steam\", \"htop\"]\n\
+        add_flatpak = [\"org.z.Z\"]\n";
+
+    #[test]
+    fn maquina_com_add_recebe_a_lista_principal_mais_os_acrescentados() {
+        let efetivo = parse_preset_file(COM_ADD).unwrap().for_machine("desktop");
+        assert_eq!(efetivo.pacman, nomes(&["base", "git", "steam", "htop"]));
+        assert_eq!(efetivo.flatpak, nomes(&["org.x.Y", "org.z.Z"]));
+    }
+
+    #[test]
+    fn outra_maquina_nao_recebe_os_acrescentados() {
+        let arquivo = parse_preset_file(COM_ADD).unwrap();
+        let efetivo = arquivo.for_machine("notebook");
+        assert_eq!(efetivo.pacman, nomes(&["base", "git"]));
+        assert_eq!(efetivo.flatpak, nomes(&["org.x.Y"]));
+        assert!(arquivo.added("notebook").is_empty());
+    }
+
+    #[test]
+    fn added_lista_o_que_foi_acrescentado_naquela_maquina() {
+        let arquivo = parse_preset_file(COM_ADD).unwrap();
+        let acrescentados = arquivo.added("desktop");
+        assert_eq!(acrescentados.pacman, nomes(&["steam", "htop"]));
+        assert_eq!(acrescentados.flatpak, nomes(&["org.z.Z"]));
+        assert!(arquivo.skipped("desktop").is_empty());
+    }
+
+    #[test]
+    fn so_add_ja_conta_como_ter_tabelas() {
+        assert!(parse_preset_file(COM_ADD).unwrap().has_machines());
+    }
+
+    #[test]
+    fn skip_e_add_na_mesma_maquina_pulam_e_acrescentam() {
+        let texto = "version = 1\npacman = [\"base\", \"git\"]\nflatpak = []\n\n\
+            [machines.pc]\nskip_pacman = [\"git\"]\nadd_pacman = [\"steam\"]\n";
+        let arquivo = parse_preset_file(texto).unwrap();
+        assert_eq!(arquivo.for_machine("pc").pacman, nomes(&["base", "steam"]));
+        assert_eq!(arquivo.skipped("pc").pacman, nomes(&["git"]));
+        assert_eq!(arquivo.added("pc").pacman, nomes(&["steam"]));
+    }
+
+    #[test]
+    fn parse_preset_continua_devolvendo_so_a_lista_principal() {
+        let completo = parse_preset(COM_ADD).unwrap();
+        assert_eq!(completo.pacman, nomes(&["base", "git"]));
+        assert_eq!(completo.flatpak, nomes(&["org.x.Y"]));
+    }
+
+    #[test]
+    fn acrescentar_o_que_ja_esta_na_lista_principal_e_erro() {
+        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"git\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::AddAlreadyInPreset {
+                machine: "pc".into(),
+                list: "add_pacman",
+                name: "git".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nadd_flatpak = [\"org.x.Y\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::AddAlreadyInPreset {
+                machine: "pc".into(),
+                list: "add_flatpak",
+                name: "org.x.Y".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn o_mesmo_item_em_skip_e_add_da_mesma_maquina_e_erro() {
+        let texto = com_pulo("[machines.pc]\nskip_pacman = [\"git\"]\nadd_pacman = [\"git\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::AddAlreadyInPreset {
+                machine: "pc".into(),
+                list: "add_pacman",
+                name: "git".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn nome_invalido_ou_repetido_em_add_e_recusado() {
+        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"vim\", \"--overwrite=*\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::InvalidName {
+                list: "add_pacman",
+                number: 2,
+                name: "--overwrite=*".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"vim\", \"vim\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::Duplicate {
+                list: "add_pacman",
+                name: "vim".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nadd_flatpak = [\"lingot\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::InvalidName {
+                list: "add_flatpak",
+                number: 1,
+                name: "lingot".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn campo_com_nome_parecido_com_add_continua_sendo_erro() {
+        let texto = com_pulo("[machines.pc]\nadd_pacmna = [\"vim\"]\n");
+        assert!(matches!(
+            parse_preset_file(&texto),
+            Err(PresetError::Toml(_))
+        ));
+    }
+
+    #[test]
+    fn adotar_numa_lista_existente_mantem_as_tabelas_com_add_intactas() {
+        let novo = add_to_preset(COM_ADD, &nomes(&["vim"]), &[]).unwrap();
+        let arquivo = parse_preset_file(&novo).unwrap();
+        assert_eq!(arquivo.preset.pacman, nomes(&["base", "git", "vim"]));
+        assert_eq!(
+            arquivo.for_machine("desktop").pacman,
+            nomes(&["base", "git", "vim", "steam", "htop"])
+        );
+        assert!(novo.contains("[machines.desktop]\nadd_pacman = [\"steam\", \"htop\"]\n"));
+    }
+
+    #[test]
+    fn adotar_o_que_outra_maquina_acrescenta_recusa_sem_gravar() {
+        // O item iria para a lista principal e `add_pacman` da outra máquina viraria redundante:
+        // o texto novo não passa no parse, então nada é devolvido.
+        assert!(matches!(
+            add_to_preset(COM_ADD, &nomes(&["steam"]), &[]),
             Err(PresetError::Edit(_))
         ));
     }
