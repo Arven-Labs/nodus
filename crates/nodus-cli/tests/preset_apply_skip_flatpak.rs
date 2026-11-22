@@ -114,6 +114,13 @@ fn rodar(nome: &str, com_flatpak: bool, skip_flatpak: bool) -> Saida {
     }
 }
 
+/// O `flatpak` falso recebeu esse subcomando? Compara o primeiro argumento de cada chamada, não um
+/// trecho do texto (`list --app --columns=...,installation` contém "install").
+fn chamou(log: &str, subcomando: &str) -> bool {
+    log.lines()
+        .any(|linha| linha.split_whitespace().next() == Some(subcomando))
+}
+
 const AVISO: &str = "Flatpak pulado por --skip-flatpak";
 const PLANO: &str = "Plano (nada foi executado):";
 const SO_PACMAN: &str = "Comando: sudo pacman -S --needed -- sl";
@@ -138,12 +145,12 @@ fn com_a_flag_o_aviso_vem_antes_do_plano_e_so_o_pacman_e_oferecido() {
     assert!(s.stdout.contains(SO_PACMAN), "{}", s.stdout);
     assert!(!s.stdout.contains("flatpak install"), "{}", s.stdout);
     assert!(
-        s.log_flatpak.contains("list"),
+        chamou(&s.log_flatpak, "list"),
         "o fake foi usado: {}",
         s.log_flatpak
     );
-    assert!(!s.log_flatpak.contains("remotes"), "{}", s.log_flatpak);
-    assert!(!s.log_flatpak.contains("install"), "{}", s.log_flatpak);
+    assert!(!chamou(&s.log_flatpak, "remotes"), "{}", s.log_flatpak);
+    assert!(!chamou(&s.log_flatpak, "install"), "{}", s.log_flatpak);
 }
 
 #[test]
@@ -170,6 +177,6 @@ fn sem_a_flag_o_flathub_e_consultado_e_a_falta_dele_para_o_apply() {
     let s = rodar("sem-flag-com-flatpak", true, false);
     assert!(!s.sucesso);
     assert!(s.stderr.contains("flathub"), "{}", s.stderr);
-    assert!(s.log_flatpak.contains("remotes"), "{}", s.log_flatpak);
+    assert!(chamou(&s.log_flatpak, "remotes"), "{}", s.log_flatpak);
     assert!(!s.stdout.contains("Comando:"), "{}", s.stdout);
 }
