@@ -217,7 +217,7 @@ pub fn parse(input: &str) -> Result<Snapshot, SnapshotError> {
                 capabilities: Capabilities {
                     pacman: old.capabilities.pacman,
                     flatpak: old.capabilities.flatpak,
-                    dotfiles: false,
+                    dotfiles: true,
                 },
                 pacman: old.pacman,
                 flatpak: old.flatpak,
