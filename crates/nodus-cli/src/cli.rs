@@ -650,6 +650,36 @@ mod tests {
     }
 
     #[test]
+    fn preset_status_recebe_o_arquivo_rotulos_opcionais_e_json() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "status", "p.toml"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Status { file, labels, json },
+            } => {
+                assert_eq!(file, std::path::PathBuf::from("p.toml"));
+                assert!(labels.is_empty());
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let cli = Cli::try_parse_from([
+            "nodus", "preset", "status", "p.toml", "pc-a", "pc-b", "--json",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Status { labels, json, .. },
+            } => {
+                assert_eq!(labels, ["pc-a", "pc-b"]);
+                assert!(json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let erro = Cli::try_parse_from(["nodus", "preset", "status"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
     fn preset_plan_exige_o_arquivo() {
         let erro = Cli::try_parse_from(["nodus", "preset", "plan"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);

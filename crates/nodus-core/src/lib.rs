@@ -8,6 +8,7 @@ pub mod preset;
 pub mod repos;
 pub mod runner;
 pub mod snapshot;
+pub mod status;
 pub mod undo;
 pub mod updates;
 

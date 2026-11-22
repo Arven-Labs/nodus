@@ -1458,4 +1458,123 @@ Sem divergências nas listas comparadas.
         let texto = render_comparison(&nodus_core::compare::compare(&a, &b));
         assert!(!texto.contains('\x1b'), "{texto:?}");
     }
+
+    // --- preset status (critério 3 do SPEC §16) ---
+
+    fn preset_de(pacman: &[&str], flatpak: &[&str]) -> nodus_core::preset::Preset {
+        nodus_core::preset::Preset {
+            pacman: pacman.iter().map(|s| s.to_string()).collect(),
+            flatpak: flatpak.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn estado(
+        preset: &nodus_core::preset::Preset,
+        snapshot: &nodus_core::snapshot::Snapshot,
+    ) -> nodus_core::status::MachineStatus {
+        nodus_core::status::status(preset, snapshot)
+    }
+
+    const NOTA: &str = "Nota: \"não instalado de propósito\" inclui o que veio só como dependência; o snapshot guarda `pacman -Qe`.\n";
+
+    #[test]
+    fn status_mostra_o_que_falta_e_o_que_sobra_por_maquina() {
+        let p = preset_de(&["base", "git", "htop"], &["org.a.A"]);
+        let s = snapshot_de(
+            "pc-a",
+            "Arch Linux",
+            &["base", "git", "vim"],
+            Some(&["org.a.A"]),
+        );
+        let esperado = format!(
+            "\
+Preset: pacman 3, flatpak 1 (só leitura, a partir dos snapshots):
+pc-a (Arch Linux):
+  Pacman: 2 em dia
+    no preset e não instalado de propósito (1):
+      htop
+    instalado de propósito e fora do preset (1):
+      vim
+  Flatpak: 1 em dia
+{NOTA}"
+        );
+        assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
+    }
+
+    #[test]
+    fn status_de_maquina_em_dia_nao_tem_listas_nem_nota() {
+        let p = preset_de(&["base", "git"], &["org.a.A"]);
+        let s = snapshot_de("pc-a", "Arch Linux", &["git", "base"], Some(&["org.a.A"]));
+        let esperado = "\
+Preset: pacman 2, flatpak 1 (só leitura, a partir dos snapshots):
+pc-a (Arch Linux): em dia com o preset
+  Pacman: 2 em dia
+  Flatpak: 1 em dia
+";
+        assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
+    }
+
+    #[test]
+    fn status_sem_flatpak_nao_acusa_falta_e_nao_diz_que_esta_tudo_em_dia() {
+        let p = preset_de(&["base"], &["org.a.A"]);
+        let s = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let esperado = "\
+Preset: pacman 1, flatpak 1 (só leitura, a partir dos snapshots):
+pc-b (Arch Linux): em dia nas listas comparadas
+  Pacman: 1 em dia
+  Flatpak: não comparável, pc-b não tem Flatpak
+";
+        assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
+    }
+
+    #[test]
+    fn status_mostra_varias_maquinas_na_ordem_recebida() {
+        let p = preset_de(&["base"], &[]);
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[]));
+        let b = snapshot_de("pc-b", "Arch Linux", &[], Some(&[]));
+        let texto = render_status(&p, &[estado(&p, &a), estado(&p, &b)], &[]);
+        let pos_a = texto.find("pc-a (").unwrap();
+        let pos_b = texto.find("pc-b (").unwrap();
+        assert!(pos_a < pos_b, "{texto}");
+        assert!(texto.contains("pc-a (Arch Linux): em dia com o preset\n"));
+        assert!(texto.contains("pc-b (Arch Linux):\n"));
+    }
+
+    #[test]
+    fn status_avisa_do_snapshot_ilegivel_e_continua_com_os_outros() {
+        let p = preset_de(&["base"], &[]);
+        let a = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[]));
+        let ruim = crate::snapshot::Unreadable {
+            label: "pc-x".into(),
+            reason: "versão 2 do snapshot não é suportada".into(),
+        };
+        let texto = render_status(&p, &[estado(&p, &a)], &[ruim]);
+        assert!(
+            texto.contains("pc-a (Arch Linux): em dia com o preset\n"),
+            "{texto}"
+        );
+        let aviso =
+            "Aviso: não consegui ler o snapshot pc-x: versão 2 do snapshot não é suportada\n";
+        assert!(texto.contains(aviso), "{texto}");
+    }
+
+    #[test]
+    fn status_sem_nenhum_snapshot_diz_como_gerar() {
+        let p = preset_de(&["base"], &[]);
+        let esperado = "Nenhum snapshot encontrado; rode `nodusctl snapshot` em cada máquina e traga os arquivos pelo git.\n";
+        assert_eq!(render_status(&p, &[], &[]), esperado);
+    }
+
+    #[test]
+    fn status_nao_escapa_byte_de_controle_do_so_nem_do_motivo() {
+        let p = preset_de(&["base"], &[]);
+        let mut s = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&[]));
+        s.os.name = "Arch\x1b[31m Linux".into();
+        let ruim = crate::snapshot::Unreadable {
+            label: "pc-x".into(),
+            reason: "erro\x1b[2J".into(),
+        };
+        let texto = render_status(&p, &[estado(&p, &s)], &[ruim]);
+        assert!(!texto.contains('\x1b'), "{texto:?}");
+    }
 }

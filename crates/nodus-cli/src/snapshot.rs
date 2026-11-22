@@ -387,4 +387,139 @@ mod tests {
         assert_eq!(fs::read(&caminho).unwrap(), antes);
         assert_eq!(quantos(&tmp.path().join(".nodus/snapshots")), 1);
     }
+
+    // --- read_all e read_labels: o status do preset olha várias máquinas ---
+
+    fn rotulos(snaps: &[Snapshot]) -> Vec<&str> {
+        snaps.iter().map(|s| s.name.as_str()).collect()
+    }
+
+    #[test]
+    fn read_all_le_todos_ordenados_por_rotulo() {
+        let tmp = TmpDir::novo();
+        for nome in ["pc-c", "pc-a", "pc-b"] {
+            write(tmp.path(), &snap(nome, &["base"])).unwrap();
+        }
+        let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
+        assert_eq!(rotulos(&lidos), ["pc-a", "pc-b", "pc-c"]);
+        assert!(ilegiveis.is_empty());
+    }
+
+    #[test]
+    fn read_all_ignora_o_que_nao_e_snapshot() {
+        let tmp = TmpDir::novo();
+        write(tmp.path(), &snap("pc-a", &["base"])).unwrap();
+        let snaps = tmp.path().join(".nodus/snapshots");
+        fs::write(snaps.join("notas.txt"), "x").unwrap();
+        fs::write(snaps.join(".pc-a.json.nodus-123"), "meio gravado").unwrap();
+        fs::write(snaps.join(".oculto.json"), "x").unwrap();
+        let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
+        assert_eq!(rotulos(&lidos), ["pc-a"]);
+        assert!(ilegiveis.is_empty(), "{ilegiveis:?}");
+    }
+
+    #[test]
+    fn um_snapshot_ruim_nao_derruba_os_outros_e_vira_aviso_com_o_motivo() {
+        let tmp = TmpDir::novo();
+        write(tmp.path(), &snap("pc-a", &["base"])).unwrap();
+        let snaps = tmp.path().join(".nodus/snapshots");
+        let v2 = to_json(&snap("pc-b", &["base"])).replacen("\"version\": 1", "\"version\": 2", 1);
+        fs::write(snaps.join("pc-b.json"), v2).unwrap();
+        let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
+        assert_eq!(rotulos(&lidos), ["pc-a"]);
+        assert_eq!(ilegiveis.len(), 1);
+        assert_eq!(ilegiveis[0].label, "pc-b");
+        assert!(
+            ilegiveis[0].reason.contains("versão 2"),
+            "{:?}",
+            ilegiveis[0]
+        );
+    }
+
+    #[test]
+    fn symlink_nome_invalido_nome_divergente_e_arquivo_grande_viram_aviso() {
+        let tmp = TmpDir::novo();
+        let fora = TmpDir::novo();
+        write(tmp.path(), &snap("pc-a", &["base"])).unwrap();
+        let snaps = tmp.path().join(".nodus/snapshots");
+        fs::write(
+            fora.path().join("x.json"),
+            to_json(&snap("pc-x", &["base"])),
+        )
+        .unwrap();
+        symlink(fora.path().join("x.json"), snaps.join("pc-x.json")).unwrap();
+        fs::write(snaps.join("Foo.json"), to_json(&snap("pc-f", &["base"]))).unwrap();
+        fs::write(snaps.join("pc-d.json"), to_json(&snap("pc-a", &["base"]))).unwrap();
+        let grande = "x".repeat(MAX_SNAPSHOT_BYTES as usize + 1);
+        fs::write(snaps.join("pc-g.json"), grande).unwrap();
+        let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
+        assert_eq!(rotulos(&lidos), ["pc-a"]);
+        let mut avisos: Vec<&str> = ilegiveis.iter().map(|u| u.label.as_str()).collect();
+        avisos.sort();
+        assert_eq!(avisos, ["Foo", "pc-d", "pc-g", "pc-x"]);
+    }
+
+    #[test]
+    fn sem_pasta_de_snapshots_ou_vazia_nao_e_erro_so_nao_ha_nada() {
+        let tmp = TmpDir::novo();
+        let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
+        assert!(lidos.is_empty() && ilegiveis.is_empty());
+        assert!(!tmp.path().join(".nodus").exists(), "ler não cria pasta");
+        pasta_de_snapshots(&tmp);
+        let (lidos, ilegiveis) = read_all(tmp.path()).unwrap();
+        assert!(lidos.is_empty() && ilegiveis.is_empty());
+    }
+
+    #[test]
+    fn pasta_fonte_ausente_e_pastas_symlink_sao_erro() {
+        let tmp = TmpDir::novo();
+        assert!(read_all(&tmp.path().join("nao-existe")).is_err());
+        let fora = TmpDir::novo();
+        write(fora.path(), &snap("pc-a", &["base"])).unwrap();
+        // `.nodus` é um symlink para uma pasta de fora com snapshots válidos: não se lê por ele.
+        symlink(fora.path().join(".nodus"), tmp.path().join(".nodus")).unwrap();
+        assert!(read_all(tmp.path()).is_err());
+        // `snapshots` é um symlink.
+        let tmp2 = TmpDir::novo();
+        fs::create_dir(tmp2.path().join(".nodus")).unwrap();
+        symlink(
+            fora.path().join(".nodus/snapshots"),
+            tmp2.path().join(".nodus/snapshots"),
+        )
+        .unwrap();
+        assert!(read_all(tmp2.path()).is_err());
+    }
+
+    #[test]
+    fn read_all_nao_altera_nada() {
+        let tmp = TmpDir::novo();
+        let caminho = write(tmp.path(), &snap("pc-a", &["base"])).unwrap();
+        let antes = fs::read(&caminho).unwrap();
+        read_all(tmp.path()).unwrap();
+        assert_eq!(fs::read(&caminho).unwrap(), antes);
+        assert_eq!(quantos(&tmp.path().join(".nodus/snapshots")), 1);
+    }
+
+    #[test]
+    fn read_labels_le_so_os_pedidos_ordenados_e_sem_repeticao() {
+        let tmp = TmpDir::novo();
+        for nome in ["pc-a", "pc-b", "pc-c"] {
+            write(tmp.path(), &snap(nome, &["base"])).unwrap();
+        }
+        let pedidos: Vec<String> = ["pc-c", "pc-a", "pc-c"].map(String::from).to_vec();
+        let lidos = read_labels(tmp.path(), &pedidos).unwrap();
+        assert_eq!(rotulos(&lidos), ["pc-a", "pc-c"]);
+    }
+
+    #[test]
+    fn read_labels_erra_alto_se_um_pedido_nao_existe_ou_esta_ruim() {
+        let tmp = TmpDir::novo();
+        write(tmp.path(), &snap("pc-a", &["base"])).unwrap();
+        let snaps = tmp.path().join(".nodus/snapshots");
+        fs::write(snaps.join("pc-b.json"), "não é json").unwrap();
+        for pedidos in [["pc-a", "pc-z"], ["pc-a", "pc-b"], ["pc-a", "../x"]] {
+            let pedidos: Vec<String> = pedidos.map(String::from).to_vec();
+            assert!(read_labels(tmp.path(), &pedidos).is_err(), "{pedidos:?}");
+        }
+    }
 }
