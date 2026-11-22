@@ -268,8 +268,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
             args.push(resolve_preset(env.preset.clone())?.into_os_string());
             // Depois do preset: um preset ruim vem primeiro. Argumentos separados, nunca `--machine=<valor>`.
             if let Some(label) = resolve_machine(env.machine.clone())? {
-                args.push("--machine".into());
-                args.push(label.into());
+                let _ = label;
             }
         }
         // Não usa preset: `NODUS_PRESET` ausente ou ruim não pode atrapalhar.
