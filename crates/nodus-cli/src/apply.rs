@@ -89,6 +89,7 @@ pub fn apply(
 pub fn without_flatpak(plan: &Plan) -> (Plan, Vec<String>) {
     let mut sem = plan.clone();
     let skipped = std::mem::take(&mut sem.flatpak_missing);
+    sem.pacman_missing.clear();
     (sem, skipped)
 }
 
