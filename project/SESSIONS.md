@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 46, `NODUS_MACHINE` na GUI (Fase 2, fatia 5, ADR 0033 emenda 2, PR #164)
+
+- **Pedido**: "pode ser a gui", sobre o risco aberto das fatias 3 e 4 (a GUI chamava `preset plan`/`suggest`/`apply`/`adopt` sem `--machine`, e dependia do hostname). Plan mode; escolha do dono: variável `NODUS_MACHINE` lida no Rust (descartado: campo de texto, pelo ADR 0028). Disse no plano que, no PC dele, nada quebra hoje (`archlinux` é rótulo válido): a fatia é defensiva. Aprovou a tabela de testes com "manda bala".
+- **Feito**: `resolve_machine` e o parâmetro `machine` de `read`/`read_with` em `desktop/src-tauri/src/nodusctl.rs`; `Env.machine`, `--machine` em `preset_apply`/`preset_adopt` e na releitura do `unignore` em `actions.rs`; leitura da variável em `lib.rs`; `desktop/README.md`. Sem mudança no frontend nem no e2e. O `status` não recebe a flag. Desvio do plano: nenhum.
+- **Testes**: primeiro, CI do desktop vermelho pelo motivo certo (`Env.machine`, aridade de `read` e `resolve_machine` inexistentes); depois verde (142 testes Rust no desktop, frontend e `cargo-deny` verdes). Mutações em PRs descartáveis (#165 a #170, fechados, branches apagadas): plan e suggest sem a flag (2 testes), status recebendo a flag (1), apply e adopt sem a flag (1), releitura do `unignore` sem a máquina (2), regra do rótulo só exigindo não vazio (3), `--machine=<valor>` num argumento só (2). Conferi `headSha` e que nenhuma falhou só por compilador ou clippy. Não rodei `cargo fmt` em `desktop/src-tauri` (já tem diferenças de `rustfmt` e o CI não o cobre); usei let-chain para não acionar `collapsible_if` do clippy (edição 2024).
+- **Não verificado**: a janela real (Preset, Sugestões, "Instalar no terminal", "Adotar no terminal" e "Voltar a sugerir" com `NODUS_MACHINE`); `NODUS_MACHINE` vazia quebra as abas (decisão de projeto, registrada no ADR).
+- **Fica**: o dono abrir a GUI no PC dele (build só lá) com `NODUS_PRESET` e `NODUS_MACHINE`; a verificação entra num PR de docs à parte.
+
 ### 2026-11-22 — Sessão 45, `add_*` por máquina (Fase 2, fatia 4, ADR 0033 emendado, PR #156)
 
 - **Pedido**: "vamos de código, vamos de `add_*`", contra a minha recomendação de ver a GUI primeiro (risco do hostname da fatia 3). Plan mode; escolhas do dono: acrescentar o que já está na lista principal é **erro**; o `adopt` usa o preset efetivo da máquina. Aprovou a tabela de testes com "manda bala" sem novas perguntas.

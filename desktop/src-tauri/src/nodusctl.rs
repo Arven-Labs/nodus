@@ -152,6 +152,28 @@ pub fn resolve_preset(env_value: Option<OsString>) -> Result<PathBuf, CmdError> 
     }
 }
 
+/// O rótulo da máquina vem do valor de `NODUS_MACHINE` e vira `--machine <rótulo>` nos comandos que usam o preset por máquina (ADR 0033).
+/// Sem a variável, `None`: a CLI usa o hostname. Com ela, só a regra do rótulo (a mesma do `snapshot`, ADR 0032): `[a-z0-9][a-z0-9._-]{0,62}`.
+/// Valor ruim (inclusive vazio) é erro, nunca "usa o hostname": o dono pode ter definido a variável justamente para fugir dele.
+pub fn resolve_machine(env_value: Option<OsString>) -> Result<Option<String>, CmdError> {
+    let Some(value) = env_value else {
+        return Ok(None);
+    };
+    let label = value.to_str().filter(|text| is_machine_label(text)).ok_or_else(|| {
+        CmdError::new(
+            "invalid_machine",
+            format!("NODUS_MACHINE precisa ser um rótulo de 1 a 63 caracteres de [a-z0-9._-], começando por letra ou dígito (recebi {value:?})"),
+        )
+    })?;
+    Ok(Some(label.to_string()))
+}
+
+fn is_machine_label(text: &str) -> bool {
+    let mut chars = text.chars();
+    let first_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+    first_ok && text.len() <= 63 && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
 /// Lê `nodusctl X.Y.Z` (a saída de `nodusctl --version`). Estrito: sem sufixo, sem prefixo, sem número fora de `u64`.
 pub fn parse_version(output: &str) -> Option<(u64, u64, u64)> {
     let version = output.trim_end_matches('\n').strip_prefix("nodusctl ")?;
@@ -313,10 +335,10 @@ pub(crate) fn check_version(binary: &Path, gui_version: (u64, u64, u64), timeout
 }
 
 /// Roda um comando de leitura e devolve o JSON bruto (texto). Ordem: lista, versão, comando. O prazo é o do comando.
-/// `preset` é o valor cru de `NODUS_PRESET`; só o `preset_plan` o usa.
-pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64), preset: Option<OsString>) -> Result<String, CmdError> {
+/// `preset` é o valor cru de `NODUS_PRESET` (os comandos de preset o usam); `machine`, o de `NODUS_MACHINE` (só `preset_plan` e `preset_suggest`).
+pub fn read(binary: &Path, name: &str, gui_version: (u64, u64, u64), preset: Option<OsString>, machine: Option<OsString>) -> Result<String, CmdError> {
     let timeout = Allowed::parse(name).map_or(DEFAULT_TIMEOUT, Allowed::timeout);
-    read_with(binary, name, gui_version, preset, timeout)
+    read_with(binary, name, gui_version, preset, machine, timeout)
 }
 
 /// Como `read`, com o prazo escolhido por quem chama (os testes usam um prazo curto). O prazo vale para cada processo: a
@@ -326,6 +348,7 @@ pub fn read_with(
     name: &str,
     gui_version: (u64, u64, u64),
     preset: Option<OsString>,
+    machine: Option<OsString>,
     timeout: Duration,
 ) -> Result<String, CmdError> {
     let allowed = Allowed::parse(name)
@@ -334,6 +357,14 @@ pub fn read_with(
     let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
     if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest | Allowed::PresetStatus) {
         argv.push(resolve_preset(preset)?.into_os_string());
+    }
+    // `preset status` não recebe a máquina (usa o nome do snapshot e a CLI recusa a flag), e uma NODUS_MACHINE ruim não o derruba.
+    // Argumentos separados, nunca `--machine=<valor>`.
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest)
+        && let Some(label) = resolve_machine(machine)?
+    {
+        argv.push("--machine".into());
+        argv.push(label.into());
     }
 
     check_version(binary, gui_version, timeout)?;
@@ -365,19 +396,25 @@ pub(crate) mod tests {
 
     fn ler(binary: &Path, name: &str, gui: (u64, u64, u64)) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
-        read(binary, name, gui, None)
+        read(binary, name, gui, None, None)
     }
 
     /// Como `ler`, com o valor que `NODUS_PRESET` teria (o backend lê a variável; o frontend nunca fornece caminho).
     fn ler_preset(binary: &Path, name: &str, gui: (u64, u64, u64), preset: Option<&str>) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
-        read(binary, name, gui, preset.map(std::ffi::OsString::from))
+        read(binary, name, gui, preset.map(std::ffi::OsString::from), None)
+    }
+
+    /// Como `ler_preset`, com o valor que `NODUS_MACHINE` teria (também lido só no Rust).
+    fn ler_maquina(binary: &Path, name: &str, gui: (u64, u64, u64), preset: Option<&str>, machine: Option<&str>) -> Result<String, CmdError> {
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        read(binary, name, gui, preset.map(std::ffi::OsString::from), machine.map(std::ffi::OsString::from))
     }
 
     /// Como `ler`, mas com um prazo curto escolhido pelo teste (sem esperar 30 s no CI).
     fn ler_com_prazo(binary: &Path, name: &str, gui: (u64, u64, u64), prazo: Duration) -> Result<String, CmdError> {
         let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
-        read_with(binary, name, gui, None, prazo)
+        read_with(binary, name, gui, None, None, prazo)
     }
 
     /// O processo existe e não é zumbi? (Um filho morto cujo pai não o recolheu ainda aparece em `/proc` como `Z`.)
@@ -805,6 +842,102 @@ echo "argumentos inesperados: $*" >&2; exit 64
         assert_eq!(resolve_preset(Some("/home/x/preset.toml".into())).unwrap(), PathBuf::from("/home/x/preset.toml"));
         assert_eq!(resolve_preset(None).unwrap_err().kind, "preset_not_set");
         assert_eq!(resolve_preset(Some("preset.toml".into())).unwrap_err().kind, "invalid_preset");
+    }
+
+    // --- NODUS_MACHINE: o rótulo da máquina (`--machine`), lido só no Rust; só `preset plan` e `preset suggest` o recebem ---
+
+    /// Exige exatamente `preset <plan|suggest> --json <arquivo> --machine <rótulo>` (7 argumentos no máximo).
+    const MAQUINA_FALSA: &str = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+if [ "$1" = "preset" ] && { [ "$2" = "plan" ] || [ "$2" = "suggest" ]; } && [ "$3" = "--json" ] && [ -n "$4" ] && [ "$5" = "--machine" ] && [ -n "$6" ] && [ -z "$7" ]; then echo '{"ok":true}'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+
+    #[test]
+    fn resolve_machine_so_aceita_rotulo_valido() {
+        assert_eq!(resolve_machine(None), Ok(None));
+        let longo = "a".repeat(63);
+        for ok in ["notebook", "pc-1", "a.b_c", "0abc", "x", longo.as_str()] {
+            assert_eq!(resolve_machine(Some(ok.into())), Ok(Some(ok.to_string())), "{ok:?}");
+        }
+        let comprido = "a".repeat(64);
+        for ruim in [
+            "", "Notebook", "MAIUSCULA", "a b", "-x", "--yes", "--machine=x", ".x", "_x", "a/b", "a;ls", "a\nb", "a\0b", "ação", "x$(id)", "~",
+            comprido.as_str(),
+        ] {
+            let erro = resolve_machine(Some(ruim.into())).unwrap_err();
+            assert_eq!(erro.kind, "invalid_machine", "{ruim:?}");
+            assert!(erro.message.contains("NODUS_MACHINE"), "a mensagem precisa nomear a variável: {}", erro.message);
+        }
+    }
+
+    #[test]
+    fn resolve_machine_recusa_texto_que_nao_e_utf8() {
+        use std::os::unix::ffi::OsStringExt;
+        let erro = resolve_machine(Some(std::ffi::OsString::from_vec(vec![b'a', 0xff, b'b']))).unwrap_err();
+        assert_eq!(erro.kind, "invalid_machine");
+    }
+
+    #[test]
+    fn plan_e_suggest_levam_a_maquina_como_dois_argumentos_depois_do_caminho() {
+        for nome in ["preset_plan", "preset_suggest"] {
+            let (dir, bin) = falso(MAQUINA_FALSA);
+            let saida = ler_maquina(&bin, nome, (0, 1, 0), Some("/tmp/minha pasta/p.toml"), Some("notebook")).unwrap();
+            assert_eq!(saida.trim(), r#"{"ok":true}"#, "{nome}");
+            let comando = nome.trim_start_matches("preset_");
+            assert_eq!(
+                chamadas(&dir),
+                ["--version".to_string(), format!("preset {comando} --json /tmp/minha pasta/p.toml --machine notebook")],
+                "{nome}"
+            );
+        }
+    }
+
+    #[test]
+    fn sem_a_maquina_plan_e_suggest_ficam_como_eram() {
+        // O falso antigo exige exatamente 4 argumentos: qualquer `--machine` a mais o derrubaria.
+        let (dir, bin) = falso(PLANO_FALSO);
+        ler_maquina(&bin, "preset_plan", (0, 1, 0), Some("/tmp/p.toml"), None).unwrap();
+        assert_eq!(chamadas(&dir), ["--version", "preset plan --json /tmp/p.toml"]);
+    }
+
+    #[test]
+    fn o_status_nao_recebe_a_maquina_nem_quando_ela_esta_ruim() {
+        // `preset status` usa o nome do snapshot e a CLI recusa `--machine` nele; uma NODUS_MACHINE ruim não pode derrubar a aba.
+        for machine in ["notebook", "Maiuscula", ""] {
+            let (dir, bin) = falso(STATUS_FALSO);
+            ler_maquina(&bin, "preset_status", (0, 1, 0), Some("/tmp/p.toml"), Some(machine)).unwrap();
+            assert_eq!(chamadas(&dir), ["--version", "preset status --json /tmp/p.toml"], "{machine:?}");
+        }
+    }
+
+    #[test]
+    fn leituras_sem_preset_ignoram_a_maquina() {
+        let (dir, bin) = falso(BOM);
+        ler_maquina(&bin, "inventory", (0, 1, 0), None, Some("Maiuscula")).unwrap();
+        assert_eq!(chamadas(&dir), ["--version", "inventory --json"]);
+    }
+
+    #[test]
+    fn maquina_ruim_em_plan_e_suggest_nada_executa() {
+        for nome in ["preset_plan", "preset_suggest"] {
+            let (dir, bin) = falso(MAQUINA_FALSA);
+            for valor in ["", "Notebook", "-x", "--yes", "a b", "a/b"] {
+                let erro = ler_maquina(&bin, nome, (0, 1, 0), Some("/tmp/p.toml"), Some(valor)).unwrap_err();
+                assert_eq!(erro.kind, "invalid_machine", "{nome} {valor:?}");
+            }
+            assert!(chamadas(&dir).is_empty(), "{nome}: o binário não pode nem ser executado");
+        }
+    }
+
+    #[test]
+    fn o_preset_ruim_vem_antes_da_maquina_ruim() {
+        let (dir, bin) = falso(MAQUINA_FALSA);
+        let erro = ler_maquina(&bin, "preset_plan", (0, 1, 0), None, Some("Maiuscula")).unwrap_err();
+        assert_eq!(erro.kind, "preset_not_set");
+        let erro = ler_maquina(&bin, "preset_suggest", (0, 1, 0), Some("p.toml"), Some("Maiuscula")).unwrap_err();
+        assert_eq!(erro.kind, "invalid_preset");
+        assert!(chamadas(&dir).is_empty());
     }
 
     // --- preset suggest: mesmo mecanismo do plan (arquivo vindo de NODUS_PRESET); sem `--all`, sem adopt/ignore ---

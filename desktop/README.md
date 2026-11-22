@@ -18,6 +18,8 @@ npm install
 NODUSCTL=../target/release/nodusctl npm run tauri dev
 ```
 
+**`NODUS_MACHINE`** (opcional, lida só no Rust): o rótulo da máquina para as exceções `[machines.<rótulo>]` do preset (ADR 0033). Se definida, vira `--machine <rótulo>` em `preset plan` e `preset suggest` (abas Preset e Sugestões), nos botões "Instalar no terminal" (`preset apply`) e "Adotar no terminal" (`preset adopt`) e na releitura do "Voltar a sugerir". Sem ela, a CLI usa o hostname (só se o preset tem `[machines]`). Use quando o hostname tiver maiúsculas ou outro caractere fora de `[a-z0-9._-]`: a CLI erra pedindo `--machine` e a janela não tem como passá-lo. Regra do valor: 1 a 63 caracteres de `[a-z0-9._-]`, começando por letra ou dígito; valor ruim (inclusive vazio) é erro nas abas e ações que a usam, e não derruba as outras (Status e Inventário, por exemplo). Exemplo: `NODUS_PRESET=/home/eu/preset.toml NODUS_MACHINE=notebook NODUSCTL=../target/release/nodusctl npm run tauri dev`.
+
 Antes do primeiro `npm install`, rode `scripts/disk-report.sh` na raiz do workspace (`node_modules` e `src-tauri/target` pesam centenas de MB).
 
 ## Testes (rodam no CI, `.github/workflows/ci-desktop.yml`)

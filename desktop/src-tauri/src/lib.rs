@@ -20,7 +20,9 @@ fn binary() -> Result<PathBuf, CmdError> {
 async fn read_nodusctl(command: String) -> Result<String, CmdError> {
     // `NODUS_PRESET` só é lida aqui, no Rust: o frontend nunca fornece caminho (e só o `preset_plan` a usa).
     let preset = std::env::var_os("NODUS_PRESET");
-    tauri::async_runtime::spawn_blocking(move || nodusctl::read(&binary()?, &command, gui_version(), preset))
+    // `NODUS_MACHINE` também: só `preset_plan` e `preset_suggest` a usam, e uma ruim não derruba as outras abas.
+    let machine = std::env::var_os("NODUS_MACHINE");
+    tauri::async_runtime::spawn_blocking(move || nodusctl::read(&binary()?, &command, gui_version(), preset, machine))
         .await
         .map_err(|e| CmdError { kind: "failed", message: format!("a leitura foi interrompida: {e}") })?
 }
@@ -35,6 +37,7 @@ async fn run_action(command: String, n: Option<u32>, path: Option<String>) -> Re
     let env = actions::Env {
         binary: binary()?,
         preset: std::env::var_os("NODUS_PRESET"),
+        machine: std::env::var_os("NODUS_MACHINE"),
         terminal: std::env::var_os("NODUS_TERMINAL"),
         path: std::env::var_os("PATH"),
     };

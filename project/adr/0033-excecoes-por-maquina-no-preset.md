@@ -29,7 +29,7 @@ O preset é um arquivo só, compartilhado por git entre as máquinas do dono. O 
 
 ## Consequências
 - **`preset adopt` com tabelas:** adotar numa lista existente funciona e deixa as tabelas intactas (testado). Adotar o que exigiria **criar** uma lista ausente (`pacman`/`flatpak`) num arquivo com `[machines]` recusa e não grava: o texto novo cairia dentro da última tabela. Contorno: criar a lista à mão antes.
-- **A GUI** chama `preset plan` e `preset suggest` sem `--machine`. Com `[machines]` no preset ela depende do hostname; se o hostname não servir de rótulo (maiúsculas, por exemplo), a aba mostra o erro pedindo `--machine`. Não verificado na janela real. A aba Status não é afetada.
+- **A GUI** chamava `preset plan` e `preset suggest` sem `--machine`. Com `[machines]` no preset ela dependia do hostname; se ele não servisse de rótulo (maiúsculas, por exemplo), a aba mostrava o erro pedindo `--machine`, sem como passá-lo. **Resolvido na fatia 5 (ver "Emenda 2")**. A aba Status não é afetada.
 - Custo de reverter: baixo enquanto ninguém tiver `[machines]` no preset; depois disso, um nodus sem o recurso recusa o arquivo.
 
 ## Emenda (2026-11-22, fatia 4): `add_*` por máquina
@@ -42,6 +42,14 @@ Escolhas do dono em plan mode; implementado no PR #156 e verificado no Arch real
 6. Mutações pegas por testes (CI): `for_machine` sem acrescentar (11), `add` já na lista principal aceito (4), `adopt` sem filtrar a lista compartilhada (1), `added()` devolvendo os pulados (22), aviso trocando pulados e acrescentados (4), `adopt` ignorando `--machine` (2).
 7. **Verificado no Arch real em 2026-11-22** (binário da `main` em `5bfc279`, hostname `archlinux`): `plan` pelo hostname (aviso de acrescentados, `sl` a instalar) e com `--machine outra-maquina` (sem aviso, nada a fazer); `add_pacman` repetindo a lista principal (erro citando `"sl"`, saída 1); `add_pacmna` (erro de campo desconhecido listando os quatro válidos, saída 1); `apply` respondendo `n`; `suggest` com `sl` acrescentado e instalado (0 ocorrências, ou seja, conhecido); `adopt --machine` com um item pulado e instalado (`7zip`: a primeira pergunta passou a ser `alsa-firmware`) e com um item que outra máquina acrescenta (recusa sem gravar, item 5).
    **Não verificado:** a GUI (continua sem `--machine`, e o `adopt` não está nela); `status` com o acrescentado instalado só foi visto por ausência (`"sl"` não apareceu em `missing` nem em `extra`; `in_sync` é só uma contagem, então eu esperava "1 ou mais" ocorrências e errei o esperado); hostname com maiúsculas; flatpak em `add_flatpak` (só em teste). O primeiro passo do `adopt` do roteiro (`q` no primeiro item, com `sl` ainda não instalado) não provava nada sobre o filtro; os casos do `7zip` provam.
+
+## Emenda 2 (2026-11-22, fatia 5): `NODUS_MACHINE` na GUI
+Escolha do dono: variável de ambiente lida no Rust, como `NODUS_PRESET` e `NODUS_TERMINAL`; implementado no PR #164, **ainda não verificado na janela real**.
+1. Se `NODUS_MACHINE` está definida, a GUI passa `--machine <rótulo>` (dois argumentos, nunca `--machine=<valor>`) a `preset plan` e `preset suggest` (leituras), a `preset apply` e `preset adopt` (ações no terminal) e à releitura de `ignored` do `preset unignore`, que usa `preset suggest`. O comando do `unignore` em si não leva a flag (a CLI não a tem). `preset status` não a recebe (usa o nome do snapshot; a CLI a recusa). Sem a variável, o argv é o de antes.
+2. Valor: a regra do rótulo (ADR 0032). Valor ruim, inclusive vazio, é erro `invalid_machine` (nunca "usa o hostname", que pode ser o que o dono quis evitar), antes de rodar qualquer coisa, e só nas abas e ações que a usam. A ordem das conferências é: arquivo do preset, máquina, terminal, versão da CLI.
+3. Descartado: campo de texto na tela; o ADR 0028 só deixa vir da tela o que a CLI lista na hora.
+4. Mutações pegas por testes (CI do desktop): plan e suggest sem a flag (2 testes), `status` recebendo a flag (1), apply e adopt sem a flag (1), releitura do `unignore` sem a máquina (2), regra do rótulo só exigindo não vazio (3), `--machine=<valor>` num argumento só (2).
+5. **Não verificado:** a janela real; `NODUS_MACHINE` vazia (`NODUS_MACHINE=` no shell) quebra as abas em vez de ser ignorada (decisão acima, que o dono pode querer mudar).
 
 ## Lacunas
 - **Verificado no Arch real em 2026-11-22** (binário da `main` em `ed0451b`, hostname `archlinux`): `plan` pelo hostname e com `--machine`, `--json`, rótulo inválido, typo em `skip` (erro, saída 1), `apply` respondendo `n`, `adopt` num preset com tabelas (só a linha de `pacman` mudou) e `status` com e sem a exceção (0 contra 1 ocorrência de `"sl"`).
