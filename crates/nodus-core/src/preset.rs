@@ -3,7 +3,7 @@
 use crate::inventory::{FlatpakApp, InventoryError, Package, parse_pacman_q, read_flatpak_apps};
 use crate::runner::{CommandRunner, RunnerError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use thiserror::Error;
 
 /// Único formato aceito hoje. Outro número é recusado, nunca "adivinhado".
@@ -31,6 +31,18 @@ pub enum PresetError {
     },
     #[error("nome repetido em `{list}`: {name:?}")]
     Duplicate { list: &'static str, name: String },
+    #[error(
+        "rótulo de máquina inválido {0:?}: use 1 a 63 caracteres de [a-z0-9._-], começando por letra ou dígito"
+    )]
+    InvalidMachineLabel(String),
+    #[error(
+        "`{list}` da máquina {machine:?} cita {name:?}, que não está na lista principal do preset"
+    )]
+    SkipNotInPreset {
+        machine: String,
+        list: &'static str,
+        name: String,
+    },
     #[error("não consegui acrescentar ao preset sem alterar o resto: {0}")]
     Edit(String),
 }
@@ -78,18 +90,114 @@ struct RawPreset {
     pacman: Vec<String>,
     #[serde(default)]
     flatpak: Vec<String>,
+    #[serde(default)]
+    machines: BTreeMap<String, RawMachine>,
 }
 
+/// `[machines.<rótulo>]`: o que o preset compartilhado não vale para aquela máquina.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachine {
+    #[serde(default)]
+    skip_pacman: Vec<String>,
+    #[serde(default)]
+    skip_flatpak: Vec<String>,
+}
+
+/// O que uma máquina pula do preset compartilhado.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Skipped {
+    pub pacman: Vec<String>,
+    pub flatpak: Vec<String>,
+}
+
+impl Skipped {
+    pub fn is_empty(&self) -> bool {
+        self.pacman.is_empty() && self.flatpak.is_empty()
+    }
+}
+
+/// O preset como está no arquivo: as listas compartilhadas mais as exceções por máquina.
+/// `for_machine` entrega o preset efetivo de uma máquina, e é ele que `plan`, `suggest` e `status`
+/// comparam: nenhum deles precisa saber que existem exceções.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetFile {
+    pub preset: Preset,
+    machines: BTreeMap<String, Skipped>,
+}
+
+impl PresetFile {
+    pub fn has_machines(&self) -> bool {
+        !self.machines.is_empty()
+    }
+
+    /// O que a máquina `label` pula (vazio se não há tabela para ela; o rótulo é comparado inteiro).
+    pub fn skipped(&self, label: &str) -> Skipped {
+        self.machines.get(label).cloned().unwrap_or_default()
+    }
+
+    /// O preset sem os itens que a máquina `label` pula, na ordem original.
+    pub fn for_machine(&self, label: &str) -> Preset {
+        let skipped = self.skipped(label);
+        let keep = |names: &[String], skip: &[String]| -> Vec<String> {
+            names
+                .iter()
+                .filter(|name| !skip.contains(name))
+                .cloned()
+                .collect()
+        };
+        Preset {
+            pacman: keep(&self.preset.pacman, &skipped.pacman),
+            flatpak: keep(&self.preset.flatpak, &skipped.flatpak),
+        }
+    }
+}
+
+/// Preset completo, sem as exceções por máquina (quem edita o arquivo, como o `adopt`, vê tudo).
 pub fn parse_preset(input: &str) -> Result<Preset, PresetError> {
+    Ok(parse_preset_file(input)?.preset)
+}
+
+pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
     let raw: RawPreset = toml::from_str(input).map_err(|e| PresetError::Toml(e.to_string()))?;
     if raw.version != FORMAT_VERSION {
         return Err(PresetError::UnsupportedVersion(raw.version));
     }
     validate("pacman", &raw.pacman, is_valid_pacman_name)?;
     validate("flatpak", &raw.flatpak, is_valid_flatpak_id)?;
-    Ok(Preset {
-        pacman: raw.pacman,
-        flatpak: raw.flatpak,
+    let mut machines = BTreeMap::new();
+    for (label, machine) in raw.machines {
+        crate::snapshot::validate_name(&label)
+            .map_err(|_| PresetError::InvalidMachineLabel(label.clone()))?;
+        validate("skip_pacman", &machine.skip_pacman, is_valid_pacman_name)?;
+        validate("skip_flatpak", &machine.skip_flatpak, is_valid_flatpak_id)?;
+        // Um pulo que não bate com nenhum item é quase sempre typo: erro, não "não faz nada".
+        for (list, skip, shared) in [
+            ("skip_pacman", &machine.skip_pacman, &raw.pacman),
+            ("skip_flatpak", &machine.skip_flatpak, &raw.flatpak),
+        ] {
+            if let Some(name) = skip.iter().find(|name| !shared.contains(name)) {
+                return Err(PresetError::SkipNotInPreset {
+                    machine: label,
+                    list,
+                    name: name.clone(),
+                });
+            }
+        }
+        machines.insert(
+            label,
+            Skipped {
+                pacman: machine.skip_pacman,
+                flatpak: machine.skip_flatpak,
+            },
+        );
+    }
+    Ok(PresetFile {
+        preset: Preset {
+            pacman: raw.pacman,
+            flatpak: raw.flatpak,
+        },
+        machines,
     })
 }
 
@@ -139,6 +247,9 @@ struct SpannedPreset {
     version: i64,
     pacman: Option<toml::Spanned<Vec<toml::Spanned<String>>>>,
     flatpak: Option<toml::Spanned<Vec<toml::Spanned<String>>>>,
+    /// As exceções por máquina não são editadas aqui; só precisam ser aceitas.
+    #[allow(dead_code)]
+    machines: Option<toml::Value>,
 }
 
 /// Acrescenta nomes ao texto de um preset **sem mexer em mais nada**: comentários, ordem, linhas em
@@ -1592,5 +1703,218 @@ mod tests {
         assert!(visivel.is_empty());
         assert!(!visivel.flatpak_installed);
         assert_eq!(escondidos.len(), 2);
+    }
+
+    // Exceções por máquina (Fase 2, fatia 3): `[machines.<rótulo>]` com `skip_pacman` e
+    // `skip_flatpak`. O preset é entrada não confiável: tudo é validado no parse.
+
+    const COM_MAQUINAS: &str = "version = 1\n\
+        pacman = [\"base\", \"git\", \"steam\"]\n\
+        flatpak = [\"org.gnome.Calculator\", \"org.x.Y\"]\n\
+        \n\
+        [machines.notebook]\n\
+        skip_pacman = [\"steam\"]\n\
+        skip_flatpak = [\"org.gnome.Calculator\"]\n";
+
+    fn com_pulo(corpo: &str) -> String {
+        format!(
+            "version = 1\npacman = [\"base\", \"git\", \"steam\"]\nflatpak = [\"org.x.Y\"]\n\n{corpo}"
+        )
+    }
+
+    #[test]
+    fn maquina_com_tabela_recebe_o_preset_sem_os_itens_pulados() {
+        let arquivo = parse_preset_file(COM_MAQUINAS).unwrap();
+        let efetivo = arquivo.for_machine("notebook");
+        assert_eq!(efetivo.pacman, nomes(&["base", "git"]));
+        assert_eq!(efetivo.flatpak, nomes(&["org.x.Y"]));
+    }
+
+    #[test]
+    fn maquina_sem_tabela_recebe_o_preset_inteiro() {
+        let arquivo = parse_preset_file(COM_MAQUINAS).unwrap();
+        let efetivo = arquivo.for_machine("desktop");
+        assert_eq!(efetivo.pacman, nomes(&["base", "git", "steam"]));
+        assert_eq!(efetivo.flatpak, nomes(&["org.gnome.Calculator", "org.x.Y"]));
+    }
+
+    #[test]
+    fn o_rotulo_e_comparado_inteiro_e_sem_confundir_maiusculas() {
+        let arquivo = parse_preset_file(COM_MAQUINAS).unwrap();
+        for outro in ["note", "notebook2", "Notebook", "notebook.", ""] {
+            assert_eq!(
+                arquivo.for_machine(outro).pacman,
+                nomes(&["base", "git", "steam"]),
+                "{outro:?} não é o rótulo `notebook`"
+            );
+        }
+    }
+
+    #[test]
+    fn sem_tabela_nenhuma_o_resultado_e_o_de_antes() {
+        let texto = "version = 1\npacman = [\"base\"]\nflatpak = [\"org.x.Y\"]\n";
+        let arquivo = parse_preset_file(texto).unwrap();
+        assert_eq!(arquivo.preset, parse_preset(texto).unwrap());
+        assert_eq!(arquivo.for_machine("qualquer"), arquivo.preset);
+        assert!(!arquivo.has_machines());
+    }
+
+    #[test]
+    fn parse_preset_devolve_o_preset_inteiro_mesmo_com_tabelas() {
+        let completo = parse_preset(COM_MAQUINAS).unwrap();
+        assert_eq!(completo.pacman, nomes(&["base", "git", "steam"]));
+        assert!(parse_preset_file(COM_MAQUINAS).unwrap().has_machines());
+    }
+
+    #[test]
+    fn skipped_lista_o_que_foi_pulado_naquela_maquina() {
+        let arquivo = parse_preset_file(COM_MAQUINAS).unwrap();
+        let pulados = arquivo.skipped("notebook");
+        assert_eq!(pulados.pacman, nomes(&["steam"]));
+        assert_eq!(pulados.flatpak, nomes(&["org.gnome.Calculator"]));
+        assert!(arquivo.skipped("desktop").is_empty());
+    }
+
+    #[test]
+    fn tabela_so_com_uma_das_listas_vale() {
+        let texto = com_pulo("[machines.pc]\nskip_pacman = [\"steam\"]\n");
+        let efetivo = parse_preset_file(&texto).unwrap().for_machine("pc");
+        assert_eq!(efetivo.pacman, nomes(&["base", "git"]));
+        assert_eq!(efetivo.flatpak, nomes(&["org.x.Y"]));
+    }
+
+    #[test]
+    fn duas_maquinas_pulam_coisas_diferentes() {
+        let texto = com_pulo(
+            "[machines.a]\nskip_pacman = [\"steam\"]\n[machines.b]\nskip_pacman = [\"git\"]\n",
+        );
+        let arquivo = parse_preset_file(&texto).unwrap();
+        assert_eq!(arquivo.for_machine("a").pacman, nomes(&["base", "git"]));
+        assert_eq!(arquivo.for_machine("b").pacman, nomes(&["base", "steam"]));
+    }
+
+    #[test]
+    fn pular_item_que_nao_esta_na_lista_principal_e_erro() {
+        let texto = com_pulo("[machines.pc]\nskip_pacman = [\"stam\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::SkipNotInPreset {
+                machine: "pc".into(),
+                list: "skip_pacman",
+                name: "stam".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nskip_flatpak = [\"org.z.Z\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::SkipNotInPreset {
+                machine: "pc".into(),
+                list: "skip_flatpak",
+                name: "org.z.Z".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn nome_invalido_ou_repetido_em_skip_e_recusado() {
+        let texto = com_pulo("[machines.pc]\nskip_pacman = [\"git\", \"--overwrite=*\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::InvalidName {
+                list: "skip_pacman",
+                number: 2,
+                name: "--overwrite=*".into(),
+            })
+        );
+        let texto = com_pulo("[machines.pc]\nskip_pacman = [\"git\", \"git\"]\n");
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::Duplicate {
+                list: "skip_pacman",
+                name: "git".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn rotulo_invalido_e_recusado() {
+        let compridos = "a".repeat(64);
+        let recusados = [
+            "Notebook",
+            "a b",
+            "-x",
+            ".x",
+            "a/b",
+            "a\"b",
+            compridos.as_str(),
+        ];
+        for rotulo in recusados {
+            let texto = com_pulo(&format!("[machines.{rotulo:?}]\nskip_pacman = [\"git\"]\n"));
+            assert_eq!(
+                parse_preset_file(&texto),
+                Err(PresetError::InvalidMachineLabel(rotulo.to_string())),
+                "{rotulo:?} deveria ser recusado"
+            );
+        }
+        let ok = "a".repeat(63);
+        let texto = com_pulo(&format!("[machines.{ok}]\nskip_pacman = [\"git\"]\n"));
+        assert!(parse_preset_file(&texto).is_ok());
+    }
+
+    #[test]
+    fn campo_desconhecido_na_tabela_da_maquina_e_erro() {
+        let texto = com_pulo("[machines.pc]\nskip_pacmna = [\"git\"]\n");
+        assert!(matches!(
+            parse_preset_file(&texto),
+            Err(PresetError::Toml(_))
+        ));
+        let texto = com_pulo("[machines.pc]\nadd_pacman = [\"vim\"]\n");
+        assert!(matches!(
+            parse_preset_file(&texto),
+            Err(PresetError::Toml(_))
+        ));
+    }
+
+    #[test]
+    fn tabela_machines_com_tipo_errado_e_erro() {
+        let texto = "version = 1\npacman = [\"git\"]\nmachines = [\"pc\"]\n";
+        assert!(matches!(
+            parse_preset_file(texto),
+            Err(PresetError::Toml(_))
+        ));
+    }
+
+    #[test]
+    fn a_versao_continua_sendo_1_com_tabelas() {
+        let texto = COM_MAQUINAS.replacen("version = 1", "version = 2", 1);
+        assert_eq!(
+            parse_preset_file(&texto),
+            Err(PresetError::UnsupportedVersion(2))
+        );
+    }
+
+    #[test]
+    fn adotar_numa_lista_existente_mantem_as_tabelas_intactas() {
+        let novo = add_to_preset(COM_MAQUINAS, &nomes(&["vim"]), &[]).unwrap();
+        let arquivo = parse_preset_file(&novo).unwrap();
+        assert_eq!(
+            arquivo.preset.pacman,
+            nomes(&["base", "git", "steam", "vim"])
+        );
+        assert_eq!(
+            arquivo.for_machine("notebook").pacman,
+            nomes(&["base", "git", "vim"])
+        );
+        assert!(novo.contains("[machines.notebook]\nskip_pacman = [\"steam\"]\n"));
+    }
+
+    #[test]
+    fn adotar_criando_uma_lista_que_falta_com_tabela_no_arquivo_recusa_sem_gravar() {
+        // O texto novo iria para o fim do arquivo, isto é, para dentro da última tabela.
+        let texto = "version = 1\npacman = [\"git\"]\n\n[machines.pc]\nskip_pacman = [\"git\"]\n";
+        assert!(matches!(
+            add_to_preset(texto, &[], &nomes(&["org.x.Y"])),
+            Err(PresetError::Edit(_))
+        ));
     }
 }

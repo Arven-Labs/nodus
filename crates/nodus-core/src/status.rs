@@ -7,7 +7,7 @@
 //! preset: a lista fica "não comparável", como no `compare`.
 
 use crate::compare::diff_sets;
-use crate::preset::Preset;
+use crate::preset::{Preset, PresetFile};
 use crate::snapshot::{Snapshot, SnapshotOs};
 use serde::Serialize;
 
@@ -50,6 +50,12 @@ fn is_list_in_sync(list: &StatusList) -> bool {
         StatusList::Compared { missing, extra, .. } => missing.is_empty() && extra.is_empty(),
         StatusList::NotComparable { .. } => true,
     }
+}
+
+/// Como `status`, mas com as exceções do arquivo: o preset efetivo da máquina é o que tem o
+/// rótulo do snapshot (itens pulados ali não contam como faltando).
+pub fn status_for(file: &PresetFile, snapshot: &Snapshot) -> MachineStatus {
+    status(&file.for_machine(&snapshot.name), snapshot)
 }
 
 pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {
@@ -253,5 +259,61 @@ mod tests {
             "flatpak": {"status": "not_comparable", "lacks": ["pc-a"]}
         });
         assert_eq!(json, esperado);
+    }
+
+    // Exceções por máquina: o `status` usa o rótulo do snapshot para achar a tabela do preset.
+
+    use crate::preset::parse_preset_file;
+
+    const PRESET_COM_MAQUINAS: &str = "version = 1\n\
+        pacman = [\"base\", \"steam\"]\n\
+        flatpak = [\"org.a.A\", \"org.b.B\"]\n\
+        \n\
+        [machines.notebook]\n\
+        skip_pacman = [\"steam\"]\n\
+        skip_flatpak = [\"org.b.B\"]\n";
+
+    #[test]
+    fn item_pulado_naquela_maquina_nao_conta_como_faltando() {
+        let arquivo = parse_preset_file(PRESET_COM_MAQUINAS).unwrap();
+        let s = snap("notebook", &["base"], Some(&["org.a.A"]));
+        let st = status_for(&arquivo, &s);
+        let (falta, sobra, em_dia) = compared(&st.pacman);
+        assert!(falta.is_empty(), "{falta:?}");
+        assert!(sobra.is_empty());
+        assert_eq!(em_dia, 1);
+        let (falta, _, em_dia) = compared(&st.flatpak);
+        assert!(falta.is_empty(), "{falta:?}");
+        assert_eq!(em_dia, 1);
+        assert!(st.is_in_sync());
+    }
+
+    #[test]
+    fn outra_maquina_continua_vendo_o_item_como_faltando() {
+        let arquivo = parse_preset_file(PRESET_COM_MAQUINAS).unwrap();
+        let s = snap("desktop", &["base"], Some(&["org.a.A"]));
+        let st = status_for(&arquivo, &s);
+        assert_eq!(compared(&st.pacman).0, ["steam"]);
+        assert_eq!(compared(&st.flatpak).0, ["org.b.B"]);
+        assert!(!st.is_in_sync());
+    }
+
+    #[test]
+    fn item_pulado_mas_instalado_na_maquina_aparece_como_sobrando() {
+        // O preset efetivo da máquina não o tem: instalar o que ela decidiu pular é divergência.
+        let arquivo = parse_preset_file(PRESET_COM_MAQUINAS).unwrap();
+        let s = snap("notebook", &["base", "steam"], Some(&["org.a.A"]));
+        let st = status_for(&arquivo, &s);
+        let (falta, sobra, _) = compared(&st.pacman);
+        assert!(falta.is_empty());
+        assert_eq!(sobra, ["steam"]);
+    }
+
+    #[test]
+    fn status_for_sem_tabelas_e_igual_ao_status_de_antes() {
+        let texto = "version = 1\npacman = [\"base\", \"htop\"]\nflatpak = []\n";
+        let arquivo = parse_preset_file(texto).unwrap();
+        let s = snap("pc-a", &["base", "vim"], Some(&[]));
+        assert_eq!(status_for(&arquivo, &s), status(&arquivo.preset, &s));
     }
 }

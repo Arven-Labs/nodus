@@ -153,6 +153,10 @@ pub enum PresetAction {
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset. Sem ele, usa o
+        /// hostname (só se o preset tem `[machines]`).
+        #[arg(long)]
+        machine: Option<String>,
     },
     /// Pergunta, item a item (s/N/i/q), se o que está instalado de propósito e fora do preset entra
     /// nele, e acrescenta só o que você adotar, sem mexer no resto do arquivo. `i` ignora o item
@@ -172,6 +176,10 @@ pub enum PresetAction {
         /// Mostra também os itens ignorados.
         #[arg(long)]
         all: bool,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset. Sem ele, usa o
+        /// hostname (só se o preset tem `[machines]`).
+        #[arg(long)]
+        machine: Option<String>,
     },
     /// Lista os itens que você mandou ignorar (no config do usuário).
     Ignored,
@@ -203,6 +211,10 @@ pub enum PresetAction {
         /// outra máquina). Aplica só o pacman e lista o que ficou de fora.
         #[arg(long)]
         skip_flatpak: bool,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset. Sem ele, usa o
+        /// hostname (só se o preset tem `[machines]`).
+        #[arg(long)]
+        machine: Option<String>,
     },
 }
 
@@ -502,12 +514,48 @@ mod tests {
         let cli = Cli::try_parse_from(["nodus", "preset", "plan", "p.toml", "--json"]).unwrap();
         match cli.command {
             Command::Preset {
-                action: PresetAction::Plan { file, json },
+                action: PresetAction::Plan { file, json, .. },
             } => {
                 assert_eq!(file, std::path::PathBuf::from("p.toml"));
                 assert!(json);
             }
             outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn machine_e_opcional_em_plan_apply_e_suggest() {
+        let machine = |args: &[&str]| -> Option<String> {
+            let mut argv = vec!["nodus", "preset"];
+            argv.extend_from_slice(args);
+            match Cli::try_parse_from(argv).unwrap().command {
+                Command::Preset {
+                    action:
+                        PresetAction::Plan { machine, .. }
+                        | PresetAction::Apply { machine, .. }
+                        | PresetAction::Suggest { machine, .. },
+                } => machine,
+                outro => panic!("comando errado: {outro:?}"),
+            }
+        };
+        for acao in ["plan", "apply", "suggest"] {
+            assert_eq!(machine(&[acao, "p.toml"]), None, "{acao} sem a flag");
+            assert_eq!(
+                machine(&[acao, "p.toml", "--machine", "notebook"]),
+                Some("notebook".to_string()),
+                "{acao} com a flag"
+            );
+        }
+    }
+
+    #[test]
+    fn machine_nao_existe_em_adopt_nem_em_status() {
+        for args in [
+            ["nodus", "preset", "adopt", "p.toml", "--machine", "x"],
+            ["nodus", "preset", "status", "p.toml", "--machine", "x"],
+        ] {
+            let erro = Cli::try_parse_from(args).unwrap_err();
+            assert_eq!(erro.kind(), ErrorKind::UnknownArgument, "{args:?}");
         }
     }
 

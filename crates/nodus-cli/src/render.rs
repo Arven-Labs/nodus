@@ -273,6 +273,23 @@ pub fn render_skipped_flatpak(skipped: &[String]) -> String {
     out
 }
 
+/// Uma linha dizendo o que `[machines.<rótulo>]` tirou do preset (nada se não tirou nada).
+pub fn render_skipped_machine(label: &str, skipped: &nodus_core::preset::Skipped) -> String {
+    if skipped.is_empty() {
+        return String::new();
+    }
+    let items: Vec<&str> = skipped
+        .pacman
+        .iter()
+        .chain(&skipped.flatpak)
+        .map(String::as_str)
+        .collect();
+    format!(
+        "Itens pulados nesta máquina ({label}): {}\n",
+        items.join(", ")
+    )
+}
+
 pub fn render_plan(plan: &Plan) -> String {
     let mut out = String::from("Plano (nada foi executado):\n");
     let _ = writeln!(
