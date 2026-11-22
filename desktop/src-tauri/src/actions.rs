@@ -405,9 +405,15 @@ mod tests {
         Env {
             binary: bin.to_path_buf(),
             preset: preset.map(OsString::from),
+            machine: None,
             terminal: terminal.map(|t| t.as_os_str().to_owned()),
             path: path.map(|p| p.as_os_str().to_owned()),
         }
+    }
+
+    /// Como `env`, com o valor que `NODUS_MACHINE` teria (também lido só no Rust).
+    fn env_maquina(bin: &Path, preset: Option<&str>, machine: Option<&str>, terminal: Option<&Path>, path: Option<&Path>) -> Env {
+        Env { machine: machine.map(OsString::from), ..env(bin, preset, terminal, path) }
     }
 
     /// Ação sem argumento vindo da tela (`preset_apply`).
@@ -623,6 +629,7 @@ mod tests {
             let e = Env {
                 binary: bin.clone(),
                 preset: Some("/tmp/p.toml".into()),
+                machine: None,
                 terminal: Some(valor.into()),
                 path: None,
             };
@@ -670,7 +677,7 @@ mod tests {
         let path = std::env::join_paths([sem_permissao.as_path(), term.parent().unwrap()]).unwrap();
         let saida = chamar(
             "preset_apply",
-            Env { binary: bin, preset: Some("/tmp/p.toml".into()), terminal: None, path: Some(path) },
+            Env { binary: bin, preset: Some("/tmp/p.toml".into()), machine: None, terminal: None, path: Some(path) },
         )
         .unwrap();
         assert!(saida.launched);
@@ -1719,5 +1726,115 @@ mod tests {
         assert!(!saida.launched);
         assert_eq!(saida.command, format!("{} preset unignore -- neofetch", bin.display()));
         nada_lancado(&dir);
+    }
+
+    // --- NODUS_MACHINE: `--machine <rótulo>` em `preset apply` e `preset adopt`, e na releitura do `unignore` ---
+
+    /// Como `nodusctl_com_sugestoes`, mas exige `preset suggest --json <arquivo> --machine <rótulo>` (a releitura leva a máquina).
+    fn nodusctl_com_sugestoes_e_maquina(dir: &Path, versao: &str, sugestoes: &str) -> PathBuf {
+        fs::write(dir.join("sugestoes.json"), sugestoes).unwrap();
+        let bin = dir.join("nodusctl");
+        executavel(
+            &bin,
+            &format!(
+                "echo \"$*\" >> '{d}/chamadas'\nif [ \"$1\" = \"--version\" ]; then echo \"nodusctl {versao}\"; exit 0; fi\n\
+                 if [ \"$1\" = \"preset\" ] && [ \"$2\" = \"suggest\" ] && [ \"$3\" = \"--json\" ] && [ -n \"$4\" ] && [ \"$5\" = \"--machine\" ] && [ -n \"$6\" ] && [ -z \"$7\" ]; then cat '{d}/sugestoes.json'; exit 0; fi\n\
+                 exit 0",
+                d = dir.display()
+            ),
+        );
+        bin
+    }
+
+    #[test]
+    fn apply_e_adopt_levam_a_maquina_como_dois_argumentos_no_fim() {
+        for (nome, comando) in [("preset_apply", "apply"), ("preset_adopt", "adopt")] {
+            let dir = pasta();
+            let bin = nodusctl_falso(&dir, "0.1.4");
+            let term = terminal_que_grava(&dir);
+            let saida = chamar(nome, env_maquina(&bin, Some("/tmp/p.toml"), Some("notebook"), Some(&term), None)).unwrap();
+            assert!(saida.launched, "{nome}");
+            assert_eq!(
+                argumentos_do_terminal(&dir),
+                ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "preset", comando, "/tmp/p.toml", "--machine", "notebook"],
+                "{nome}"
+            );
+            assert_eq!(saida.command, format!("{} preset {comando} /tmp/p.toml --machine notebook", bin.display()), "{nome}");
+            assert_eq!(chamadas(&dir), ["--version"], "{nome}: a GUI só confere a versão");
+        }
+    }
+
+    #[test]
+    fn sem_a_maquina_apply_e_adopt_ficam_como_eram() {
+        for (nome, comando) in [("preset_apply", "apply"), ("preset_adopt", "adopt")] {
+            let dir = pasta();
+            let bin = nodusctl_falso(&dir, "0.1.4");
+            let saida = chamar(nome, env_maquina(&bin, Some("/tmp/p.toml"), None, None, Some(&pasta()))).unwrap();
+            assert_eq!(saida.command, format!("{} preset {comando} /tmp/p.toml", bin.display()), "{nome}");
+        }
+    }
+
+    #[test]
+    fn maquina_ruim_em_apply_adopt_e_unignore_nada_executa() {
+        for valor in ["", "Notebook", "-x", "--yes", "a b", "a/b", "a;ls"] {
+            for nome in ["preset_apply", "preset_adopt"] {
+                let dir = pasta();
+                let bin = nodusctl_falso(&dir, "0.1.4");
+                let term = terminal_que_grava(&dir);
+                let erro = chamar(nome, env_maquina(&bin, Some("/tmp/p.toml"), Some(valor), Some(&term), None)).unwrap_err();
+                assert_eq!(erro.kind, "invalid_machine", "{nome} {valor:?}");
+                assert!(chamadas(&dir).is_empty(), "{nome} {valor:?}: nem o `--version` pode rodar");
+                nada_lancado(&dir);
+            }
+            let dir = pasta();
+            let bin = nodusctl_com_sugestoes_e_maquina(&dir, "0.1.4", SUGESTOES);
+            let term = terminal_que_grava(&dir);
+            let e = env_maquina(&bin, Some(PRESET), Some(valor), Some(&term), None);
+            let erro = chamar_path("preset_unignore", "neofetch", e).unwrap_err();
+            assert_eq!(erro.kind, "invalid_machine", "unignore {valor:?}");
+            assert!(chamadas(&dir).is_empty(), "unignore {valor:?}");
+            nada_lancado(&dir);
+        }
+    }
+
+    #[test]
+    fn o_preset_ruim_vem_antes_da_maquina_ruim_nas_acoes() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar("preset_apply", env_maquina(&bin, None, Some("Maiuscula"), Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "preset_not_set");
+        let erro = chamar("preset_adopt", env_maquina(&bin, Some("p.toml"), Some("Maiuscula"), Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_preset");
+        assert!(chamadas(&dir).is_empty());
+    }
+
+    #[test]
+    fn acoes_sem_preset_ignoram_uma_maquina_ruim() {
+        // `history_undo`, `workspace_unset` e os de dotfiles não usam o rótulo: NODUS_MACHINE ruim não pode atrapalhá-los.
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let saida = chamar_n("history_undo", Some(3), env_maquina(&bin, None, Some("Maiuscula"), Some(&term), None)).unwrap();
+        assert!(saida.launched);
+        assert_eq!(saida.command, format!("{} history undo 3", bin.display()));
+        let saida = chamar("workspace_unset", env_maquina(&bin, None, Some("Maiuscula"), Some(&term), None)).unwrap();
+        assert!(saida.launched);
+    }
+
+    #[test]
+    fn unignore_rele_a_lista_com_a_maquina_mas_nao_a_leva_para_o_terminal() {
+        let dir = pasta();
+        let bin = nodusctl_com_sugestoes_e_maquina(&dir, "0.1.4", SUGESTOES);
+        let term = terminal_que_grava(&dir);
+        let saida = chamar_path("preset_unignore", "neofetch", env_maquina(&bin, Some(PRESET), Some("notebook"), Some(&term), None)).unwrap();
+        assert!(saida.launched);
+        assert_eq!(chamadas(&dir), ["--version", &format!("preset suggest --json {PRESET} --machine notebook")]);
+        assert_eq!(
+            argumentos_do_terminal(&dir),
+            ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "preset", "unignore", "--", "neofetch"],
+            "`preset unignore` não tem `--machine`: a CLI recusaria"
+        );
+        assert_eq!(saida.command, format!("{} preset unignore -- neofetch", bin.display()));
     }
 }
