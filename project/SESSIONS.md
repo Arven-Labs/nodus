@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 42, aba Status na GUI (`preset status`, leitura, PR #142)
+
+- **Pedido**: "continuar em código", sem depender da segunda máquina. Escolha do dono: aba "Status" na GUI. Receita já feita (abas Preset #96 e Sugestões #97), então sem plan mode, mas testes primeiro. Escolhas dele ("fecho é isso aí"): mostrar a lista completa do que sobra na máquina; nome "Status".
+- **Feito**: `Allowed::PresetStatus` em `desktop/src-tauri/src/nodusctl.rs` (`preset status --json <arquivo>`, arquivo de `NODUS_PRESET` lido no Rust, sem rótulos, 30 s); `desktop/src/lib/presetStatus.ts` (parser estrito: `machines` e `unreadable`; cada lista é `compared` com `missing`, `extra`, `in_sync`, ou `not_comparable` com `lacks`); tipo em `backend.ts`; tela em `App.tsx` (uma seção por máquina, "em dia com o preset" ou "em dia nas listas comparadas", faltam e sobram em listas separadas, "não comparável" sem chamar de diferença, snapshots ilegíveis, "nenhum snapshot", nota sobre o `pacman -Qe`). Só leitura, sem botão de ação; o `snapshot` continua só na CLI.
+- **Testes**: primeiro, CI vermelho pelo motivo certo (Rust: `E0599`, variante `PresetStatus` inexistente; frontend: `ERR_MODULE_NOT_FOUND` de `presetStatus.ts`); depois verde nos jobs Rust (128 testes) e frontend (81 unitários e 199 e2e, os novos conferidos no log). Mutações em PRs descartáveis (fechados, branches apagadas): status sem o arquivo do preset (2 testes Rust), status desconhecido virando "não comparável" (1), "em dia" invertido (2), "nenhum snapshot" mesmo com ilegíveis (1). A mutação 2 foi barrada duas vezes pelo compilador antes de valer (`TS6133`, import `fail` sem uso) e refeita mantendo o `fail` em uso.
+- **Achado fora do escopo**: o job `Desktop cargo-deny` está vermelho por **RUSTSEC-2026-0592** em `url 2.5.8` (`desktop/src-tauri/Cargo.lock:333`; estouro de pilha em `Url::origin()` com `blob:` aninhado; vem de `tauri` e `reqwest`; correção indicada: `url >= 2.5.9`, `cargo update -p url`). Não é deste PR (o `Cargo.lock` não mudou) e o advisory é novo: a última `main` verde do desktop era do mesmo dia, 04:26. Não corrigi: atualização de dependência (AGENTS §4), outra intenção. Pendente: triagem com `/dependencias nodus`.
+- **Não verificado**: a aba na janela real (só o backend de mentira do e2e); o `--json` do `preset status` no Arch real (a fixture segue `status.rs` e `main.rs`); como fica a tela com 154 itens em "sobram"; `desktop/src-tauri` já tinha diferenças de `rustfmt` (o `fmt` do CI só cobre a raiz). O comentário em `desktop/src-tauri/src/lib.rs:21` ("só o `preset_plan` a usa") já estava velho desde o Suggest e continua.
+
 ### 2026-11-22 — Sessão 41, teste de integração da ligação do `--skip-flatpak` (PR #137)
 
 - **Pedido**: "vamos de 1": cobrir a ligação em `main.rs::preset_apply`, que a sessão 40 deixou sem teste. Plan mode; sem mudança em código de produção.
