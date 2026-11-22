@@ -181,6 +181,19 @@ pub enum PresetAction {
         #[arg(required = true)]
         names: Vec<String>,
     },
+    /// Mostra, por máquina, o que do preset ela não tem e o que ela tem fora do preset, lendo os
+    /// snapshots de `<dotfiles_dir>/.nodus/snapshots/` (somente leitura; não roda pacman nem
+    /// flatpak). Sem rótulos, olha todos os snapshots (um ilegível vira aviso); com rótulos, só
+    /// esses (um ausente ou ruim é erro). O snapshot guarda só o que foi instalado de propósito.
+    Status {
+        /// Arquivo TOML do preset.
+        file: PathBuf,
+        /// Rótulos das máquinas a mostrar (o nome do arquivo, sem `.json`). Sem eles, todas.
+        labels: Vec<String>,
+        /// Emite JSON em vez de texto.
+        #[arg(long)]
+        json: bool,
+    },
     /// Instala o que falta: pacotes pacman (`sudo pacman -S --needed`) e depois apps Flatpak
     /// (`flatpak install --user`, remote `flathub`). Cada passo mostra o comando e pede confirmação.
     Apply {
@@ -646,6 +659,36 @@ mod tests {
             outro => panic!("comando errado: {outro:?}"),
         }
         let erro = Cli::try_parse_from(["nodus", "preset", "unignore"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn preset_status_recebe_o_arquivo_rotulos_opcionais_e_json() {
+        let cli = Cli::try_parse_from(["nodus", "preset", "status", "p.toml"]).unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Status { file, labels, json },
+            } => {
+                assert_eq!(file, std::path::PathBuf::from("p.toml"));
+                assert!(labels.is_empty());
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let cli = Cli::try_parse_from([
+            "nodus", "preset", "status", "p.toml", "pc-a", "pc-b", "--json",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Preset {
+                action: PresetAction::Status { labels, json, .. },
+            } => {
+                assert_eq!(labels, ["pc-a", "pc-b"]);
+                assert!(json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let erro = Cli::try_parse_from(["nodus", "preset", "status"]).unwrap_err();
         assert_eq!(erro.kind(), ErrorKind::MissingRequiredArgument);
     }
 
