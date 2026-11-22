@@ -153,6 +153,10 @@ pub enum PresetAction {
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset. Sem ele, usa o
+        /// hostname (só se o preset tem `[machines]`).
+        #[arg(long)]
+        machine: Option<String>,
     },
     /// Pergunta, item a item (s/N/i/q), se o que está instalado de propósito e fora do preset entra
     /// nele, e acrescenta só o que você adotar, sem mexer no resto do arquivo. `i` ignora o item
@@ -172,6 +176,10 @@ pub enum PresetAction {
         /// Mostra também os itens ignorados.
         #[arg(long)]
         all: bool,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset. Sem ele, usa o
+        /// hostname (só se o preset tem `[machines]`).
+        #[arg(long)]
+        machine: Option<String>,
     },
     /// Lista os itens que você mandou ignorar (no config do usuário).
     Ignored,
@@ -203,6 +211,10 @@ pub enum PresetAction {
         /// outra máquina). Aplica só o pacman e lista o que ficou de fora.
         #[arg(long)]
         skip_flatpak: bool,
+        /// Rótulo desta máquina para as exceções `[machines.<rótulo>]` do preset. Sem ele, usa o
+        /// hostname (só se o preset tem `[machines]`).
+        #[arg(long)]
+        machine: Option<String>,
     },
 }
 

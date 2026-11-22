@@ -7,7 +7,7 @@
 //! preset: a lista fica "não comparável", como no `compare`.
 
 use crate::compare::diff_sets;
-use crate::preset::Preset;
+use crate::preset::{Preset, PresetFile};
 use crate::snapshot::{Snapshot, SnapshotOs};
 use serde::Serialize;
 
@@ -50,6 +50,12 @@ fn is_list_in_sync(list: &StatusList) -> bool {
         StatusList::Compared { missing, extra, .. } => missing.is_empty() && extra.is_empty(),
         StatusList::NotComparable { .. } => true,
     }
+}
+
+/// Como `status`, mas com as exceções do arquivo: o preset efetivo da máquina é o que tem o
+/// rótulo do snapshot (itens pulados ali não contam como faltando).
+pub fn status_for(file: &PresetFile, snapshot: &Snapshot) -> MachineStatus {
+    status(&file.for_machine(&snapshot.name), snapshot)
 }
 
 pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {

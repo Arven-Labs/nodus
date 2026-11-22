@@ -67,20 +67,73 @@ fn main() -> Result<()> {
         },
         Command::Preset { action } => match action {
             PresetAction::Init => preset_init(),
-            PresetAction::Plan { file, json } => preset_plan(&file, json),
-            PresetAction::Suggest { file, json, all } => preset_suggest(&file, json, all),
+            PresetAction::Plan {
+                file,
+                json,
+                machine,
+            } => preset_plan(&file, json, machine.as_deref()),
+            PresetAction::Suggest {
+                file,
+                json,
+                all,
+                machine,
+            } => preset_suggest(&file, json, all, machine.as_deref()),
             PresetAction::Status { file, labels, json } => preset_status(&file, &labels, json),
             PresetAction::Adopt { file } => preset_adopt(&file),
             PresetAction::Ignored => preset_ignored(),
             PresetAction::Unignore { names } => preset_unignore(&names),
-            PresetAction::Apply { file, skip_flatpak } => preset_apply(&file, skip_flatpak),
+            PresetAction::Apply {
+                file,
+                skip_flatpak,
+                machine,
+            } => preset_apply(&file, skip_flatpak, machine.as_deref()),
         },
     }
 }
 
-fn read_and_parse(file: &std::path::Path) -> Result<nodus_core::preset::Preset> {
+fn read_and_parse_file(file: &std::path::Path) -> Result<nodus_core::preset::PresetFile> {
     let text = preset_file::read_preset(file)?;
-    nodus_core::preset::parse_preset(&text).with_context(|| format!("lendo {}", file.display()))
+    nodus_core::preset::parse_preset_file(&text)
+        .with_context(|| format!("lendo {}", file.display()))
+}
+
+/// O preset desta máquina: sem as exceções de `[machines.<rótulo>]`. O rótulo é o de `--machine`
+/// (validado sempre) ou, só se o arquivo tem tabelas, o hostname; sem tabelas o hostname nem é
+/// lido. Devolve também o que foi pulado, para o plano dizer.
+fn read_for_machine(
+    file: &std::path::Path,
+    machine: Option<&str>,
+) -> Result<(
+    nodus_core::preset::Preset,
+    Option<(String, nodus_core::preset::Skipped)>,
+)> {
+    let parsed = read_and_parse_file(file)?;
+    let label = match machine {
+        Some(label) => {
+            nodus_core::snapshot::validate_name(label)?;
+            Some(label.to_string())
+        }
+        None if parsed.has_machines() => Some(
+            default_snapshot_name()
+                .context("o preset tem `[machines]`; passe --machine <rótulo>")?,
+        ),
+        None => None,
+    };
+    Ok(match label {
+        Some(label) => {
+            let skipped = parsed.skipped(&label);
+            (parsed.for_machine(&label), Some((label, skipped)))
+        }
+        None => (parsed.preset, None),
+    })
+}
+
+/// Avisa o que esta máquina pulou do preset (nada se não pulou nada).
+fn emit_machine_skips(skips: Option<&(String, nodus_core::preset::Skipped)>) -> Result<()> {
+    if let Some((label, skipped)) = skips {
+        emit(&render::render_skipped_machine(label, skipped))?;
+    }
+    Ok(())
 }
 
 /// Onde fica o histórico, a partir do ambiente. Resolvido antes de qualquer execução: sem lugar
@@ -243,11 +296,12 @@ fn history_undo(n: u32) -> Result<()> {
     Ok(())
 }
 
-fn preset_apply(file: &std::path::Path, skip_flatpak: bool) -> Result<()> {
+fn preset_apply(file: &std::path::Path, skip_flatpak: bool, machine: Option<&str>) -> Result<()> {
     use std::io::IsTerminal;
     let history_path = history_file()?;
-    let preset = read_and_parse(file)?;
+    let (preset, skips) = read_for_machine(file, machine)?;
     let mut plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
+    emit_machine_skips(skips.as_ref())?;
     if skip_flatpak {
         let (without, skipped) = apply::without_flatpak(&plan);
         plan = without;
@@ -309,19 +363,20 @@ fn preset_init() -> Result<()> {
     Ok(())
 }
 
-fn preset_plan(file: &std::path::Path, json: bool) -> Result<()> {
-    let preset = read_and_parse(file)?;
+fn preset_plan(file: &std::path::Path, json: bool, machine: Option<&str>) -> Result<()> {
+    let (preset, skips) = read_for_machine(file, machine)?;
     let plan = nodus_core::preset::collect_plan(&process::RealRunner, &preset)?;
     if json {
         emit(&format!("{}\n", serde_json::to_string_pretty(&plan)?))?;
     } else {
+        emit_machine_skips(skips.as_ref())?;
         emit(&render::render_plan(&plan))?;
     }
     Ok(())
 }
 
 fn preset_status(file: &std::path::Path, labels: &[String], json: bool) -> Result<()> {
-    let preset = read_and_parse(file)?;
+    let preset = read_and_parse_file(file)?;
     let dir = dotfiles_source_dir()?;
     let (snapshots, unreadable) = if labels.is_empty() {
         snapshot::read_all(&dir)?
@@ -330,7 +385,7 @@ fn preset_status(file: &std::path::Path, labels: &[String], json: bool) -> Resul
     };
     let statuses: Vec<_> = snapshots
         .iter()
-        .map(|snapshot| nodus_core::status::status(&preset, snapshot))
+        .map(|snapshot| nodus_core::status::status_for(&preset, snapshot))
         .collect();
     if json {
         let unreadable: Vec<_> = unreadable
@@ -340,13 +395,22 @@ fn preset_status(file: &std::path::Path, labels: &[String], json: bool) -> Resul
         let report = serde_json::json!({"machines": statuses, "unreadable": unreadable});
         emit(&format!("{}\n", serde_json::to_string_pretty(&report)?))?;
     } else {
-        emit(&render::render_status(&preset, &statuses, &unreadable))?;
+        emit(&render::render_status(
+            &preset.preset,
+            &statuses,
+            &unreadable,
+        ))?;
     }
     Ok(())
 }
 
-fn preset_suggest(file: &std::path::Path, json: bool, all: bool) -> Result<()> {
-    let preset = read_and_parse(file)?;
+fn preset_suggest(
+    file: &std::path::Path,
+    json: bool,
+    all: bool,
+    machine: Option<&str>,
+) -> Result<()> {
+    let (preset, _) = read_for_machine(file, machine)?;
     let suggestions = nodus_core::preset::collect_suggestions(&process::RealRunner, &preset)?;
     let config = config::read(&config_file()?)?;
     let (visible, hidden) = nodus_core::preset::hide_ignored(

@@ -3,7 +3,7 @@
 use crate::inventory::{FlatpakApp, InventoryError, Package, parse_pacman_q, read_flatpak_apps};
 use crate::runner::{CommandRunner, RunnerError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use thiserror::Error;
 
 /// Único formato aceito hoje. Outro número é recusado, nunca "adivinhado".
@@ -31,6 +31,18 @@ pub enum PresetError {
     },
     #[error("nome repetido em `{list}`: {name:?}")]
     Duplicate { list: &'static str, name: String },
+    #[error(
+        "rótulo de máquina inválido {0:?}: use 1 a 63 caracteres de [a-z0-9._-], começando por letra ou dígito"
+    )]
+    InvalidMachineLabel(String),
+    #[error(
+        "`{list}` da máquina {machine:?} cita {name:?}, que não está na lista principal do preset"
+    )]
+    SkipNotInPreset {
+        machine: String,
+        list: &'static str,
+        name: String,
+    },
     #[error("não consegui acrescentar ao preset sem alterar o resto: {0}")]
     Edit(String),
 }
@@ -78,18 +90,114 @@ struct RawPreset {
     pacman: Vec<String>,
     #[serde(default)]
     flatpak: Vec<String>,
+    #[serde(default)]
+    machines: BTreeMap<String, RawMachine>,
 }
 
+/// `[machines.<rótulo>]`: o que o preset compartilhado não vale para aquela máquina.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachine {
+    #[serde(default)]
+    skip_pacman: Vec<String>,
+    #[serde(default)]
+    skip_flatpak: Vec<String>,
+}
+
+/// O que uma máquina pula do preset compartilhado.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Skipped {
+    pub pacman: Vec<String>,
+    pub flatpak: Vec<String>,
+}
+
+impl Skipped {
+    pub fn is_empty(&self) -> bool {
+        self.pacman.is_empty() && self.flatpak.is_empty()
+    }
+}
+
+/// O preset como está no arquivo: as listas compartilhadas mais as exceções por máquina.
+/// `for_machine` entrega o preset efetivo de uma máquina, e é ele que `plan`, `suggest` e `status`
+/// comparam: nenhum deles precisa saber que existem exceções.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetFile {
+    pub preset: Preset,
+    machines: BTreeMap<String, Skipped>,
+}
+
+impl PresetFile {
+    pub fn has_machines(&self) -> bool {
+        !self.machines.is_empty()
+    }
+
+    /// O que a máquina `label` pula (vazio se não há tabela para ela; o rótulo é comparado inteiro).
+    pub fn skipped(&self, label: &str) -> Skipped {
+        self.machines.get(label).cloned().unwrap_or_default()
+    }
+
+    /// O preset sem os itens que a máquina `label` pula, na ordem original.
+    pub fn for_machine(&self, label: &str) -> Preset {
+        let skipped = self.skipped(label);
+        let keep = |names: &[String], skip: &[String]| -> Vec<String> {
+            names
+                .iter()
+                .filter(|name| !skip.contains(name))
+                .cloned()
+                .collect()
+        };
+        Preset {
+            pacman: keep(&self.preset.pacman, &skipped.pacman),
+            flatpak: keep(&self.preset.flatpak, &skipped.flatpak),
+        }
+    }
+}
+
+/// Preset completo, sem as exceções por máquina (quem edita o arquivo, como o `adopt`, vê tudo).
 pub fn parse_preset(input: &str) -> Result<Preset, PresetError> {
+    Ok(parse_preset_file(input)?.preset)
+}
+
+pub fn parse_preset_file(input: &str) -> Result<PresetFile, PresetError> {
     let raw: RawPreset = toml::from_str(input).map_err(|e| PresetError::Toml(e.to_string()))?;
     if raw.version != FORMAT_VERSION {
         return Err(PresetError::UnsupportedVersion(raw.version));
     }
     validate("pacman", &raw.pacman, is_valid_pacman_name)?;
     validate("flatpak", &raw.flatpak, is_valid_flatpak_id)?;
-    Ok(Preset {
-        pacman: raw.pacman,
-        flatpak: raw.flatpak,
+    let mut machines = BTreeMap::new();
+    for (label, machine) in raw.machines {
+        crate::snapshot::validate_name(&label)
+            .map_err(|_| PresetError::InvalidMachineLabel(label.clone()))?;
+        validate("skip_pacman", &machine.skip_pacman, is_valid_pacman_name)?;
+        validate("skip_flatpak", &machine.skip_flatpak, is_valid_flatpak_id)?;
+        // Um pulo que não bate com nenhum item é quase sempre typo: erro, não "não faz nada".
+        for (list, skip, shared) in [
+            ("skip_pacman", &machine.skip_pacman, &raw.pacman),
+            ("skip_flatpak", &machine.skip_flatpak, &raw.flatpak),
+        ] {
+            if let Some(name) = skip.iter().find(|name| !shared.contains(name)) {
+                return Err(PresetError::SkipNotInPreset {
+                    machine: label,
+                    list,
+                    name: name.clone(),
+                });
+            }
+        }
+        machines.insert(
+            label,
+            Skipped {
+                pacman: machine.skip_pacman,
+                flatpak: machine.skip_flatpak,
+            },
+        );
+    }
+    Ok(PresetFile {
+        preset: Preset {
+            pacman: raw.pacman,
+            flatpak: raw.flatpak,
+        },
+        machines,
     })
 }
 
@@ -139,6 +247,9 @@ struct SpannedPreset {
     version: i64,
     pacman: Option<toml::Spanned<Vec<toml::Spanned<String>>>>,
     flatpak: Option<toml::Spanned<Vec<toml::Spanned<String>>>>,
+    /// As exceções por máquina não são editadas aqui; só precisam ser aceitas.
+    #[allow(dead_code)]
+    machines: Option<toml::Value>,
 }
 
 /// Acrescenta nomes ao texto de um preset **sem mexer em mais nada**: comentários, ordem, linhas em
