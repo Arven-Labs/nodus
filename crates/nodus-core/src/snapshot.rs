@@ -67,9 +67,9 @@ pub fn validate_name(name: &str) -> Result<(), SnapshotError> {
         .chars()
         .next()
         .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
-    let rest_ok = name
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-' | '/'));
+    let rest_ok = name.chars().all(|c| {
+        c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-' | '/')
+    });
     if first_ok && rest_ok && name.len() <= MAX_NAME_LEN {
         Ok(())
     } else {
