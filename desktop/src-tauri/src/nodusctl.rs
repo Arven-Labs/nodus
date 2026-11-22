@@ -363,8 +363,7 @@ pub fn read_with(
     if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest)
         && let Some(label) = resolve_machine(machine)?
     {
-        argv.push("--machine".into());
-        argv.push(label.into());
+        let _ = label;
     }
 
     check_version(binary, gui_version, timeout)?;
