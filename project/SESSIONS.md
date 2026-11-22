@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-22 — Sessão 38, `nodusctl preset status` (critério 3, PR #127)
+
+- **Pedido**: planejar e fazer o critério 3 do SPEC §16 ("sincronizar mudanças do preset"). Plan mode. Leitura do problema: o git já leva o arquivo do preset e `preset plan`/`apply` já instala o que falta; faltava **enxergar a divergência do preset entre as máquinas**. Escolhas do dono: lacuna = status do preset por máquina (descartadas: exceções por dispositivo, que exigem preset v2, e só documentar); escopo = todos os snapshots da pasta, rótulos opcionais restringem.
+- **Feito**: `crates/nodus-core/src/status.rs` (`status`, `MachineStatus`, `StatusList`: `Compared { missing, extra, in_sync }` ou `NotComparable`); `diff_sets` extraído do `compare` e compartilhado; `snapshot::read_all`, `read_labels` e `Unreadable` no CLI; `render_status`; subcomando `nodusctl preset status <preset.toml> [rótulo...] [--json]`. Só lê; não roda pacman nem flatpak.
+- **Semântica**: `missing` é "no preset e não instalado de propósito": o snapshot guarda `pacman -Qe`, então um item do preset que veio só como dependência também aparece (o `preset plan` usa `pacman -Q` e o vê). A saída traz uma nota fixa dizendo isso. Máquina sem Flatpak: "não comparável", nunca "faltam apps".
+- **Testes**: primeiro, com CI vermelho (um defeito meu nos testes, constante `NOTA` repetida, foi corrigido antes de valer como prova; depois só itens inexistentes); a implementação teve um erro de compilação meu (`Preset` sem `use`) e foi corrigida; CI verde (27 testes novos, conferidos no log). Mutações numa branch descartável (apagada): trocar `missing` por `extra`, ignorar a capacidade Flatpak, abortar tudo por um snapshot ilegível, não ignorar arquivo começado por ponto, inverter a ordem dos rótulos, não limpar byte de controle do motivo, inverter a condição da nota e tratar "não comparável" como fora de dia derrubaram 14 testes, cada mutação por pelo menos um.
+- **Não verificado**: no Arch real (com o preset do dono e snapshots de máquinas de verdade); se `pacman -Qe` é mesmo o conjunto certo para o `missing` (a nota admite o limite); a saída com listas grandes; o `--json` ponta a ponta (só o formato do core e a montagem em `main.rs`, que não tem teste unitário).
+
 ### 2026-11-22 — Sessão 37, `nodusctl compare` (Fase 2, fatia 2, PR #125)
 
 - **Pedido**: o dono quis a fatia 2. Eu havia recomendado ver um snapshot real antes; ele preferiu seguir (o `compare` só lê, então o risco é de formato de relatório). Plan mode; escolhas dele: entrada = dois snapshots por rótulo; saída = sempre código 0, só relatório.
