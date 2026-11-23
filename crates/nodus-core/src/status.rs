@@ -7,7 +7,7 @@
 //! preset: a lista fica "não comparável", como no `compare`.
 
 use crate::compare::diff_sets;
-use crate::preset::{Preset, PresetFile};
+use crate::preset::{Items, Preset, PresetFile, is_valid_flatpak_id, is_valid_pacman_name};
 use crate::snapshot::{Snapshot, SnapshotOs};
 use serde::Serialize;
 
@@ -56,6 +56,65 @@ fn is_list_in_sync(list: &StatusList) -> bool {
 /// rótulo do snapshot (itens pulados ali não contam como faltando).
 pub fn status_for(file: &PresetFile, snapshot: &Snapshot) -> MachineStatus {
     status(&file.for_machine(&snapshot.name), snapshot)
+}
+
+/// A exceção que `[machines.<rótulo>]` precisaria para a máquina ficar em dia (só sugestão: nada é
+/// escrito). `add` é o que sobra na máquina; `skip` é o que falta nela.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineExceptions {
+    pub machine: String,
+    /// A tabela da máquina já existe no preset: o trecho manda acrescentar nas listas dela.
+    pub table_exists: bool,
+    pub add: Items,
+    pub skip: Items,
+}
+
+impl MachineExceptions {
+    pub fn is_empty(&self) -> bool {
+        self.add.is_empty() && self.skip.is_empty()
+    }
+}
+
+/// Só sugere o que o parse do preset aceita (ADR 0033): `add_*` não pode ser item da lista
+/// principal (um item pulado e instalado é pulo deliberado) e `skip_*` tem de estar nela (um item
+/// que a máquina acrescentou e não instalou se resolve tirando-o do `add_*`). Lista não comparável
+/// (sem a capacidade) não gera sugestão, e nome que o parse recusaria fica de fora: o snapshot vem
+/// de outra máquina.
+pub fn exceptions_for(file: &PresetFile, status: &MachineStatus) -> MachineExceptions {
+    let (add_pacman, skip_pacman) =
+        suggestions(&status.pacman, &file.preset.pacman, is_valid_pacman_name);
+    let (add_flatpak, skip_flatpak) =
+        suggestions(&status.flatpak, &file.preset.flatpak, is_valid_flatpak_id);
+    MachineExceptions {
+        machine: status.machine.clone(),
+        table_exists: file.has_machine(&status.machine),
+        add: Items {
+            pacman: add_pacman,
+            flatpak: add_flatpak,
+        },
+        skip: Items {
+            pacman: skip_pacman,
+            flatpak: skip_flatpak,
+        },
+    }
+}
+
+fn suggestions(
+    list: &StatusList,
+    shared: &[String],
+    is_valid: fn(&str) -> bool,
+) -> (Vec<String>, Vec<String>) {
+    let StatusList::Compared { missing, extra, .. } = list else {
+        return (Vec::new(), Vec::new());
+    };
+    let keep = |names: &[String], in_shared: bool| -> Vec<String> {
+        names
+            .iter()
+            .filter(|name| is_valid(name) && shared.contains(name) == in_shared)
+            .cloned()
+            .collect()
+    };
+    (keep(extra, false), keep(missing, true))
 }
 
 pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {

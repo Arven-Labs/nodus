@@ -6,10 +6,10 @@ use nodus_core::compare::{Comparison, DotfilesComparison, ListComparison};
 use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
-use nodus_core::preset::{Plan, Preset, Suggestions};
+use nodus_core::preset::{Plan, PresetFile, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::snapshot::{DotfileState, SnapshotOs};
-use nodus_core::status::{MachineStatus, StatusList};
+use nodus_core::status::{MachineExceptions, MachineStatus, StatusList, exceptions_for};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
@@ -530,8 +530,46 @@ fn status_section(out: &mut String, title: &str, machine: &str, list: &StatusLis
     }
 }
 
+/// O trecho da exceção sugerida para a máquina (nada é escrito). Sem tabela, mostra a tabela
+/// inteira para colar; com tabela, diz em qual lista acrescentar, porque repetir a chave seria
+/// TOML inválido.
+fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
+    let keys = [
+        ("add_pacman", &exceptions.add.pacman),
+        ("add_flatpak", &exceptions.add.flatpak),
+        ("skip_pacman", &exceptions.skip.pacman),
+        ("skip_flatpak", &exceptions.skip.flatpak),
+    ];
+    if exceptions.is_empty() {
+        return;
+    }
+    let machine = &exceptions.machine;
+    if exceptions.table_exists {
+        let _ = writeln!(
+            out,
+            "  A tabela [machines.{machine}] já existe. Para registrar a exceção, acrescente (nada foi alterado):"
+        );
+        for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
+            let _ = writeln!(out, "    em `{key} = [...]`:");
+            for name in *names {
+                let _ = writeln!(out, "      \"{name}\",");
+            }
+        }
+    } else {
+        let _ = writeln!(
+            out,
+            "  Para registrar como exceção desta máquina, cole no preset (nada foi alterado):"
+        );
+        let _ = writeln!(out, "    [machines.{machine}]");
+        for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
+            let quoted: Vec<String> = names.iter().map(|name| format!("\"{name}\"")).collect();
+            let _ = writeln!(out, "    {key} = [{}]", quoted.join(", "));
+        }
+    }
+}
+
 pub fn render_status(
-    preset: &Preset,
+    file: &PresetFile,
     statuses: &[MachineStatus],
     unreadable: &[Unreadable],
 ) -> String {
@@ -540,8 +578,8 @@ pub fn render_status(
     }
     let mut out = format!(
         "Preset: pacman {}, flatpak {} (só leitura, a partir dos snapshots):\n",
-        preset.pacman.len(),
-        preset.flatpak.len()
+        file.preset.pacman.len(),
+        file.preset.flatpak.len()
     );
     for status in statuses {
         let header = if !status.is_in_sync() {
@@ -559,6 +597,7 @@ pub fn render_status(
         );
         status_section(&mut out, "Pacman", &status.machine, &status.pacman);
         status_section(&mut out, "Flatpak", &status.machine, &status.flatpak);
+        exceptions_section(&mut out, &exceptions_for(file, status));
     }
     for bad in unreadable {
         let _ = writeln!(

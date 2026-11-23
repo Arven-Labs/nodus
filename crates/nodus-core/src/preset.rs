@@ -150,6 +150,11 @@ impl PresetFile {
         !self.machines.is_empty()
     }
 
+    /// Se o arquivo tem a tabela `[machines.<label>]` (mesmo vazia de itens).
+    pub fn has_machine(&self, label: &str) -> bool {
+        self.machines.contains_key(label)
+    }
+
     /// O que a máquina `label` pula (vazio se não há tabela para ela; o rótulo é comparado inteiro).
     pub fn skipped(&self, label: &str) -> Items {
         self.machines
