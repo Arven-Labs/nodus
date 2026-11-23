@@ -836,7 +836,7 @@ function DotfilesCompareView({ a, b, dotfiles }: { a: string; b: string; dotfile
 
 function hasDifferences(c: Comparison): boolean {
   const listDiffers = (l: ListComparison) => l.kind === "compared" && (l.onlyA.length > 0 || l.onlyB.length > 0);
-  return c.os !== null || listDiffers(c.pacman) || listDiffers(c.flatpak) || (c.dotfiles.kind === "compared" && c.dotfiles.differ.length > 0);
+  return listDiffers(c.pacman) || listDiffers(c.flatpak) || (c.dotfiles.kind === "compared" && c.dotfiles.differ.length > 0);
 }
 
 function ComparisonView({ c }: { c: Comparison }) {
