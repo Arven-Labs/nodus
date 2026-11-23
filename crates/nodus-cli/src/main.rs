@@ -837,3 +837,34 @@ fn inventory(json: bool) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod hostname_tests {
+    use super::label_from_hostname;
+
+    #[test]
+    fn hostname_valido_vira_rotulo_sem_o_fim_de_linha() {
+        // O kernel entrega "arch-pc\n"; o rótulo é o nome sem o `\n`.
+        assert_eq!(label_from_hostname("arch-pc\n").unwrap(), "arch-pc");
+    }
+
+    #[test]
+    fn hostname_no_limite_de_63_caracteres_serve() {
+        let host = "a".repeat(63);
+        assert_eq!(label_from_hostname(&host).unwrap(), host);
+    }
+
+    #[test]
+    fn hostname_fora_da_regra_do_rotulo_recusa_e_manda_usar_name() {
+        let longo = "a".repeat(64);
+        for ruim in ["Meu-PC", "", "a b", "é", longo.as_str()] {
+            let erro = label_from_hostname(ruim).unwrap_err();
+            let texto = format!("{erro:#}");
+            assert!(texto.contains("--name"), "{ruim:?}: {texto}");
+            assert!(
+                texto.contains(&format!("{:?}", ruim.trim())),
+                "{ruim:?}: a mensagem deve citar o hostname recusado: {texto}"
+            );
+        }
+    }
+}
