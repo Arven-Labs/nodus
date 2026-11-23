@@ -411,11 +411,7 @@ fn preset_status(file: &std::path::Path, labels: &[String], json: bool) -> Resul
         .map(|snapshot| nodus_core::status::status_for(&preset, snapshot))
         .collect();
     if json {
-        let unreadable: Vec<_> = unreadable
-            .iter()
-            .map(|u| serde_json::json!({"label": u.label, "reason": u.reason}))
-            .collect();
-        let report = serde_json::json!({"machines": statuses, "unreadable": unreadable});
+        let report = render::status_json(&preset, &statuses, &unreadable)?;
         emit(&format!("{}\n", serde_json::to_string_pretty(&report)?))?;
     } else {
         emit(&render::render_status(&preset, &statuses, &unreadable))?;

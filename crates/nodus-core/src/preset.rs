@@ -118,7 +118,7 @@ struct RawMachine {
 }
 
 /// Itens por gerenciador: o que uma máquina pula ou acrescenta.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Items {
     pub pacman: Vec<String>,
     pub flatpak: Vec<String>,

@@ -568,6 +568,29 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
     }
 }
 
+/// O `preset status --json`: cada máquina é o `MachineStatus` mais `exceptions` (o mesmo trecho
+/// que o texto imprime, ADR 0033 emenda 4). A chave está sempre presente, com listas vazias
+/// quando não há exceção.
+pub fn status_json(
+    file: &PresetFile,
+    statuses: &[MachineStatus],
+    unreadable: &[Unreadable],
+) -> Result<serde_json::Value, serde_json::Error> {
+    let machines = statuses
+        .iter()
+        .map(|status| {
+            let mut machine = serde_json::to_value(status)?;
+            machine["exceptions"] = serde_json::to_value(exceptions_for(file, status))?;
+            Ok(machine)
+        })
+        .collect::<Result<Vec<_>, serde_json::Error>>()?;
+    let unreadable: Vec<_> = unreadable
+        .iter()
+        .map(|u| serde_json::json!({"label": u.label, "reason": u.reason}))
+        .collect();
+    Ok(serde_json::json!({"machines": machines, "unreadable": unreadable}))
+}
+
 pub fn render_status(
     file: &PresetFile,
     statuses: &[MachineStatus],
@@ -2191,7 +2214,7 @@ notebook (Arch Linux):
 
     fn json_de(file: &PresetFile, snapshots: &[nodus_core::snapshot::Snapshot]) -> Value {
         let estados: Vec<_> = snapshots.iter().map(|s| estado(file, s)).collect();
-        status_json(file, &estados, &[])
+        status_json(file, &estados, &[]).unwrap()
     }
 
     #[test]
@@ -2290,7 +2313,7 @@ notebook (Arch Linux):
             label: "quebrado".into(),
             reason: "JSON inválido".into(),
         }];
-        let json = status_json(&p, &estados, &ilegiveis);
+        let json = status_json(&p, &estados, &ilegiveis).unwrap();
         let mut maquina = json["machines"][0].clone();
         maquina.as_object_mut().unwrap().remove("exceptions");
         assert_eq!(
