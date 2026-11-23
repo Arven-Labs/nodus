@@ -86,8 +86,7 @@ function listComparison(value: unknown, path: string): ListComparison {
       common: count(field(list, "common", `${path}.`), `${path}.common`),
     };
   }
-  if (kind === "not_comparable") return { kind: "not_comparable", lacks: names(list, "lacks", `${path}.`) };
-  return fail(`${path}.status`, "`compared` ou `not_comparable`");
+  return { kind: "not_comparable", lacks: names(list, "lacks", `${path}.`) };
 }
 
 function dotfileState(value: unknown, path: string): DotfileState | null {
