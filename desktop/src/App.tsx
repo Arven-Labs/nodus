@@ -781,7 +781,7 @@ function osLabel(os: OsInfo): string {
 
 /** "Não comparável" não é diferença: cita quem não tem a capacidade (uma ou duas máquinas). */
 function lacksText(lacks: string[], one: string, many: string): string {
-  return `${lacks.join(" e ")} ${lacks.length === 1 ? one : many}`;
+  return `${lacks.join(" e ")} ${lacks.length === 1 || many.length > 0 ? one : many}`;
 }
 
 function ListCompareView({ label, a, b, list }: { label: string; a: string; b: string; list: ListComparison }) {
