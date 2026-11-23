@@ -348,6 +348,173 @@ fn o_preset_status_continua_lendo_snapshots_v1_e_v2() {
     );
 }
 
+// `compare --all` (Fase 2, fatia 7): todos os pares de snapshots legíveis, em ordem de rótulo.
+
+fn gravar_v1(c: &Cenario, rotulo: &str) {
+    let texto = V1_ANTIGO.replacen(
+        "\"name\": \"antigo\"",
+        &format!("\"name\": \"{rotulo}\""),
+        1,
+    );
+    let caminho = arquivo_do_snapshot(c, rotulo);
+    std::fs::write(&caminho, texto).unwrap();
+    std::fs::set_permissions(&caminho, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+fn posicao(texto: &str, trecho: &str) -> usize {
+    texto
+        .find(trecho)
+        .unwrap_or_else(|| panic!("falta {trecho:?}:\n{texto}"))
+}
+
+#[test]
+fn compare_all_compara_todos_os_pares_em_ordem_de_rotulo() {
+    let c = cenario("all-pares", "");
+    montar_home(&c);
+    assert!(rodar(&c, &["snapshot", "--name", "a-um"]).sucesso);
+    std::fs::remove_file(c.home.join(".bashrc")).unwrap();
+    std::fs::write(c.home.join(".bashrc"), "# solto\n").unwrap();
+    assert!(rodar(&c, &["snapshot", "--name", "b-dois"]).sucesso);
+    gravar_v1(&c, "c-antigo");
+
+    let s = rodar(&c, &["compare", "--all"]);
+    assert!(s.sucesso, "{}", s.stderr);
+    let primeiro = posicao(&s.stdout, "Comparando a-um com b-dois");
+    let segundo = posicao(&s.stdout, "Comparando a-um com c-antigo");
+    let terceiro = posicao(&s.stdout, "Comparando b-dois com c-antigo");
+    assert!(primeiro < segundo && segundo < terceiro, "{}", s.stdout);
+    assert_eq!(
+        s.stdout.matches("\n\nComparando ").count(),
+        2,
+        "{}",
+        s.stdout
+    );
+    assert!(
+        s.stdout
+            .contains("    .bashrc: a-um ligado, b-dois arquivo\n"),
+        "{}",
+        s.stdout
+    );
+    assert!(
+        s.stdout
+            .contains("Dotfiles: não comparável, c-antigo não registrou dotfiles"),
+        "{}",
+        s.stdout
+    );
+
+    let j = rodar(&c, &["compare", "--all", "--json"]);
+    assert!(j.sucesso, "{}", j.stderr);
+    let json: serde_json::Value = serde_json::from_str(&j.stdout).unwrap();
+    let pares: Vec<(&str, &str)> = json["comparisons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| (p["a"].as_str().unwrap(), p["b"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        pares,
+        [
+            ("a-um", "b-dois"),
+            ("a-um", "c-antigo"),
+            ("b-dois", "c-antigo")
+        ]
+    );
+    assert_eq!(json["unreadable"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn compare_all_com_um_ou_nenhum_snapshot_nao_e_erro() {
+    let c = cenario("all-poucos", "");
+    montar_home(&c);
+    let zero = rodar(&c, &["compare", "--all"]);
+    assert!(zero.sucesso, "{}", zero.stderr);
+    assert!(
+        zero.stdout
+            .contains("Preciso de pelo menos dois snapshots legíveis para comparar (há 0)."),
+        "{}",
+        zero.stdout
+    );
+    assert!(rodar(&c, &["snapshot", "--name", "so-um"]).sucesso);
+    let um = rodar(&c, &["compare", "--all"]);
+    assert!(um.sucesso, "{}", um.stderr);
+    assert!(
+        um.stdout
+            .contains("Preciso de pelo menos dois snapshots legíveis para comparar (há 1)."),
+        "{}",
+        um.stdout
+    );
+    let j = rodar(&c, &["compare", "--all", "--json"]);
+    assert!(j.sucesso, "{}", j.stderr);
+    let json: serde_json::Value = serde_json::from_str(&j.stdout).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"comparisons": [], "unreadable": []})
+    );
+}
+
+#[test]
+fn compare_all_snapshot_ilegivel_vira_aviso_e_os_outros_sao_comparados() {
+    let c = cenario("all-ilegivel", "");
+    montar_home(&c);
+    assert!(rodar(&c, &["snapshot", "--name", "a-um"]).sucesso);
+    assert!(rodar(&c, &["snapshot", "--name", "b-dois"]).sucesso);
+    let ruim = arquivo_do_snapshot(&c, "ruim");
+    std::fs::write(&ruim, "não é json").unwrap();
+    std::fs::set_permissions(&ruim, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let s = rodar(&c, &["compare", "--all"]);
+    assert!(
+        s.sucesso,
+        "um snapshot ruim não derruba o comando: {}",
+        s.stderr
+    );
+    assert_eq!(s.stdout.matches("Comparando ").count(), 1, "{}", s.stdout);
+    assert!(
+        s.stdout
+            .contains("Aviso: não consegui ler o snapshot ruim: "),
+        "{}",
+        s.stdout
+    );
+    let j = rodar(&c, &["compare", "--all", "--json"]);
+    let json: serde_json::Value = serde_json::from_str(&j.stdout).unwrap();
+    assert_eq!(json["comparisons"].as_array().unwrap().len(), 1);
+    assert_eq!(json["unreadable"][0]["label"], "ruim");
+    assert!(!json["unreadable"][0]["reason"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn compare_all_com_dois_snapshots_sai_igual_ao_compare_dos_dois_rotulos() {
+    let c = cenario("all-igual", "");
+    montar_home(&c);
+    assert!(rodar(&c, &["snapshot", "--name", "a-um"]).sucesso);
+    std::fs::remove_file(c.home.join(".bashrc")).unwrap();
+    assert!(rodar(&c, &["snapshot", "--name", "b-dois"]).sucesso);
+
+    let todos = rodar(&c, &["compare", "--all"]);
+    let par = rodar(&c, &["compare", "a-um", "b-dois"]);
+    assert!(todos.sucesso && par.sucesso);
+    assert_eq!(todos.stdout, par.stdout);
+    let todos_json: serde_json::Value =
+        serde_json::from_str(&rodar(&c, &["compare", "--all", "--json"]).stdout).unwrap();
+    let par_json: serde_json::Value =
+        serde_json::from_str(&rodar(&c, &["compare", "a-um", "b-dois", "--json"]).stdout).unwrap();
+    assert_eq!(todos_json["comparisons"][0], par_json);
+}
+
+#[test]
+fn compare_all_e_rotulos_juntos_e_erro_de_uso_e_nao_le_nada() {
+    let c = cenario("all-uso", "");
+    montar_home(&c);
+    for args in [
+        ["compare", "--all", "a-um"].as_slice(),
+        ["compare", "--all", "a-um", "b-dois"].as_slice(),
+    ] {
+        let s = rodar(&c, args);
+        assert!(!s.sucesso, "{args:?}");
+        assert!(s.stdout.is_empty(), "{args:?}: {}", s.stdout);
+    }
+}
+
 #[test]
 fn sem_home_valido_o_snapshot_erra_e_nao_grava() {
     let c = cenario("sem-home", "");

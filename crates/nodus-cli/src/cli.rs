@@ -35,12 +35,23 @@ pub enum Command {
     /// Compara dois snapshots gravados pelo `snapshot` (em `<dotfiles_dir>/.nodus/snapshots/`) e
     /// mostra o que só existe em cada máquina, por lista. Só lê arquivos (somente leitura). Uma
     /// máquina sem Flatpak não é acusada de "faltar apps": a lista fica "não comparável". Divergir
-    /// não é erro (código 0); arquivo ausente, versão desconhecida ou symlink são.
+    /// não é erro (código 0); arquivo ausente, versão desconhecida ou symlink são. Com `--all`, em
+    /// vez de dois rótulos, compara todos os pares de snapshots legíveis (em ordem de rótulo); um
+    /// snapshot ilegível vira aviso, e com menos de dois legíveis não há o que comparar (não é erro).
     Compare {
         /// Rótulo da primeira máquina (o nome do arquivo, sem `.json`).
-        a: String,
+        #[arg(
+            required_unless_present = "all",
+            requires = "b",
+            conflicts_with = "all"
+        )]
+        a: Option<String>,
         /// Rótulo da segunda máquina.
-        b: String,
+        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        b: Option<String>,
+        /// Compara todos os pares de snapshots em vez de dois rótulos.
+        #[arg(long)]
+        all: bool,
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
@@ -327,8 +338,9 @@ mod tests {
     fn compare_recebe_dois_rotulos_e_json_opcional() {
         let cli = Cli::try_parse_from(["nodus", "compare", "pc-a", "pc-b"]).unwrap();
         match cli.command {
-            Command::Compare { a, b, json } => {
-                assert_eq!((a.as_str(), b.as_str()), ("pc-a", "pc-b"));
+            Command::Compare { a, b, all, json } => {
+                assert_eq!((a.as_deref(), b.as_deref()), (Some("pc-a"), Some("pc-b")));
+                assert!(!all);
                 assert!(!json);
             }
             outro => panic!("comando errado: {outro:?}"),
@@ -339,6 +351,49 @@ mod tests {
         assert!(Cli::try_parse_from(["nodus", "compare"]).is_err());
         assert!(Cli::try_parse_from(["nodus", "compare", "pc-a"]).is_err());
         assert!(Cli::try_parse_from(["nodus", "compare", "a", "b", "c"]).is_err());
+    }
+
+    #[test]
+    fn compare_all_nao_leva_rotulos_e_aceita_json() {
+        let cli = Cli::try_parse_from(["nodus", "compare", "--all"]).unwrap();
+        match cli.command {
+            Command::Compare { a, b, all, json } => {
+                assert_eq!((a, b), (None, None));
+                assert!(all);
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+        let cli = Cli::try_parse_from(["nodus", "compare", "--all", "--json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Compare {
+                all: true,
+                json: true,
+                ..
+            }
+        ));
+        // `--all` e rótulos não se misturam, em nenhuma ordem.
+        for args in [
+            ["nodus", "compare", "--all", "pc-a"].as_slice(),
+            ["nodus", "compare", "--all", "pc-a", "pc-b"].as_slice(),
+            ["nodus", "compare", "pc-a", "--all"].as_slice(),
+            ["nodus", "compare", "pc-a", "pc-b", "--all"].as_slice(),
+        ] {
+            let erro = Cli::try_parse_from(args).unwrap_err();
+            assert_eq!(erro.kind(), ErrorKind::ArgumentConflict, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn compare_sem_rotulos_e_sem_all_e_erro_de_uso() {
+        for args in [
+            ["nodus", "compare"].as_slice(),
+            ["nodus", "compare", "--json"].as_slice(),
+            ["nodus", "compare", "pc-a", "--json"].as_slice(),
+        ] {
+            assert!(Cli::try_parse_from(args).is_err(), "{args:?}");
+        }
     }
 
     #[test]
