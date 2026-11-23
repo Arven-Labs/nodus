@@ -1962,6 +1962,10 @@ pc-a (Arch Linux):
     instalado de propósito e fora do preset (1):
       vim
   Flatpak: 1 em dia
+  Para registrar como exceção desta máquina, cole no preset (nada foi alterado):
+    [machines.pc-a]
+    add_pacman = [\"vim\"]
+    skip_pacman = [\"htop\"]
 {NOTA_STATUS}"
         );
         assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
