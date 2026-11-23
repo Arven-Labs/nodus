@@ -366,7 +366,7 @@ pub fn read_with(
     }
     // `preset status` não recebe a máquina (usa o nome do snapshot e a CLI recusa a flag), e uma NODUS_MACHINE ruim não o derruba.
     // Argumentos separados, nunca `--machine=<valor>`.
-    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest)
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest | Allowed::CompareAll)
         && let Some(label) = resolve_machine(machine)?
     {
         argv.push("--machine".into());
