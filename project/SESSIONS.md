@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-23 — Sessão 53, `preset status --json` ganha `exceptions` (Fase 2, fatia 10, PR 1 de 2, ADR 0033 emenda 4, PR #218)
+
+- **Pedido**: "segue" e, das opções, "1" (o trecho `[machines.<rótulo>]` na aba Status da GUI). Escolha do dono entre campo aditivo no `--json`, GUI sem o trecho e GUI mostrando o texto: campo aditivo. Plan mode; aprovou o plano e a tabela de testes sem mudanças. Dois PRs em série (CLI, depois desktop), sem equipe.
+- **Feito**: `Serialize` em `Items` e `MachineExceptions` (`nodus-core`), `status_json` em `crates/nodus-cli/src/render.rs`, chamada em `preset_status` (`main.rs`), ADR 0033 emenda 4. `MachineStatus` e o texto do `status` não mudaram. Desvio do plano: `status_json` devolve `Result` (a `GUIDELINES.md` proíbe `expect` em produção).
+- **Testes**: primeiro, CI vermelho pelo motivo certo (`cannot find function status_json`); depois verde, com clippy. Três mutações em PRs descartáveis (#219 a #221, fechados, branches apagadas), todas pegas por teste: `table_exists` sempre falso (4), `machine` dentro de `exceptions` (2), ilegíveis fora do JSON (1).
+- **Não verificado**: o `--json` no Arch real; a GUI (PR 2: parser exige `exceptions`, bloco `status-excecao`, README).
+- **Fica**: PR 2 (desktop), depois do merge deste; o dono atualizar o `nodusctl` (`cargo install --list` para conferir) antes de abrir a GUI nova.
+
 ### 2026-11-23 — Sessão 52, rótulo padrão vindo do hostname passa a ter teste (Fase 2, PR #216)
 
 - **Pedido**: "equipe, o que você recomenda de código?". Propus duas tarefas de verificação (hostname com maiúsculas; `snapshot` sem HOME e `add_*` em dia) com base na linha da Fase 2 do `ROADMAP.md`. **Erro meu**: li o roadmap, não o código; ao ler, as lacunas já tinham teste (`sem_home_valido_o_snapshot_erra_e_nao_grava`, `item_acrescentado_e_instalado_esta_em_dia`, `validate_name` recusando "Meu-PC"). A equipe caiu em plan mode e o dono escolheu sessão individual para a única lacuna real.
