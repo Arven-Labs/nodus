@@ -4,13 +4,23 @@
       "machine": "archlinux",
       "os": { "name": "Arch Linux", "version": null },
       "pacman": { "status": "compared", "missing": ["htop"], "extra": ["vim", "tmux"], "in_sync": 2 },
-      "flatpak": { "status": "compared", "missing": [], "extra": [], "in_sync": 1 }
+      "flatpak": { "status": "compared", "missing": [], "extra": [], "in_sync": 1 },
+      "exceptions": {
+        "table_exists": false,
+        "add": { "pacman": ["vim", "tmux"], "flatpak": [] },
+        "skip": { "pacman": ["htop"], "flatpak": [] }
+      }
     },
     {
       "machine": "pc-fake",
       "os": { "name": "Arch Linux", "version": "rolling" },
       "pacman": { "status": "compared", "missing": [], "extra": [], "in_sync": 3 },
-      "flatpak": { "status": "not_comparable", "lacks": ["pc-fake"] }
+      "flatpak": { "status": "not_comparable", "lacks": ["pc-fake"] },
+      "exceptions": {
+        "table_exists": false,
+        "add": { "pacman": [], "flatpak": [] },
+        "skip": { "pacman": [], "flatpak": [] }
+      }
     }
   ],
   "unreadable": [{ "label": "quebrado", "reason": "JSON inválido" }]

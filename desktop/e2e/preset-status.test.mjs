@@ -176,6 +176,65 @@ test("nomes hostis (máquina, pacote, rótulo, motivo) viram texto: nada é exec
   await close();
 });
 
+// `exceptions` (ADR 0033, emenda 4): o trecho que o `preset status` imprime no terminal, agora na tela.
+
+test("máquina com exceção mostra o trecho para colar no preset; a máquina em dia não mostra nada", async () => {
+  const { page, close } = await openApp(browser, app, { handlers: handlers() });
+  await abrirAba(page);
+  const primeira = page.getByTestId("status-maquina").nth(0);
+  await primeira.waitFor();
+  const excecao = primeira.getByTestId("status-excecao");
+  assert.equal(await excecao.count(), 1);
+  assert.match(await excecao.getByTestId("status-excecao-intro").innerText(), /cole no preset \(nada foi alterado\)/);
+  assert.equal(
+    await excecao.getByTestId("status-excecao-trecho").innerText(),
+    '[machines.archlinux]\nadd_pacman = ["vim", "tmux"]\nskip_pacman = ["htop"]',
+  );
+  assert.equal(await page.getByTestId("status-maquina").nth(1).getByTestId("status-excecao").count(), 0);
+  await close();
+});
+
+test("com a tabela da máquina já existente, o trecho manda acrescentar na lista e não repete a tabela", async () => {
+  const data = statusFixture();
+  data.machines[0].exceptions = { table_exists: true, add: { pacman: ["sl"], flatpak: [] }, skip: { pacman: [], flatpak: [] } };
+  const { page, close } = await openApp(browser, app, { handlers: handlers(JSON.stringify(data)) });
+  await abrirAba(page);
+  const excecao = page.getByTestId("status-maquina").nth(0).getByTestId("status-excecao");
+  await excecao.waitFor();
+  assert.match(await excecao.getByTestId("status-excecao-intro").innerText(), /A tabela \[machines\.archlinux\] já existe/);
+  const trecho = await excecao.getByTestId("status-excecao-trecho").innerText();
+  assert.equal(trecho, 'em `add_pacman = [...]`:\n  "sl",');
+  assert.doesNotMatch(trecho, /\[machines\./);
+  await close();
+});
+
+test("a tela só mostra o trecho, sem nenhum botão que escreva no preset", async () => {
+  const { page, calls, close } = await openApp(browser, app, { handlers: handlers() });
+  await abrirAba(page);
+  const excecao = page.getByTestId("status-maquina").nth(0).getByTestId("status-excecao");
+  await excecao.waitFor();
+  assert.equal(await excecao.locator("button").count(), 0);
+  assert.deepEqual([...new Set(calls.map((c) => c.cmd))], ["read_nodusctl"]);
+  await close();
+});
+
+test("nome hostil dentro do trecho vira texto: nada é executado nem vira elemento", async () => {
+  const payload = '<img src=x onerror="window.__pwned=1">';
+  const data = statusFixture();
+  data.machines[0].exceptions.add.pacman = [payload];
+  data.machines[0].exceptions.skip.pacman = [payload];
+  const { page, errors, close } = await openApp(browser, app, { handlers: handlers(JSON.stringify(data)) });
+  await abrirAba(page);
+  const trecho = page.getByTestId("status-excecao-trecho").first();
+  await trecho.waitFor();
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => window.__pwned), undefined);
+  assert.equal(await page.locator("img").count(), 0);
+  assert.match(await trecho.innerText(), /<img src=x/);
+  assert.deepEqual(errors, []);
+  await close();
+});
+
 test("a aba só pede read_nodusctl: nada que escreva", async () => {
   const { page, calls, close } = await openApp(browser, app, { handlers: handlers() });
   await abrirAba(page);
