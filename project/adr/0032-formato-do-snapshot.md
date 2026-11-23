@@ -64,6 +64,14 @@ Escolha do dono em plan mode; implementado no PR #181 (CLI, mesclado) e no PR #1
    **Não verificado:** dois snapshots de máquinas reais diferentes (os comparados saíram do mesmo archlinux, dois forjados); `compare --all` com snapshot v1 real de um lado na janela; mais de 3 snapshots.
    **Erro meu no roteiro:** o `nodusctl snapshot` do roteiro da fatia 8 rodou com o binário antigo (de uma cópia local sem a fatia 6) e regravou o `archlinux.json` em v1 por cima do v2; os dotfiles saíram "não comparável, snapshot v1" até eu mandar regravar com o binário novo. O `.nodus/` do `~/dotfiles` nunca foi commitado.
 
+## Emenda 3 (2026-11-23, fatia 9): "Gravar snapshot no terminal" na aba Compare
+Escolha do dono em plan mode; implementado no PR #209, **ainda não visto na janela real**. Sem formato novo, sem mudança na CLI nem no core.
+1. `Action::Snapshot` em `desktop/src-tauri/src/actions.rs` (ADR 0027): abre o terminal com `nodusctl snapshot`. **Sem argumento vindo da tela**: o rótulo é o hostname, decidido pela CLI; `--name` seria um argumento livre numa escrita (ADR 0028, descartado). Número ou caminho são recusados (`invalid_argument`), e o nome não entra pela porta da leitura.
+2. Não usa `NODUS_PRESET` nem `NODUS_MACHINE` (nenhum `--machine` no argv, mesmo com a variável ruim).
+3. A CLI **não pergunta** nada (grava direto, 0600), então o botão não manda "confirmar" (sem `confirmWhat`); depois, "Atualizar" relê o `compare --all`. O botão fica visível também sem pares: é quando falta gravar. O commit do arquivo continua sendo do dono.
+4. Mutações pegas por teste (CI, PRs #210 a #214, fechados, branches apagadas; `headSha` conferido, nenhuma falhou só por compilador ou clippy): argv com `--name` (4 testes Rust), caminho aceito (2), botão só com pares (2 e2e), `confirmWhat` presente (1), "Atualizar" sem reler (1).
+5. **Não verificado:** a janela real (build só no PC do dono); com terminal que não seja o `konsole` (cai no fallback).
+
 ## Lacunas
 - **Verificado no Arch real em 2026-11-22:** duas gravações seguidas deram o mesmo sha256 (o `git diff` vazio não serviria, a pasta ainda não era versionada), arquivo 0600 e o hostname como rótulo.
 - `os.version` é `null` no Arch (o `os-release` dele não tem `VERSION_ID`); não medido em outra distribuição.

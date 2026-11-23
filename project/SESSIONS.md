@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-23 — Sessão 51, "Gravar snapshot no terminal" na aba Compare (Fase 2, fatia 9, ADR 0032 emenda 3, PR #209)
+
+- **Pedido**: "código da fase 2". Plan mode; do que ofereci, o dono escolheu o botão de `snapshot` na GUI (a única escrita do fluxo multi-device sem botão). Aprovou o plano e a tabela de testes sem mudanças.
+- **Feito**: `Action::Snapshot` em `desktop/src-tauri/src/actions.rs` (sem argumento, sem preset nem máquina), `"snapshot"` em `backend.ts`, `TerminalAction` na `CompareScreen` (visível também sem pares, sem `confirmWhat`, `compareKey` para o "Atualizar"), README. Desvio do plano: nenhum.
+- **Testes**: primeiro, CI vermelho pelo motivo certo (Rust: `Action::Snapshot` inexistente; e2e: `compare-gravar` não encontrado); depois Rust e frontend verdes. Cinco mutações em PRs descartáveis (#210 a #214, fechados, branches apagadas), todas pegas por teste (ver ADR 0032, emenda 3, item 4).
+- **CI vermelho que não é desta fatia**: `Desktop cargo-deny` falha com RUSTSEC-2026-0594 (`cookie 0.18.2`, "Private cookie nonces can repeat in processes that fork"; entrada transitiva do Tauri; o texto do aviso diz que só afeta quem faz `fork()` e usa cookies privados). A `main` estava verde até 2026-11-23 00:33. Não corrigi aqui (muda o lockfile do desktop, outra intenção).
+- **Não verificado**: a janela real (o dono clica o botão e confere o `<rótulo>.json` na pasta-fonte); terminal que não seja o `konsole`.
+- **Fica**: PR separado para o RUSTSEC-2026-0594 (bump no lockfile do desktop, como foi feito com o `url`); P-02; dois snapshots de máquinas reais.
+
 ### 2026-11-23 — Sessão 50, `preset status` imprime o trecho `[machines.<rótulo>]` (Fase 2, fatia 8, ADR 0033 emenda 3, PR #201)
 
 - **Pedido**: abri o projeto, o dono escolheu "código agora" e, das opções que ofereci, "compare → trecho de preset". Plan mode. Corrigi no plano o que eu tinha dito: o trecho mora no `preset status`, não no `compare` (só o status conhece o preset). Escolha do dono: `add_*` e `skip_*` juntos. Aprovou a tabela de testes com "manda bala".
