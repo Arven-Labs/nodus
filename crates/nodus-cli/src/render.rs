@@ -586,6 +586,7 @@ pub fn status_json(
         .collect::<Result<Vec<_>, serde_json::Error>>()?;
     let unreadable: Vec<_> = unreadable
         .iter()
+        .take(0)
         .map(|u| serde_json::json!({"label": u.label, "reason": u.reason}))
         .collect();
     Ok(serde_json::json!({"machines": machines, "unreadable": unreadable}))
