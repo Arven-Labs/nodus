@@ -1,0 +1,28 @@
+{
+  "comparisons": [
+    {
+      "a": "pc-a",
+      "b": "pc-b",
+      "os": null,
+      "pacman": { "status": "compared", "only_a": ["vim"], "only_b": ["htop", "tmux"], "common": 2 },
+      "flatpak": { "status": "compared", "only_a": [], "only_b": ["org.b.B"], "common": 1 },
+      "dotfiles": {
+        "status": "compared",
+        "differ": [
+          { "path": ".bashrc", "a": "linked", "b": "file" },
+          { "path": ".zshrc", "a": "file", "b": null }
+        ],
+        "same": 7
+      }
+    },
+    {
+      "a": "pc-a",
+      "b": "pc-c",
+      "os": { "a": { "name": "Arch Linux", "version": null }, "b": { "name": "Fedora Linux", "version": "41" } },
+      "pacman": { "status": "compared", "only_a": [], "only_b": [], "common": 3 },
+      "flatpak": { "status": "not_comparable", "lacks": ["pc-c"] },
+      "dotfiles": { "status": "not_comparable", "lacks": ["pc-c"] }
+    }
+  ],
+  "unreadable": [{ "label": "quebrado", "reason": "JSON inválido" }]
+}

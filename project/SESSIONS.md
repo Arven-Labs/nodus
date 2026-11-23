@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-23 — Sessão 49, aba Compare na GUI (Fase 2, fatia 7, PR 2, ADR 0032 emenda 2, PR #189)
+
+- **Pedido**: "segue" (o PR 2 da fatia 7, depois do merge do #181). O plan mode da sessão 48 já cobria os dois PRs; só refinei o contrato do JSON e o que `Allowed::CompareAll` não pode fazer. Aprovou a tabela de testes com "manda bala".
+- **Feito**: `Allowed::CompareAll` em `desktop/src-tauri/src/nodusctl.rs` (fora dos `matches!` de preset e de máquina); `desktop/src/lib/compare.ts` (parser estrito), `backend.ts`, `App.tsx` (`CompareScreen`, `ComparisonView`, `ListCompareView`, `DotfilesCompareView`, aba "Compare"); fixture `tests/fixtures/compare_all.json`; `tests/compare.test.mjs` (unitário), `e2e/compare.test.mjs` (e2e) e 4 testes Rust; `desktop/README.md`. Nenhuma mudança na CLI nem no core.
+- **Testes**: primeiro, CI do desktop vermelho pelo motivo certo (`Allowed::CompareAll` e `compare.ts` inexistentes); depois verde de primeira (146 testes Rust, frontend, e2e). Nove mutações em PRs descartáveis: sem `--all` (3 testes), exigindo `NODUS_PRESET` (3), levando `--machine` (1), parser aceitando qualquer estado (1), "fora da lista" como "ausente" (2), `<details>` abertos (1), plural de "não têm" (1). **Duas sobreviveram** (o CI deu verde com o código quebrado) e mostraram furos nos meus testes: um `status` desconhecido com `lacks` presente passava pelo parser, e nenhum teste exigia que um par que só difere no SO **não** diga "sem divergências". Reforcei os dois, refiz as mutações e agora falham por teste. Erro de processo meu: fechei o PR da mutação errada (numeração deslocada por um), sem perda (já estava pega).
+- **Não verificado**: a janela real; o Arch real (`compare --all` com snapshots de verdade). Com 1 snapshot a aba mostra só o estado vazio, então a verificação visual pede um segundo snapshot (forjado, como na fatia 6).
+- **Fica**: o dono abrir a GUI (build só no PC dele) com dois ou três snapshots forjados; e rodar `compare --all` no Arch.
+
 ### 2026-11-22 — Sessão 48, `compare --all` na CLI (Fase 2, fatia 7, PR 1, ADR 0032 emenda 2, PR #181)
 
 - **Pedido**: "quero código" (sem frente dita). Escolhi a aba Compare da GUI e avisei que o dono tem **1** snapshot, então na janela real ela só mostraria o estado vazio até existir uma segunda máquina ou um forjado. Plan mode; escolha do dono: `compare --all` na CLI e aba só leitura sobre ele (descartado: dois rótulos na tela, que seria o primeiro argumento livre numa leitura). A fatia tem dois PRs; este é o primeiro (CLI). Aprovou a tabela de testes com "sim".

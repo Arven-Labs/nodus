@@ -10,7 +10,8 @@ export type Command =
   | "history"
   | "preset_plan"
   | "preset_suggest"
-  | "preset_status";
+  | "preset_status"
+  | "compare_all";
 
 /** As ações que ESCREVEM, em lista fechada (ADR 0027; a lista de verdade vive no Rust, `Action` em `src-tauri/src/actions.rs`). */
 export type Action = "preset_apply" | "history_undo" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "dotfiles_link_all" | "preset_unignore";

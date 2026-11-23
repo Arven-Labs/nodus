@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { parseActionOutcome } from "./lib/action";
 import { BackendError, readNodusctl, runAction, type Command } from "./lib/backend";
+import { type Comparison, type DotfileState, type DotfilesComparison, type ListComparison, type OsInfo, parseCompare } from "./lib/compare";
 import { type Dotfile, parseDotfiles } from "./lib/dotfiles";
 import { canUndo, formatUtc, type HistoryEntry, parseHistory } from "./lib/history";
 import { parseInventory } from "./lib/inventory";
@@ -767,7 +768,124 @@ function StatusScreen() {
   );
 }
 
-type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset" | "suggest" | "status";
+const DOTFILE_STATE_LABEL: Record<DotfileState, string> = { linked: "ligado", file: "arquivo", missing: "ausente", other: "outro" };
+
+/** `null` = o caminho não está na lista daquela máquina (diferente de "ausente": está na lista e não existe). */
+function dotfileStateLabel(state: DotfileState | null): string {
+  return state === null ? "fora da lista" : DOTFILE_STATE_LABEL[state];
+}
+
+function osLabel(os: OsInfo): string {
+  return os.version ? `${os.name} ${os.version}` : os.name;
+}
+
+/** "Não comparável" não é diferença: cita quem não tem a capacidade (uma ou duas máquinas). */
+function lacksText(lacks: string[], one: string, many: string): string {
+  return `${lacks.join(" e ")} ${lacks.length === 1 ? one : many}`;
+}
+
+function ListCompareView({ label, a, b, list }: { label: string; a: string; b: string; list: ListComparison }) {
+  if (list.kind === "not_comparable") {
+    return (
+      <p data-testid="compare-nao-comparavel">{`${label}: não comparável, ${lacksText(list.lacks, `não tem ${label}`, `não têm ${label}`)}`}</p>
+    );
+  }
+  return (
+    <div data-testid={`compare-${label.toLowerCase()}`}>
+      <h3>{`${label}: ${list.common} em comum`}</h3>
+      {[
+        { who: a, items: list.onlyA },
+        { who: b, items: list.onlyB },
+      ].map(({ who, items }, i) =>
+        items.length === 0 ? null : (
+          // Dobrado: a lista pode ter 150 itens.
+          <details key={i} data-testid="compare-so-em">
+            <summary>{`só em ${who} (${items.length})`}</summary>
+            <NameList items={items} testId="compare-so-em-item" />
+          </details>
+        ),
+      )}
+    </div>
+  );
+}
+
+function DotfilesCompareView({ a, b, dotfiles }: { a: string; b: string; dotfiles: DotfilesComparison }) {
+  if (dotfiles.kind === "not_comparable") {
+    return (
+      <p data-testid="compare-nao-comparavel">{`Dotfiles: não comparável, ${lacksText(dotfiles.lacks, "não registrou", "não registraram")} dotfiles (snapshot v1; rode \`nodusctl snapshot\` de novo)`}</p>
+    );
+  }
+  // Como na CLI: duas listas vazias não dão seção.
+  if (dotfiles.differ.length === 0 && dotfiles.same === 0) return null;
+  return (
+    <div data-testid="compare-dotfiles">
+      <h3>{`Dotfiles: ${dotfiles.same} em comum`}</h3>
+      {dotfiles.differ.length > 0 && (
+        <>
+          <h4>{`Diferem (${dotfiles.differ.length})`}</h4>
+          <ul className="repos">
+            {dotfiles.differ.map((d, i) => (
+              <li key={i} data-testid="compare-dotfile-difere">{`${d.path}: ${a} ${dotfileStateLabel(d.a)}, ${b} ${dotfileStateLabel(d.b)}`}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function hasDifferences(c: Comparison): boolean {
+  const listDiffers = (l: ListComparison) => l.kind === "compared" && (l.onlyA.length > 0 || l.onlyB.length > 0);
+  return c.os !== null || listDiffers(c.pacman) || listDiffers(c.flatpak) || (c.dotfiles.kind === "compared" && c.dotfiles.differ.length > 0);
+}
+
+function ComparisonView({ c }: { c: Comparison }) {
+  const notComparable = [c.pacman, c.flatpak, c.dotfiles].some((l) => l.kind === "not_comparable");
+  return (
+    <div data-testid="compare-par">
+      <h2>{`${c.a} × ${c.b}`}</h2>
+      {c.os && (
+        <p data-testid="compare-so-diferente" className="detail">{`Aviso: sistemas diferentes: ${c.a} é ${osLabel(c.os.a)}, ${c.b} é ${osLabel(c.os.b)}`}</p>
+      )}
+      <ListCompareView label="Pacman" a={c.a} b={c.b} list={c.pacman} />
+      <ListCompareView label="Flatpak" a={c.a} b={c.b} list={c.flatpak} />
+      <DotfilesCompareView a={c.a} b={c.b} dotfiles={c.dotfiles} />
+      {!hasDifferences(c) && (
+        <p data-testid="compare-sem-divergencias">{notComparable ? "Sem divergências nas listas comparadas." : "Sem divergências."}</p>
+      )}
+    </div>
+  );
+}
+
+function CompareScreen() {
+  const state = useLoad("compare_all", parseCompare);
+
+  if (state.status === "loading") return <p>Lendo os snapshots…</p>;
+  if (state.status === "error") return <ErrorView {...state} what="a comparação dos snapshots" />;
+
+  const { comparisons, unreadable } = state.data;
+  return (
+    <section>
+      <h1>Comparar máquinas</h1>
+      {comparisons.length === 0 && (
+        <p data-testid="compare-vazio">
+          Nenhum par para comparar: são precisos pelo menos dois snapshots legíveis. Rode `nodusctl snapshot` em cada máquina e traga os arquivos pelo git.
+        </p>
+      )}
+      {comparisons.map((c, i) => (
+        <ComparisonView key={i} c={c} />
+      ))}
+      {unreadable.map((u, i) => (
+        <p key={i} data-testid="compare-ilegivel" className="detail">{`Aviso: não consegui ler o snapshot ${u.label}: ${u.reason}`}</p>
+      ))}
+      <p data-testid="compare-nota" className="detail">
+        Só leitura: nada foi alterado. O snapshot guarda `pacman -Qe`, então "só em" inclui o que veio só como dependência.
+      </p>
+    </section>
+  );
+}
+
+type Tab = "inventory" | "repos" | "dotfiles" | "updates" | "workspace" | "history" | "preset" | "suggest" | "status" | "compare";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "inventory", label: "Inventário" },
@@ -779,6 +897,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "preset", label: "Preset" },
   { id: "suggest", label: "Sugestões" },
   { id: "status", label: "Status" },
+  { id: "compare", label: "Compare" },
 ];
 
 export default function App() {
@@ -811,6 +930,7 @@ export default function App() {
       {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
       {tab === "suggest" && <SuggestScreen key={suggestKey} onRefresh={() => setSuggestKey((k) => k + 1)} />}
       {tab === "status" && <StatusScreen />}
+      {tab === "compare" && <CompareScreen />}
     </main>
   );
 }
