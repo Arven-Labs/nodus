@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-23 — Sessão 52, rótulo padrão vindo do hostname passa a ter teste (Fase 2, PR #216)
+
+- **Pedido**: "equipe, o que você recomenda de código?". Propus duas tarefas de verificação (hostname com maiúsculas; `snapshot` sem HOME e `add_*` em dia) com base na linha da Fase 2 do `ROADMAP.md`. **Erro meu**: li o roadmap, não o código; ao ler, as lacunas já tinham teste (`sem_home_valido_o_snapshot_erra_e_nao_grava`, `item_acrescentado_e_instalado_esta_em_dia`, `validate_name` recusando "Meu-PC"). A equipe caiu em plan mode e o dono escolheu sessão individual para a única lacuna real.
+- **Feito**: `label_from_hostname(&str)` extraída de `default_snapshot_name` em `crates/nodus-cli/src/main.rs` (mesmo comportamento; o hostname vira argumento) e três testes (`hostname_tests`).
+- **Testes**: primeiro, CI vermelho pelo motivo certo (`unresolved import label_from_hostname`); depois verde. Mutação no PR descartável #217 (sem `validate_name`): compilou, passou o clippy e `hostname_fora_da_regra_do_rotulo_recusa_e_manda_usar_name` falhou (1 de 458); fechado, branch apagada.
+- **Não verificado**: a leitura real de `/proc/sys/kernel/hostname` (continua sem teste; é uma linha) e um hostname com maiúsculas no Arch real.
+- **Fica**: P-02, P-14, P-17; snapshots de duas máquinas reais; GUI mostrando o trecho `[machines.<rótulo>]` (exigiria campo novo no `--json`, contra o ADR 0033: decisão do dono).
+
 ### 2026-11-23 — Sessão 51, "Gravar snapshot no terminal" na aba Compare (Fase 2, fatia 9, ADR 0032 emenda 3, PR #209)
 
 - **Pedido**: "código da fase 2". Plan mode; do que ofereci, o dono escolheu o botão de `snapshot` na GUI (a única escrita do fluxo multi-device sem botão). Aprovou o plano e a tabela de testes sem mudanças.
