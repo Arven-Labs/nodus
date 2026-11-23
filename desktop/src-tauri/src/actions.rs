@@ -480,6 +480,7 @@ mod tests {
         assert_eq!(crate::nodusctl::Allowed::parse("preset_adopt"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(Action::parse("preset_suggest", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
         assert_eq!(Action::parse("preset_status", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
+        assert_eq!(Action::parse("compare_all", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");
         assert_eq!(crate::nodusctl::Allowed::parse("workspace_unset"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(crate::nodusctl::Allowed::parse("workspace_set"), None, "ação não pode entrar pela porta da leitura");
         assert_eq!(Action::parse("workspace", None).unwrap_err().kind, "not_allowed", "leitura não pode entrar pela porta das ações");

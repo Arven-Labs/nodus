@@ -1030,6 +1030,54 @@ echo "argumentos inesperados: $*" >&2; exit 64
         assert!(chamadas(&dir).is_empty(), "o binário não pode nem ser executado");
     }
 
+    // --- compare_all: `compare --all --json`, todos os pares de snapshots; sem preset nem máquina, nenhum argumento da tela ---
+
+    /// Exige exatamente `compare --all --json` (3 argumentos): qualquer arquivo, `--machine` ou rótulo a mais o derruba.
+    const COMPARE_FALSO: &str = r#"
+if [ "$1" = "--version" ]; then echo "nodusctl 0.1.4"; exit 0; fi
+if [ "$1" = "compare" ] && [ "$2" = "--all" ] && [ "$3" = "--json" ] && [ -z "$4" ]; then echo '{"comparisons":[],"unreadable":[]}'; exit 0; fi
+echo "argumentos inesperados: $*" >&2; exit 64
+"#;
+
+    #[test]
+    fn compare_all_so_a_comparacao_de_todos_os_pares() {
+        assert_eq!(Allowed::parse("compare_all"), Some(Allowed::CompareAll));
+        assert_eq!(Allowed::CompareAll.timeout(), Duration::from_secs(30));
+        assert_eq!(Allowed::CompareAll.args(), vec!["compare", "--all", "--json"]);
+        for nome in [
+            "compare", "compare a b", "compare_a_b", "compare --all", "compare_all a b", "compare_all --json", "compare_all /tmp/p.toml",
+            "Compare_all", "COMPARE_ALL", "compare_all ", " compare_all", "compare_all\n", "compare_all;ls", "compare-all", "compare_alls",
+            "compare_all\0",
+        ] {
+            assert_eq!(Allowed::parse(nome), None, "{nome:?} não pode passar: o único comando de comparação é o de todos os pares");
+        }
+    }
+
+    #[test]
+    fn compare_all_roda_sem_preset_e_sem_maquina() {
+        let (dir, bin) = falso(COMPARE_FALSO);
+        let saida = ler(&bin, "compare_all", (0, 1, 0)).unwrap();
+        assert_eq!(saida.trim(), r#"{"comparisons":[],"unreadable":[]}"#);
+        assert_eq!(chamadas(&dir), ["--version", "compare --all --json"]);
+    }
+
+    #[test]
+    fn compare_all_ignora_preset_e_maquina_ruins() {
+        // A aba não usa NODUS_PRESET nem NODUS_MACHINE: uma delas ruim não pode derrubá-la, e nenhuma vira argumento.
+        for (preset, machine) in [(Some("relativo"), Some("Maiuscula")), (Some(""), Some("")), (Some("/tmp/p.toml"), Some("notebook")), (None, Some("-x"))] {
+            let (dir, bin) = falso(COMPARE_FALSO);
+            ler_maquina(&bin, "compare_all", (0, 1, 0), preset, machine).unwrap();
+            assert_eq!(chamadas(&dir), ["--version", "compare --all --json"], "{preset:?} {machine:?}");
+        }
+    }
+
+    #[test]
+    fn compare_all_erro_da_cli_chega_como_failed() {
+        let (_dir, bin) = falso(BOM);
+        let erro = ler(&bin, "compare_all", (0, 1, 0)).unwrap_err();
+        assert_eq!(erro.kind, "failed");
+    }
+
     #[test]
     fn a_variavel_so_importa_para_o_preset_plan() {
         // Uma NODUS_PRESET relativa não pode derrubar as outras abas, e uma absoluta não vira argumento delas.
