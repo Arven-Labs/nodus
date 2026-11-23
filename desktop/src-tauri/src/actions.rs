@@ -100,7 +100,7 @@ impl Action {
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
             Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
             Self::DotfilesLinkAll => vec!["dotfiles".into(), "link".into(), "--all".into()],
-            Self::Snapshot => vec!["snapshot".into()],
+            Self::Snapshot => vec!["snapshot".into(), "--name".into(), "x".into()],
             Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), "--".into(), name.clone()],
         }
     }
