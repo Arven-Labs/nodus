@@ -941,7 +941,7 @@ export default function App() {
       {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
       {tab === "suggest" && <SuggestScreen key={suggestKey} onRefresh={() => setSuggestKey((k) => k + 1)} />}
       {tab === "status" && <StatusScreen />}
-      {tab === "compare" && <CompareScreen key={compareKey} onRefresh={() => setCompareKey((k) => k + 1)} />}
+      {tab === "compare" && <CompareScreen key={compareKey} onRefresh={() => setCompareKey((k) => k)} />}
     </main>
   );
 }
