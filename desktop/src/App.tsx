@@ -869,13 +869,15 @@ function CompareScreen({ onRefresh }: { onRefresh: () => void }) {
       <h1>Comparar máquinas</h1>
       {/* Sem argumento da tela: o rótulo é o hostname, decidido pela CLI. O `snapshot` não pergunta nada (sem `confirmWhat`), e o
           botão fica à vista também sem pares: é justamente quando falta gravar. */}
-      <TerminalAction
-        prefix="compare-gravar"
-        buttonId="compare-gravar"
-        label="Gravar snapshot no terminal"
-        run={() => runAction("snapshot")}
-        onRefresh={onRefresh}
-      />
+      {comparisons.length > 0 && (
+        <TerminalAction
+          prefix="compare-gravar"
+          buttonId="compare-gravar"
+          label="Gravar snapshot no terminal"
+          run={() => runAction("snapshot")}
+          onRefresh={onRefresh}
+        />
+      )}
       {comparisons.length === 0 && (
         <p data-testid="compare-vazio">
           Nenhum par para comparar: são precisos pelo menos dois snapshots legíveis. Rode `nodusctl snapshot` em cada máquina e traga os arquivos pelo git.
