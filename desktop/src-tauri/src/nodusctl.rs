@@ -361,7 +361,7 @@ pub fn read_with(
         .ok_or_else(|| CmdError::new("not_allowed", format!("comando não permitido: {name:?}")))?;
     // O caminho é conferido antes de executar qualquer coisa. Um argumento só (sem shell), então espaço não separa nada.
     let mut argv: Vec<OsString> = allowed.args().into_iter().map(OsString::from).collect();
-    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest | Allowed::PresetStatus) {
+    if matches!(allowed, Allowed::PresetPlan | Allowed::PresetSuggest | Allowed::PresetStatus | Allowed::CompareAll) {
         argv.push(resolve_preset(preset)?.into_os_string());
     }
     // `preset status` não recebe a máquina (usa o nome do snapshot e a CLI recusa a flag), e uma NODUS_MACHINE ruim não o derruba.
