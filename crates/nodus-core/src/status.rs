@@ -115,7 +115,11 @@ fn suggestions(
             .collect()
     };
     (
-        extra.iter().filter(|name| is_valid(name)).cloned().collect(),
+        extra
+            .iter()
+            .filter(|name| is_valid(name))
+            .cloned()
+            .collect(),
         keep(missing, true),
     )
 }
