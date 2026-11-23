@@ -1410,6 +1410,85 @@ mod tests {
         nada_lancado(&dir);
     }
 
+    // --- snapshot: grava o JSON da máquina na pasta-fonte (escrita sem root). Sem argumento vindo da tela (nem `--name`), sem preset ---
+
+    #[test]
+    fn snapshot_e_uma_acao_da_lista_sem_argumento_nenhum() {
+        assert_eq!(Action::parse("snapshot", None), Ok(Action::Snapshot));
+        assert_eq!(Action::Snapshot.args(), vec!["snapshot"]);
+        // Argumento que a ação não definiu é recusado, não ignorado: nem número, nem caminho (o rótulo é o hostname, decidido pela CLI).
+        assert_eq!(Action::parse("snapshot", Some(1)).unwrap_err().kind, "invalid_argument");
+        assert_eq!(Action::parse_path("snapshot", "pc-a".into()).unwrap_err().kind, "invalid_argument");
+        // Só o nome exato entra; e a escrita não abre a porta da leitura.
+        for nome in ["Snapshot", "snapshot ", "snapshot --name x", "snapshots", "snapshot_save", "compare"] {
+            assert_eq!(Action::parse(nome, None).unwrap_err().kind, "not_allowed", "{nome:?}");
+        }
+        assert_eq!(crate::nodusctl::Allowed::parse("snapshot"), None, "ação não pode entrar pela porta da leitura");
+    }
+
+    #[test]
+    fn snapshot_lanca_o_terminal_com_o_argv_exato() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let saida = chamar("snapshot", env(&bin, None, Some(&term), None)).unwrap();
+        assert!(saida.launched);
+        assert_eq!(argumentos_do_terminal(&dir), ["-e", "sh", "-c", WRAPPER, "sh", bin.to_str().unwrap(), "snapshot"]);
+        assert_eq!(saida.command, format!("{} snapshot", bin.display()));
+        assert_eq!(chamadas(&dir), ["--version"], "a GUI só confere a versão; quem grava é a CLI, no terminal");
+    }
+
+    #[test]
+    fn snapshot_com_n_ou_nome_soltos_nada_executa() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let term = terminal_que_grava(&dir);
+        let _guard = EXEC.lock().unwrap_or_else(|e| e.into_inner());
+        let erro = run("snapshot", Some(1), None, env(&bin, None, Some(&term), None), GUI).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        let erro = run("snapshot", None, Some("pc-a".into()), env(&bin, None, Some(&term), None), GUI).unwrap_err();
+        assert_eq!(erro.kind, "invalid_argument");
+        drop(_guard);
+        assert!(chamadas(&dir).is_empty());
+        nada_lancado(&dir);
+    }
+
+    #[test]
+    fn snapshot_nao_precisa_nem_le_preset_nem_maquina() {
+        for preset in [None, Some("relativo.toml"), Some(""), Some("/tmp/p.toml")] {
+            for machine in [None, Some("MAIÚSCULA ruim"), Some("")] {
+                let dir = pasta();
+                let bin = nodusctl_falso(&dir, "0.1.4");
+                let term = terminal_que_grava(&dir);
+                let saida = chamar("snapshot", env_maquina(&bin, preset, machine, Some(&term), None)).unwrap();
+                assert!(saida.launched, "{preset:?} {machine:?}");
+                assert_eq!(argumentos_do_terminal(&dir)[5..], [bin.to_str().unwrap(), "snapshot"], "nenhum `--machine` no argv");
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_segue_as_mesmas_regras_de_terminal_versao_e_fallback() {
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.2.0");
+        let term = terminal_que_grava(&dir);
+        let erro = chamar("snapshot", env(&bin, None, Some(&term), None)).unwrap_err();
+        assert_eq!(erro.kind, "version_mismatch");
+        nada_lancado(&dir);
+
+        let dir = pasta();
+        let bin = nodusctl_falso(&dir, "0.1.4");
+        let erro = chamar("snapshot", env(&bin, None, Some(Path::new("/bin/sh")), None)).unwrap_err();
+        assert_eq!(erro.kind, "invalid_terminal");
+        assert!(chamadas(&dir).is_empty());
+
+        let vazio = pasta();
+        let saida = chamar("snapshot", env(&bin, None, None, Some(&vazio))).unwrap();
+        assert!(!saida.launched);
+        assert_eq!(saida.command, format!("{} snapshot", bin.display()));
+        nada_lancado(&dir);
+    }
+
     // --- preset adopt: escrita sem root (acrescenta ao preset e ao config), mesmo mecanismo, sem argumento vindo da tela ---
 
     #[test]
