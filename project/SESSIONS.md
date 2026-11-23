@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-23 — Sessão 50, `preset status` imprime o trecho `[machines.<rótulo>]` (Fase 2, fatia 8, ADR 0033 emenda 3, PR #201)
+
+- **Pedido**: abri o projeto, o dono escolheu "código agora" e, das opções que ofereci, "compare → trecho de preset". Plan mode. Corrigi no plano o que eu tinha dito: o trecho mora no `preset status`, não no `compare` (só o status conhece o preset). Escolha do dono: `add_*` e `skip_*` juntos. Aprovou a tabela de testes com "manda bala".
+- **Feito**: `exceptions_for` e `MachineExceptions` em `crates/nodus-core/src/status.rs`; `PresetFile::has_machine` em `preset.rs`; `exceptions_section` e `render_status(&PresetFile, ...)` em `crates/nodus-cli/src/render.rs`; `main.rs` passa o `PresetFile`. Sem formato novo e sem campo no `--json`. Desvio do plano: nenhum.
+- **Testes**: primeiro, CI vermelho pelo motivo certo (`MachineExceptions`, `exceptions_for` e a assinatura de `render_status` inexistentes); depois um teste antigo (`status_mostra_o_que_falta_e_o_que_sobra_por_maquina`) falhou por esperar o texto sem o trecho, e atualizei o esperado (mudança de comportamento prevista); então verde. Mutações em PRs descartáveis (#202 a #206, fechados, branches apagadas): `add_` sem o filtro da lista principal (2 testes), `skip_` sem exigir a lista principal (2), `add_` e `skip_` trocados (13), nome inválido aceito (2), tabela da máquina nunca existente (3). Conferi `headSha` e que nenhuma falhou só por compilador ou clippy. A primeira mutação saiu sem `cargo fmt` e corrigi antes de ler o resultado.
+- **Não verificado**: o Arch real (colar o trecho num preset e conferir que o `status` seguinte dá "em dia"); a aba Status da GUI (não mudou, só leitura do `--json`).
+- **Fica**: o dono rodar `nodusctl preset status` no Arch com o binário da `main` (e a verificação da fatia 7, que continua em aberto).
+
 ### 2026-11-23 — Sessão 49, aba Compare na GUI (Fase 2, fatia 7, PR 2, ADR 0032 emenda 2, PR #189)
 
 - **Pedido**: "segue" (o PR 2 da fatia 7, depois do merge do #181). O plan mode da sessão 48 já cobria os dois PRs; só refinei o contrato do JSON e o que `Allowed::CompareAll` não pode fazer. Aprovou a tabela de testes com "manda bala".
