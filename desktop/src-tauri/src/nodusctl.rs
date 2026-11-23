@@ -100,7 +100,7 @@ impl Allowed {
             Self::PresetPlan => vec!["preset", "plan", "--json"],
             Self::PresetSuggest => vec!["preset", "suggest", "--json"],
             Self::PresetStatus => vec!["preset", "status", "--json"],
-            Self::CompareAll => vec!["compare", "--all", "--json"],
+            Self::CompareAll => vec!["compare", "--json"],
         }
     }
 
