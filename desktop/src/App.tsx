@@ -873,6 +873,7 @@ function CompareScreen({ onRefresh }: { onRefresh: () => void }) {
         prefix="compare-gravar"
         buttonId="compare-gravar"
         label="Gravar snapshot no terminal"
+        confirmWhat="o snapshot"
         run={() => runAction("snapshot")}
         onRefresh={onRefresh}
       />
