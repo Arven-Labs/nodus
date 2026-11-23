@@ -114,7 +114,14 @@ fn suggestions(
             .cloned()
             .collect()
     };
-    (keep(extra, false), keep(missing, true))
+    (
+        keep(extra, false),
+        missing
+            .iter()
+            .filter(|name| is_valid(name))
+            .cloned()
+            .collect(),
+    )
 }
 
 pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {
