@@ -110,7 +110,9 @@ fn suggestions(
     let keep = |names: &[String], in_shared: bool| -> Vec<String> {
         names
             .iter()
-            .filter(|name| is_valid(name) && shared.contains(name) == in_shared)
+            .filter(|name| {
+                (is_valid(name) || !name.is_empty()) && shared.contains(name) == in_shared
+            })
             .cloned()
             .collect()
     };
