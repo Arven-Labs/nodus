@@ -114,7 +114,7 @@ fn suggestions(
             .cloned()
             .collect()
     };
-    (keep(extra, false), keep(missing, true))
+    (keep(missing, true), keep(extra, false))
 }
 
 pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {
