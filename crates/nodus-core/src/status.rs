@@ -89,7 +89,7 @@ pub fn exceptions_for(file: &PresetFile, status: &MachineStatus) -> MachineExcep
         suggestions(&status.flatpak, &file.preset.flatpak, is_valid_flatpak_id);
     MachineExceptions {
         machine: status.machine.clone(),
-        table_exists: file.has_machine(&status.machine),
+        table_exists: file.has_machine(""),
         add: Items {
             pacman: add_pacman,
             flatpak: add_flatpak,
