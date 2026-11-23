@@ -758,8 +758,6 @@ fn default_snapshot_name() -> Result<String> {
 /// controlável.
 fn label_from_hostname(host: &str) -> Result<String> {
     let host = host.trim().to_string();
-    nodus_core::snapshot::validate_name(&host)
-        .with_context(|| format!("o hostname {host:?} não serve de rótulo; use --name"))?;
     Ok(host)
 }
 
