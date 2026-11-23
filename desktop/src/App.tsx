@@ -799,7 +799,7 @@ function ListCompareView({ label, a, b, list }: { label: string; a: string; b: s
       ].map(({ who, items }, i) =>
         items.length === 0 ? null : (
           // Dobrado: a lista pode ter 150 itens.
-          <details key={i} data-testid="compare-so-em">
+          <details key={i} open data-testid="compare-so-em">
             <summary>{`só em ${who} (${items.length})`}</summary>
             <NameList items={items} testId="compare-so-em-item" />
           </details>
