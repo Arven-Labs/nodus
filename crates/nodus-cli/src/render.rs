@@ -568,6 +568,29 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
     }
 }
 
+/// O `preset status --json`: cada máquina é o `MachineStatus` mais `exceptions` (o mesmo trecho
+/// que o texto imprime, ADR 0033 emenda 4). A chave está sempre presente, com listas vazias
+/// quando não há exceção.
+pub fn status_json(
+    file: &PresetFile,
+    statuses: &[MachineStatus],
+    unreadable: &[Unreadable],
+) -> Result<serde_json::Value, serde_json::Error> {
+    let machines = statuses
+        .iter()
+        .map(|status| {
+            let mut machine = serde_json::to_value(status)?;
+            machine["exceptions"] = serde_json::to_value(exceptions_for(file, status))?;
+            Ok(machine)
+        })
+        .collect::<Result<Vec<_>, serde_json::Error>>()?;
+    let unreadable: Vec<_> = unreadable
+        .iter()
+        .map(|u| serde_json::json!({"label": u.label, "reason": u.reason}))
+        .collect();
+    Ok(serde_json::json!({"machines": machines, "unreadable": unreadable}))
+}
+
 pub fn render_status(
     file: &PresetFile,
     statuses: &[MachineStatus],
@@ -2182,6 +2205,130 @@ notebook (Arch Linux):
         assert!(
             texto.contains("\n    add_pacman = [\"steam\"]\n"),
             "{texto}"
+        );
+    }
+
+    // --- `preset status --json` com `exceptions` (ADR 0033, emenda 4) ---
+
+    use serde_json::{Value, json};
+
+    fn json_de(file: &PresetFile, snapshots: &[nodus_core::snapshot::Snapshot]) -> Value {
+        let estados: Vec<_> = snapshots.iter().map(|s| estado(file, s)).collect();
+        status_json(file, &estados, &[]).unwrap()
+    }
+
+    #[test]
+    fn json_sem_tabela_poe_o_que_falta_em_skip_e_table_exists_falso() {
+        let p = preset_de(&["git", "vim"], &[]);
+        let s = snapshot_de("pc-a", "Arch Linux", &["vim"], Some(&[]));
+        let json = json_de(&p, &[s]);
+        assert_eq!(
+            json["machines"][0]["exceptions"],
+            json!({
+                "table_exists": false,
+                "add": {"pacman": [], "flatpak": []},
+                "skip": {"pacman": ["git"], "flatpak": []}
+            })
+        );
+    }
+
+    #[test]
+    fn json_poe_o_que_sobra_em_add() {
+        let p = preset_de(&["git"], &[]);
+        let s = snapshot_de("pc-a", "Arch Linux", &["git", "sl"], Some(&[]));
+        let json = json_de(&p, &[s]);
+        assert_eq!(
+            json["machines"][0]["exceptions"]["add"]["pacman"],
+            json!(["sl"])
+        );
+    }
+
+    #[test]
+    fn json_diz_que_a_tabela_da_maquina_ja_existe() {
+        let p = preset_com_tabelas(
+            &["git", "vim"],
+            &[],
+            "\n[machines.notebook]\nskip_pacman = [\"vim\"]\n",
+        );
+        let s = snapshot_de("notebook", "Arch Linux", &["git", "steam"], Some(&[]));
+        let outra = snapshot_de("pc-b", "Arch Linux", &["git", "steam"], Some(&[]));
+        let json = json_de(&p, &[s, outra]);
+        assert_eq!(
+            json["machines"][0]["exceptions"]["table_exists"],
+            json!(true)
+        );
+        assert_eq!(
+            json["machines"][0]["exceptions"]["add"]["pacman"],
+            json!(["steam"])
+        );
+        assert_eq!(
+            json["machines"][1]["exceptions"]["table_exists"],
+            json!(false)
+        );
+    }
+
+    #[test]
+    fn json_de_maquina_em_dia_ou_sem_flatpak_traz_a_chave_com_listas_vazias() {
+        let p = preset_de(&["base"], &["org.a.A"]);
+        let em_dia = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&["org.a.A"]));
+        let sem_flatpak = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let json = json_de(&p, &[em_dia, sem_flatpak]);
+        let vazio = json!({
+            "table_exists": false,
+            "add": {"pacman": [], "flatpak": []},
+            "skip": {"pacman": [], "flatpak": []}
+        });
+        assert_eq!(json["machines"][0]["exceptions"], vazio);
+        assert_eq!(json["machines"][1]["exceptions"], vazio);
+    }
+
+    #[test]
+    fn json_nao_poe_nome_invalido_nem_pulo_deliberado_nas_excecoes() {
+        let p = preset_com_tabelas(
+            &["git", "vim"],
+            &[],
+            "\n[machines.notebook]\nskip_pacman = [\"vim\"]\n",
+        );
+        // `vim` pulado e instalado (pulo deliberado) e nomes que o parse recusaria.
+        let mut s = snapshot_de("notebook", "Arch Linux", &["git", "vim"], Some(&[]));
+        s.pacman.push("--overwrite=*".into());
+        s.pacman.push("steam".into());
+        let json = json_de(&p, &[s]);
+        assert_eq!(
+            json["machines"][0]["exceptions"]["add"]["pacman"],
+            json!(["steam"])
+        );
+        assert_eq!(
+            json["machines"][0]["exceptions"]["skip"]["pacman"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn json_mantem_o_resto_do_formato_e_os_ilegiveis() {
+        let p = preset_de(&["git", "vim"], &[]);
+        let s = snapshot_de("pc-a", "Arch Linux", &["vim"], Some(&[]));
+        let estados = vec![estado(&p, &s)];
+        let ilegiveis = vec![Unreadable {
+            label: "quebrado".into(),
+            reason: "JSON inválido".into(),
+        }];
+        let json = status_json(&p, &estados, &ilegiveis).unwrap();
+        let mut maquina = json["machines"][0].clone();
+        maquina.as_object_mut().unwrap().remove("exceptions");
+        assert_eq!(
+            maquina,
+            serde_json::to_value(&estados[0]).unwrap(),
+            "fora de `exceptions`, a máquina é o `MachineStatus` de antes"
+        );
+        assert_eq!(
+            json["unreadable"],
+            json!([{"label": "quebrado", "reason": "JSON inválido"}])
+        );
+        assert_eq!(
+            json.as_object().unwrap().len(),
+            2,
+            "só `machines` e `unreadable`"
         );
     }
 }

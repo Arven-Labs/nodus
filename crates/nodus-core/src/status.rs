@@ -60,8 +60,10 @@ pub fn status_for(file: &PresetFile, snapshot: &Snapshot) -> MachineStatus {
 
 /// A exceção que `[machines.<rótulo>]` precisaria para a máquina ficar em dia (só sugestão: nada é
 /// escrito). `add` é o que sobra na máquina; `skip` é o que falta nela.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MachineExceptions {
+    /// Fora do JSON: o rótulo já está em `machine` do status que carrega este campo.
+    #[serde(skip)]
     pub machine: String,
     /// A tabela da máquina já existe no preset: o trecho manda acrescentar nas listas dela.
     pub table_exists: bool,
