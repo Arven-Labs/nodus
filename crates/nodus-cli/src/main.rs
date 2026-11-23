@@ -751,6 +751,12 @@ fn updates(json: bool) -> Result<()> {
 fn default_snapshot_name() -> Result<String> {
     let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
         .context("lendo /proc/sys/kernel/hostname")?;
+    label_from_hostname(&host)
+}
+
+/// Separada de `default_snapshot_name` para poder ser testada: o hostname do runner não é
+/// controlável.
+fn label_from_hostname(host: &str) -> Result<String> {
     let host = host.trim().to_string();
     nodus_core::snapshot::validate_name(&host)
         .with_context(|| format!("o hostname {host:?} não serve de rótulo; use --name"))?;
