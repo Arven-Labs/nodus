@@ -63,7 +63,6 @@ pub fn status_for(file: &PresetFile, snapshot: &Snapshot) -> MachineStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MachineExceptions {
     /// Fora do JSON: o rótulo já está em `machine` do status que carrega este campo.
-    #[serde(skip)]
     pub machine: String,
     /// A tabela da máquina já existe no preset: o trecho manda acrescentar nas listas dela.
     pub table_exists: bool,
