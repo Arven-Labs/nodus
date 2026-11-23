@@ -62,6 +62,9 @@ pub enum Allowed {
     /// Só o status por máquina (`preset status`, sem rótulos; lê o preset e os snapshots da pasta-fonte, não roda pacman nem flatpak).
     /// Mesmo arquivo de `NODUS_PRESET`. O `snapshot` escreve e fica de fora.
     PresetStatus,
+    /// Só a comparação de todos os pares de snapshots (`compare --all`; só lê os arquivos da pasta-fonte). **Nenhum** argumento
+    /// vem da tela, de `NODUS_PRESET` ou de `NODUS_MACHINE`: a CLI compara todos os pares, então a janela não escolhe rótulos.
+    CompareAll,
 }
 
 /// Prazo do `updates`: consulta a rede (espelhos do pacman, Flathub), então demora mais que os comandos locais.
@@ -80,6 +83,7 @@ impl Allowed {
             "preset_plan" => Some(Self::PresetPlan),
             "preset_suggest" => Some(Self::PresetSuggest),
             "preset_status" => Some(Self::PresetStatus),
+            "compare_all" => Some(Self::CompareAll),
             _ => None,
         }
     }
@@ -96,6 +100,7 @@ impl Allowed {
             Self::PresetPlan => vec!["preset", "plan", "--json"],
             Self::PresetSuggest => vec!["preset", "suggest", "--json"],
             Self::PresetStatus => vec!["preset", "status", "--json"],
+            Self::CompareAll => vec!["compare", "--all", "--json"],
         }
     }
 
@@ -109,7 +114,8 @@ impl Allowed {
             | Self::History
             | Self::PresetPlan
             | Self::PresetSuggest
-            | Self::PresetStatus => DEFAULT_TIMEOUT,
+            | Self::PresetStatus
+            | Self::CompareAll => DEFAULT_TIMEOUT,
             Self::Updates => NETWORK_TIMEOUT,
         }
     }
