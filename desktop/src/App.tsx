@@ -772,7 +772,7 @@ const DOTFILE_STATE_LABEL: Record<DotfileState, string> = { linked: "ligado", fi
 
 /** `null` = o caminho não está na lista daquela máquina (diferente de "ausente": está na lista e não existe). */
 function dotfileStateLabel(state: DotfileState | null): string {
-  return state === null ? "fora da lista" : DOTFILE_STATE_LABEL[state];
+  return state === null ? "ausente" : DOTFILE_STATE_LABEL[state];
 }
 
 function osLabel(os: OsInfo): string {
