@@ -418,11 +418,7 @@ fn preset_status(file: &std::path::Path, labels: &[String], json: bool) -> Resul
         let report = serde_json::json!({"machines": statuses, "unreadable": unreadable});
         emit(&format!("{}\n", serde_json::to_string_pretty(&report)?))?;
     } else {
-        emit(&render::render_status(
-            &preset.preset,
-            &statuses,
-            &unreadable,
-        ))?;
+        emit(&render::render_status(&preset, &statuses, &unreadable))?;
     }
     Ok(())
 }

@@ -7,7 +7,7 @@
 //! preset: a lista fica "não comparável", como no `compare`.
 
 use crate::compare::diff_sets;
-use crate::preset::{Preset, PresetFile};
+use crate::preset::{Items, Preset, PresetFile, is_valid_flatpak_id, is_valid_pacman_name};
 use crate::snapshot::{Snapshot, SnapshotOs};
 use serde::Serialize;
 
@@ -56,6 +56,65 @@ fn is_list_in_sync(list: &StatusList) -> bool {
 /// rótulo do snapshot (itens pulados ali não contam como faltando).
 pub fn status_for(file: &PresetFile, snapshot: &Snapshot) -> MachineStatus {
     status(&file.for_machine(&snapshot.name), snapshot)
+}
+
+/// A exceção que `[machines.<rótulo>]` precisaria para a máquina ficar em dia (só sugestão: nada é
+/// escrito). `add` é o que sobra na máquina; `skip` é o que falta nela.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineExceptions {
+    pub machine: String,
+    /// A tabela da máquina já existe no preset: o trecho manda acrescentar nas listas dela.
+    pub table_exists: bool,
+    pub add: Items,
+    pub skip: Items,
+}
+
+impl MachineExceptions {
+    pub fn is_empty(&self) -> bool {
+        self.add.is_empty() && self.skip.is_empty()
+    }
+}
+
+/// Só sugere o que o parse do preset aceita (ADR 0033): `add_*` não pode ser item da lista
+/// principal (um item pulado e instalado é pulo deliberado) e `skip_*` tem de estar nela (um item
+/// que a máquina acrescentou e não instalou se resolve tirando-o do `add_*`). Lista não comparável
+/// (sem a capacidade) não gera sugestão, e nome que o parse recusaria fica de fora: o snapshot vem
+/// de outra máquina.
+pub fn exceptions_for(file: &PresetFile, status: &MachineStatus) -> MachineExceptions {
+    let (add_pacman, skip_pacman) =
+        suggestions(&status.pacman, &file.preset.pacman, is_valid_pacman_name);
+    let (add_flatpak, skip_flatpak) =
+        suggestions(&status.flatpak, &file.preset.flatpak, is_valid_flatpak_id);
+    MachineExceptions {
+        machine: status.machine.clone(),
+        table_exists: file.has_machine(&status.machine),
+        add: Items {
+            pacman: add_pacman,
+            flatpak: add_flatpak,
+        },
+        skip: Items {
+            pacman: skip_pacman,
+            flatpak: skip_flatpak,
+        },
+    }
+}
+
+fn suggestions(
+    list: &StatusList,
+    shared: &[String],
+    is_valid: fn(&str) -> bool,
+) -> (Vec<String>, Vec<String>) {
+    let StatusList::Compared { missing, extra, .. } = list else {
+        return (Vec::new(), Vec::new());
+    };
+    let keep = |names: &[String], in_shared: bool| -> Vec<String> {
+        names
+            .iter()
+            .filter(|name| is_valid(name) && shared.contains(name) == in_shared)
+            .cloned()
+            .collect()
+    };
+    (keep(extra, false), keep(missing, true))
 }
 
 pub fn status(preset: &Preset, snapshot: &Snapshot) -> MachineStatus {
@@ -372,5 +431,163 @@ mod tests {
         let arquivo = parse_preset_file(texto).unwrap();
         let s = snap("pc-a", &["base", "vim"], Some(&[]));
         assert_eq!(status_for(&arquivo, &s), status(&arquivo.preset, &s));
+    }
+
+    // Fatia 8: `exceptions_for` sugere a exceção da máquina (`add_*` para o que sobra, `skip_*` para
+    // o que falta) sem nunca sugerir o que o parse do preset recusaria.
+
+    const PRESET_BASE: &str = "version = 1\n\
+        pacman = [\"git\", \"vim\"]\n\
+        flatpak = [\"org.A.A\"]\n";
+
+    fn lista(nomes: &[String]) -> String {
+        format!("{nomes:?}")
+    }
+
+    fn excecoes(texto: &str, s: &Snapshot) -> MachineExceptions {
+        let arquivo = parse_preset_file(texto).unwrap();
+        exceptions_for(&arquivo, &status_for(&arquivo, s))
+    }
+
+    /// Cola a sugestão no preset como o dono faria (soma ao que a tabela já tem) e relê.
+    fn colar(texto: &str, s: &Snapshot, ex: &MachineExceptions) -> crate::preset::PresetFile {
+        let arquivo = parse_preset_file(texto).unwrap();
+        let (skip, add) = (arquivo.skipped(&s.name), arquivo.added(&s.name));
+        let junta = |a: &[String], b: &[String]| lista(&[a, b].concat());
+        let novo = format!(
+            "version = 1\npacman = {}\nflatpak = {}\n\n[machines.{}]\n\
+             skip_pacman = {}\nskip_flatpak = {}\nadd_pacman = {}\nadd_flatpak = {}\n",
+            lista(&arquivo.preset.pacman),
+            lista(&arquivo.preset.flatpak),
+            s.name,
+            junta(&skip.pacman, &ex.skip.pacman),
+            junta(&skip.flatpak, &ex.skip.flatpak),
+            junta(&add.pacman, &ex.add.pacman),
+            junta(&add.flatpak, &ex.add.flatpak),
+        );
+        parse_preset_file(&novo).expect("a exceção sugerida tem de passar no parse do preset")
+    }
+
+    fn em_dia_nas_listas(arquivo: &crate::preset::PresetFile, s: &Snapshot) -> bool {
+        status_for(arquivo, s).is_in_sync()
+    }
+
+    #[test]
+    fn o_que_sobra_na_maquina_vira_add_na_tabela_dela() {
+        let s = snap("notebook", &["git", "vim", "steam"], Some(&["org.A.A"]));
+        let ex = excecoes(PRESET_BASE, &s);
+        assert_eq!(ex.machine, "notebook");
+        assert!(!ex.table_exists);
+        assert_eq!(ex.add.pacman, ["steam"]);
+        assert!(ex.skip.is_empty() && ex.add.flatpak.is_empty());
+    }
+
+    #[test]
+    fn o_que_falta_na_maquina_vira_skip_na_tabela_dela() {
+        let s = snap("notebook", &["git"], Some(&["org.A.A"]));
+        let ex = excecoes(PRESET_BASE, &s);
+        assert_eq!(ex.skip.pacman, ["vim"]);
+        assert!(ex.add.is_empty() && ex.skip.flatpak.is_empty());
+    }
+
+    #[test]
+    fn pacman_e_flatpak_vao_cada_um_na_sua_lista_e_em_ordem() {
+        let s = snap(
+            "notebook",
+            &["git", "zsh", "steam"],
+            Some(&["org.B.B", "org.C.C"]),
+        );
+        let ex = excecoes(PRESET_BASE, &s);
+        assert_eq!(ex.add.pacman, ["steam", "zsh"]);
+        assert_eq!(ex.add.flatpak, ["org.B.B", "org.C.C"]);
+        assert_eq!(ex.skip.pacman, ["vim"]);
+        assert_eq!(ex.skip.flatpak, ["org.A.A"]);
+    }
+
+    #[test]
+    fn item_pulado_de_proposito_e_instalado_nao_vira_add() {
+        // `add_` de um item da lista principal é `AddAlreadyInPreset`: o pulo foi deliberado.
+        let texto = format!("{PRESET_BASE}\n[machines.notebook]\nskip_pacman = [\"vim\"]\n");
+        let s = snap("notebook", &["git", "vim"], Some(&["org.A.A"]));
+        let ex = excecoes(&texto, &s);
+        assert!(ex.table_exists);
+        assert!(ex.add.pacman.is_empty(), "{:?}", ex.add.pacman);
+        assert!(ex.is_empty());
+    }
+
+    #[test]
+    fn item_acrescentado_pela_propria_maquina_e_nao_instalado_nao_vira_skip() {
+        // `skip_` fora da lista principal é erro: o conserto é tirar o item do `add_`.
+        let texto = format!("{PRESET_BASE}\n[machines.notebook]\nadd_pacman = [\"steam\"]\n");
+        let s = snap("notebook", &["git", "vim"], Some(&["org.A.A"]));
+        let ex = excecoes(&texto, &s);
+        assert!(ex.skip.pacman.is_empty(), "{:?}", ex.skip.pacman);
+        assert!(ex.is_empty());
+    }
+
+    #[test]
+    fn maquina_sem_flatpak_nao_recebe_sugestao_de_flatpak() {
+        let mut s = snap("notebook", &["git", "vim"], None);
+        s.flatpak = vec!["org.B.B".into()];
+        let ex = excecoes(PRESET_BASE, &s);
+        assert!(ex.add.flatpak.is_empty() && ex.skip.flatpak.is_empty());
+        assert!(ex.is_empty());
+    }
+
+    #[test]
+    fn maquina_em_dia_nao_tem_sugestao() {
+        let s = snap("notebook", &["git", "vim"], Some(&["org.A.A"]));
+        let ex = excecoes(PRESET_BASE, &s);
+        assert!(ex.is_empty());
+    }
+
+    #[test]
+    fn avisa_quando_a_tabela_da_maquina_ja_existe() {
+        let texto = format!("{PRESET_BASE}\n[machines.notebook]\nskip_pacman = [\"vim\"]\n");
+        let s = snap("notebook", &["git", "steam"], Some(&["org.A.A"]));
+        let ex = excecoes(&texto, &s);
+        assert!(ex.table_exists);
+        assert_eq!(ex.add.pacman, ["steam"]);
+        let outra = snap("desktop", &["git", "steam"], Some(&["org.A.A"]));
+        assert!(!excecoes(&texto, &outra).table_exists);
+    }
+
+    #[test]
+    fn nome_invalido_de_outra_maquina_nao_entra_na_sugestao() {
+        // O snapshot vem de outra máquina: nada que o parse do preset recusaria vai para o trecho.
+        let mut s = snap("notebook", &["git", "vim"], Some(&["org.A.A"]));
+        s.pacman.push("--overwrite=*".into());
+        s.pacman.push("a\"b".into());
+        s.pacman.push("steam".into());
+        s.flatpak.push("lingot".into());
+        let ex = excecoes(PRESET_BASE, &s);
+        assert_eq!(ex.add.pacman, ["steam"]);
+        assert!(ex.add.flatpak.is_empty(), "{:?}", ex.add.flatpak);
+    }
+
+    #[test]
+    fn colar_a_sugestao_no_preset_deixa_a_maquina_em_dia() {
+        let existente = format!("{PRESET_BASE}\n[machines.notebook]\nskip_pacman = [\"vim\"]\n");
+        let casos = [
+            (
+                PRESET_BASE,
+                snap("notebook", &["git", "vim", "steam"], Some(&["org.A.A"])),
+            ),
+            (PRESET_BASE, snap("notebook", &["git"], Some(&["org.A.A"]))),
+            (
+                PRESET_BASE,
+                snap("notebook", &["git", "steam"], Some(&["org.B.B"])),
+            ),
+            (
+                existente.as_str(),
+                snap("notebook", &["git", "steam"], Some(&["org.A.A"])),
+            ),
+        ];
+        for (texto, s) in &casos {
+            let ex = excecoes(texto, s);
+            assert!(!ex.is_empty(), "o caso devia ter sugestão: {}", s.name);
+            let depois = colar(texto, s, &ex);
+            assert!(em_dia_nas_listas(&depois, s), "{texto}\n{ex:?}");
+        }
     }
 }

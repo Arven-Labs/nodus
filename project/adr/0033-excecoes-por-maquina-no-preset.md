@@ -51,6 +51,15 @@ Escolha do dono: variável de ambiente lida no Rust, como `NODUS_PRESET` e `NODU
 4. Mutações pegas por testes (CI do desktop): plan e suggest sem a flag (2 testes), `status` recebendo a flag (1), apply e adopt sem a flag (1), releitura do `unignore` sem a máquina (2), regra do rótulo só exigindo não vazio (3), `--machine=<valor>` num argumento só (2).
 5. **Não verificado:** a janela real; `NODUS_MACHINE` vazia (`NODUS_MACHINE=` no shell) quebra as abas em vez de ser ignorada (decisão acima, que o dono pode querer mudar).
 
+## Emenda 3 (2026-11-23, fatia 8): o `preset status` imprime o trecho da exceção
+Escolhas do dono em plan mode; implementado no PR #201, **ainda não verificado no Arch real**.
+1. Por máquina, o `preset status` (texto) imprime, depois das listas, o trecho para colar: `add_pacman`/`add_flatpak` para o que está instalado de propósito e fora do preset efetivo, e `skip_pacman`/`skip_flatpak` para o que está no preset efetivo e não instalado. Só leitura; o dono cola. Mora no `status` e não no `compare`, porque só o status conhece o preset. `status --json` não ganha campo.
+2. **Só sugere o que o parse aceita:** item da lista principal instalado numa máquina que o pulou **não** vira `add_` (seria `AddAlreadyInPreset`: pulo deliberado); item que a própria máquina acrescenta e não instalou **não** vira `skip_` (seria `SkipNotInPreset`; o conserto é tirá-lo do `add_*`); lista não comparável (sem a capacidade) não gera sugestão; nome que o parse recusaria fica de fora.
+3. Sem tabela da máquina, o trecho traz `[machines.<rótulo>]` inteira. **Com a tabela já existente, o trecho só diz em qual lista acrescentar** (`em \`add_pacman = [...]\``), porque repetir a chave seria TOML inválido. Descartado: imprimir sempre a tabela inteira.
+4. Implementação: `exceptions_for` e `MachineExceptions` em `nodus-core/src/status.rs`; `PresetFile::has_machine`; `render_status` passa a receber o `PresetFile` (o cabeçalho usa `file.preset`). Descartados: só `add_*` e uma flag `--snippet`.
+5. Mutações pegas por testes (CI, PRs #202 a #206, fechados): `add_` sem o filtro da lista principal (2 testes), `skip_` sem exigir a lista principal (2), `add_` e `skip_` trocados (13), nome inválido aceito (2), tabela da máquina nunca existente (3).
+6. **Não verificado:** o Arch real (o trecho colado num preset de verdade); o `status` com a tabela já existente fora de teste.
+
 ## Lacunas
 - **Verificado no Arch real em 2026-11-22** (binário da `main` em `ed0451b`, hostname `archlinux`): `plan` pelo hostname e com `--machine`, `--json`, rótulo inválido, typo em `skip` (erro, saída 1), `apply` respondendo `n`, `adopt` num preset com tabelas (só a linha de `pacman` mudou) e `status` com e sem a exceção (0 contra 1 ocorrência de `"sl"`).
 - **Não verificado:** a GUI (abas Preset e Sugestões sem `--machine`); `suggest --machine`; `apply` real confirmando com `s`; hostname com maiúsculas (o `archlinux` é um rótulo válido); o conteúdo do `--json` do `status` (só contei ocorrências).

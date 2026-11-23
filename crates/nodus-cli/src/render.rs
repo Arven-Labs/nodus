@@ -6,10 +6,10 @@ use nodus_core::compare::{Comparison, DotfilesComparison, ListComparison};
 use nodus_core::dotfiles::Entry;
 use nodus_core::history::{Action, ExecResult, HistoryEntry, Manager, format_utc};
 use nodus_core::inventory::Inventory;
-use nodus_core::preset::{Plan, Preset, Suggestions};
+use nodus_core::preset::{Plan, PresetFile, Suggestions};
 use nodus_core::repos::{FetchResult, RepoStatus};
 use nodus_core::snapshot::{DotfileState, SnapshotOs};
-use nodus_core::status::{MachineStatus, StatusList};
+use nodus_core::status::{MachineExceptions, MachineStatus, StatusList, exceptions_for};
 use nodus_core::updates::{PacmanSource, Updates};
 use std::fmt::Write;
 
@@ -530,8 +530,46 @@ fn status_section(out: &mut String, title: &str, machine: &str, list: &StatusLis
     }
 }
 
+/// O trecho da exceção sugerida para a máquina (nada é escrito). Sem tabela, mostra a tabela
+/// inteira para colar; com tabela, diz em qual lista acrescentar, porque repetir a chave seria
+/// TOML inválido.
+fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
+    let keys = [
+        ("add_pacman", &exceptions.add.pacman),
+        ("add_flatpak", &exceptions.add.flatpak),
+        ("skip_pacman", &exceptions.skip.pacman),
+        ("skip_flatpak", &exceptions.skip.flatpak),
+    ];
+    if exceptions.is_empty() {
+        return;
+    }
+    let machine = &exceptions.machine;
+    if exceptions.table_exists {
+        let _ = writeln!(
+            out,
+            "  A tabela [machines.{machine}] já existe. Para registrar a exceção, acrescente (nada foi alterado):"
+        );
+        for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
+            let _ = writeln!(out, "    em `{key} = [...]`:");
+            for name in *names {
+                let _ = writeln!(out, "      \"{name}\",");
+            }
+        }
+    } else {
+        let _ = writeln!(
+            out,
+            "  Para registrar como exceção desta máquina, cole no preset (nada foi alterado):"
+        );
+        let _ = writeln!(out, "    [machines.{machine}]");
+        for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
+            let quoted: Vec<String> = names.iter().map(|name| format!("\"{name}\"")).collect();
+            let _ = writeln!(out, "    {key} = [{}]", quoted.join(", "));
+        }
+    }
+}
+
 pub fn render_status(
-    preset: &Preset,
+    file: &PresetFile,
     statuses: &[MachineStatus],
     unreadable: &[Unreadable],
 ) -> String {
@@ -540,8 +578,8 @@ pub fn render_status(
     }
     let mut out = format!(
         "Preset: pacman {}, flatpak {} (só leitura, a partir dos snapshots):\n",
-        preset.pacman.len(),
-        preset.flatpak.len()
+        file.preset.pacman.len(),
+        file.preset.flatpak.len()
     );
     for status in statuses {
         let header = if !status.is_in_sync() {
@@ -559,6 +597,7 @@ pub fn render_status(
         );
         status_section(&mut out, "Pacman", &status.machine, &status.pacman);
         status_section(&mut out, "Flatpak", &status.machine, &status.flatpak);
+        exceptions_section(&mut out, &exceptions_for(file, status));
     }
     for bad in unreadable {
         let _ = writeln!(
@@ -1881,18 +1920,25 @@ Sem divergências nas listas comparadas.
 
     // --- preset status (critério 3 do SPEC §16) ---
 
-    fn preset_de(pacman: &[&str], flatpak: &[&str]) -> nodus_core::preset::Preset {
-        nodus_core::preset::Preset {
-            pacman: pacman.iter().map(|s| s.to_string()).collect(),
-            flatpak: flatpak.iter().map(|s| s.to_string()).collect(),
-        }
+    fn preset_de(pacman: &[&str], flatpak: &[&str]) -> nodus_core::preset::PresetFile {
+        preset_com_tabelas(pacman, flatpak, "")
+    }
+
+    /// `tabelas` é o texto das `[machines.<rótulo>]` (vazio se não há).
+    fn preset_com_tabelas(
+        pacman: &[&str],
+        flatpak: &[&str],
+        tabelas: &str,
+    ) -> nodus_core::preset::PresetFile {
+        let texto = format!("version = 1\npacman = {pacman:?}\nflatpak = {flatpak:?}\n{tabelas}");
+        nodus_core::preset::parse_preset_file(&texto).unwrap()
     }
 
     fn estado(
-        preset: &nodus_core::preset::Preset,
+        preset: &nodus_core::preset::PresetFile,
         snapshot: &nodus_core::snapshot::Snapshot,
     ) -> nodus_core::status::MachineStatus {
-        nodus_core::status::status(preset, snapshot)
+        nodus_core::status::status_for(preset, snapshot)
     }
 
     const NOTA_STATUS: &str = "Nota: \"não instalado de propósito\" inclui o que veio só como dependência; o snapshot guarda `pacman -Qe`.\n";
@@ -1916,6 +1962,10 @@ pc-a (Arch Linux):
     instalado de propósito e fora do preset (1):
       vim
   Flatpak: 1 em dia
+  Para registrar como exceção desta máquina, cole no preset (nada foi alterado):
+    [machines.pc-a]
+    add_pacman = [\"vim\"]
+    skip_pacman = [\"htop\"]
 {NOTA_STATUS}"
         );
         assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
@@ -1996,5 +2046,142 @@ pc-b (Arch Linux): em dia nas listas comparadas
         };
         let texto = render_status(&p, &[estado(&p, &s)], &[ruim]);
         assert!(!texto.contains('\x1b'), "{texto:?}");
+    }
+
+    // Fatia 8: o trecho `[machines.<rótulo>]` com a exceção sugerida.
+
+    #[test]
+    fn status_sugere_add_numa_tabela_nova_para_o_que_sobra() {
+        let p = preset_de(&["git", "vim"], &["org.A.A"]);
+        let s = snapshot_de(
+            "notebook",
+            "Arch Linux",
+            &["git", "vim", "steam"],
+            Some(&["org.A.A"]),
+        );
+        let esperado = "\
+Preset: pacman 2, flatpak 1 (só leitura, a partir dos snapshots):
+notebook (Arch Linux):
+  Pacman: 2 em dia
+    instalado de propósito e fora do preset (1):
+      steam
+  Flatpak: 1 em dia
+  Para registrar como exceção desta máquina, cole no preset (nada foi alterado):
+    [machines.notebook]
+    add_pacman = [\"steam\"]
+";
+        assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
+    }
+
+    #[test]
+    fn status_sugere_skip_para_o_que_falta_e_mantem_a_nota_da_dependencia() {
+        let p = preset_de(&["git", "vim"], &[]);
+        let s = snapshot_de("notebook", "Arch Linux", &["git"], Some(&[]));
+        let esperado = format!(
+            "\
+Preset: pacman 2, flatpak 0 (só leitura, a partir dos snapshots):
+notebook (Arch Linux):
+  Pacman: 1 em dia
+    no preset e não instalado de propósito (1):
+      vim
+  Flatpak: 0 em dia
+  Para registrar como exceção desta máquina, cole no preset (nada foi alterado):
+    [machines.notebook]
+    skip_pacman = [\"vim\"]
+{NOTA_STATUS}"
+        );
+        assert_eq!(render_status(&p, &[estado(&p, &s)], &[]), esperado);
+    }
+
+    #[test]
+    fn status_com_pacman_e_flatpak_poe_as_quatro_chaves_na_ordem_add_depois_skip() {
+        let p = preset_de(&["git", "vim"], &["org.A.A"]);
+        let s = snapshot_de(
+            "notebook",
+            "Arch Linux",
+            &["git", "steam"],
+            Some(&["org.B.B"]),
+        );
+        let texto = render_status(&p, &[estado(&p, &s)], &[]);
+        let esperado = "    [machines.notebook]
+    add_pacman = [\"steam\"]
+    add_flatpak = [\"org.B.B\"]
+    skip_pacman = [\"vim\"]
+    skip_flatpak = [\"org.A.A\"]
+";
+        assert!(texto.contains(esperado), "{texto}");
+    }
+
+    #[test]
+    fn status_com_a_tabela_ja_existente_manda_acrescentar_na_lista_sem_repetir_a_tabela() {
+        let p = preset_com_tabelas(
+            &["git", "vim"],
+            &[],
+            "\n[machines.notebook]\nskip_pacman = [\"vim\"]\n",
+        );
+        let s = snapshot_de("notebook", "Arch Linux", &["git", "steam"], Some(&[]));
+        let texto = render_status(&p, &[estado(&p, &s)], &[]);
+        let esperado = "  A tabela [machines.notebook] já existe. Para registrar a exceção, acrescente (nada foi alterado):
+    em `add_pacman = [...]`:
+      \"steam\",
+";
+        assert!(texto.contains(esperado), "{texto}");
+        assert!(!texto.contains("\n    [machines.notebook]\n"), "{texto}");
+    }
+
+    #[test]
+    fn status_nao_sugere_nada_para_pulo_deliberado_nem_para_add_proprio() {
+        let p = preset_com_tabelas(
+            &["git", "vim"],
+            &[],
+            "\n[machines.notebook]\nskip_pacman = [\"vim\"]\nadd_pacman = [\"steam\"]\n",
+        );
+        // `vim` pulado e instalado (sobra), `steam` acrescentado e não instalado (falta).
+        let s = snapshot_de("notebook", "Arch Linux", &["git", "vim"], Some(&[]));
+        let texto = render_status(&p, &[estado(&p, &s)], &[]);
+        assert!(texto.contains("      vim\n"), "{texto}");
+        assert!(texto.contains("      steam\n"), "{texto}");
+        assert!(!texto.contains("Para registrar"), "{texto}");
+        assert!(!texto.contains("já existe"), "{texto}");
+    }
+
+    #[test]
+    fn status_de_maquina_em_dia_ou_sem_flatpak_nao_tem_trecho() {
+        let p = preset_de(&["base"], &["org.a.A"]);
+        let em_dia = snapshot_de("pc-a", "Arch Linux", &["base"], Some(&["org.a.A"]));
+        let sem_flatpak = snapshot_de("pc-b", "Arch Linux", &["base"], None);
+        let texto = render_status(&p, &[estado(&p, &em_dia), estado(&p, &sem_flatpak)], &[]);
+        assert!(!texto.contains("Para registrar"), "{texto}");
+        assert!(!texto.contains("[machines."), "{texto}");
+    }
+
+    #[test]
+    fn status_poe_um_trecho_por_maquina_dentro_do_bloco_dela() {
+        let p = preset_de(&["git"], &[]);
+        let a = snapshot_de("pc-a", "Arch Linux", &["git", "steam"], Some(&[]));
+        let b = snapshot_de("pc-b", "Arch Linux", &["git", "htop"], Some(&[]));
+        let texto = render_status(&p, &[estado(&p, &a), estado(&p, &b)], &[]);
+        let (pos_a, pos_b) = (texto.find("pc-a (").unwrap(), texto.find("pc-b (").unwrap());
+        let trecho_a = texto.find("[machines.pc-a]").unwrap();
+        let trecho_b = texto.find("[machines.pc-b]").unwrap();
+        assert!(pos_a < trecho_a && trecho_a < pos_b, "{texto}");
+        assert!(pos_b < trecho_b, "{texto}");
+        assert!(texto.contains("add_pacman = [\"steam\"]"), "{texto}");
+        assert!(texto.contains("add_pacman = [\"htop\"]"), "{texto}");
+    }
+
+    #[test]
+    fn status_nao_poe_nome_invalido_no_trecho() {
+        // O trecho tem só nomes que o parse do preset aceita; a linha é exatamente esta.
+        let p = preset_de(&["git"], &[]);
+        let mut s = snapshot_de("notebook", "Arch Linux", &["git"], Some(&[]));
+        s.pacman.push("a\x1b[31mb".into());
+        s.pacman.push("--overwrite=*".into());
+        s.pacman.push("steam".into());
+        let texto = render_status(&p, &[estado(&p, &s)], &[]);
+        assert!(
+            texto.contains("\n    add_pacman = [\"steam\"]\n"),
+            "{texto}"
+        );
     }
 }
