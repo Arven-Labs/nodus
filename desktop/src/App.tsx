@@ -857,7 +857,7 @@ function ComparisonView({ c }: { c: Comparison }) {
   );
 }
 
-function CompareScreen() {
+function CompareScreen({ onRefresh }: { onRefresh: () => void }) {
   const state = useLoad("compare_all", parseCompare);
 
   if (state.status === "loading") return <p>Lendo os snapshots…</p>;
@@ -867,6 +867,15 @@ function CompareScreen() {
   return (
     <section>
       <h1>Comparar máquinas</h1>
+      {/* Sem argumento da tela: o rótulo é o hostname, decidido pela CLI. O `snapshot` não pergunta nada (sem `confirmWhat`), e o
+          botão fica à vista também sem pares: é justamente quando falta gravar. */}
+      <TerminalAction
+        prefix="compare-gravar"
+        buttonId="compare-gravar"
+        label="Gravar snapshot no terminal"
+        run={() => runAction("snapshot")}
+        onRefresh={onRefresh}
+      />
       {comparisons.length === 0 && (
         <p data-testid="compare-vazio">
           Nenhum par para comparar: são precisos pelo menos dois snapshots legíveis. Rode `nodusctl snapshot` em cada máquina e traga os arquivos pelo git.
@@ -912,6 +921,8 @@ export default function App() {
   const [workspaceKey, setWorkspaceKey] = useState(0);
   // E para os Dotfiles (depois de a CLI adotar um arquivo no terminal).
   const [dotfilesKey, setDotfilesKey] = useState(0);
+  // E para o Compare (depois de a CLI gravar o snapshot no terminal).
+  const [compareKey, setCompareKey] = useState(0);
   return (
     <main>
       <nav className="tabs">
@@ -930,7 +941,7 @@ export default function App() {
       {tab === "preset" && <PresetScreen key={presetKey} onRefresh={() => setPresetKey((k) => k + 1)} />}
       {tab === "suggest" && <SuggestScreen key={suggestKey} onRefresh={() => setSuggestKey((k) => k + 1)} />}
       {tab === "status" && <StatusScreen />}
-      {tab === "compare" && <CompareScreen />}
+      {tab === "compare" && <CompareScreen key={compareKey} onRefresh={() => setCompareKey((k) => k + 1)} />}
     </main>
   );
 }

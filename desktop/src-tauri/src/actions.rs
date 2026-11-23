@@ -44,6 +44,10 @@ pub enum Action {
     /// `nodusctl dotfiles link --all`: o lote da lista curada (ADR 0030). Sem argumento vindo da tela: quem decide o que entra no
     /// lote é a CLI, que mostra um plano, pula o que não dá e **pergunta** `[s/N]` no terminal. Escrita sem root, sem preset.
     DotfilesLinkAll,
+    /// `nodusctl snapshot`: grava o JSON da máquina na pasta-fonte (escrita sem root, sem preset, sem máquina). Sem argumento vindo da
+    /// tela: o rótulo é o hostname, decidido pela CLI (`--name` seria um argumento livre numa escrita, ADR 0028). A CLI **não
+    /// pergunta** nada; regravar dá o mesmo conteúdo. O commit é do dono.
+    Snapshot,
     /// `nodusctl preset unignore -- <nome>`: tira um nome da lista de ignorados do `config.toml` (escrita sem root). O nome vem da
     /// tela e só chega aqui depois de `run` conferir que é um item de `ignored` de `nodusctl preset suggest --json`, relido agora
     /// (ADR 0028). Usa `NODUS_PRESET` só para essa leitura. A CLI **não pergunta** nada; é reversível (`preset adopt` com `i`).
@@ -59,7 +63,7 @@ impl Action {
             "dotfiles_adopt" => Ok(Self::DotfilesAdopt(path)),
             "dotfiles_link" => Ok(Self::DotfilesLink(path)),
             "preset_unignore" => Ok(Self::PresetUnignore(path)),
-            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" | "dotfiles_link_all" => {
+            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" | "dotfiles_link_all" | "snapshot" => {
                 Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -74,9 +78,10 @@ impl Action {
             ("preset_adopt", None) => Ok(Self::PresetAdopt),
             ("workspace_unset", None) => Ok(Self::WorkspaceUnset),
             ("dotfiles_link_all", None) => Ok(Self::DotfilesLinkAll),
+            ("snapshot", None) => Ok(Self::Snapshot),
             ("history_undo", Some(n)) if n >= 1 => Ok(Self::HistoryUndo(n)),
             // `workspace_set` sem caminho (ou com `n`): a ação não existe sem o caminho, que entra por `parse_path`.
-            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "dotfiles_link_all" | "preset_unignore" | "history_undo", _) => {
+            ("preset_apply" | "preset_adopt" | "workspace_unset" | "workspace_set" | "dotfiles_adopt" | "dotfiles_link" | "dotfiles_link_all" | "snapshot" | "preset_unignore" | "history_undo", _) => {
                 Err(CmdError::new("invalid_argument", format!("argumento inválido para a ação {name:?}: {n:?}")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
@@ -95,6 +100,7 @@ impl Action {
             Self::DotfilesAdopt(path) => vec!["dotfiles".into(), "adopt".into(), "--".into(), path.clone()],
             Self::DotfilesLink(path) => vec!["dotfiles".into(), "link".into(), "--".into(), path.clone()],
             Self::DotfilesLinkAll => vec!["dotfiles".into(), "link".into(), "--all".into()],
+            Self::Snapshot => vec!["snapshot".into()],
             Self::PresetUnignore(name) => vec!["preset".into(), "unignore".into(), "--".into(), name.clone()],
         }
     }
@@ -280,6 +286,7 @@ pub fn run(name: &str, n: Option<u32>, path: Option<String>, env: Env, gui_versi
         | Action::DotfilesAdopt(_)
         | Action::DotfilesLink(_)
         | Action::DotfilesLinkAll
+        | Action::Snapshot
         | Action::PresetUnignore(_) => {}
     }
     let terminal = find_terminal(env.terminal, env.path)?;
