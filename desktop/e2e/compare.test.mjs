@@ -151,6 +151,27 @@ test("SO diferente vira aviso e as listas continuam comparadas", async () => {
   assert.match(await par.getByTestId("compare-so-diferente").innerText(), /sistemas diferentes: pc-a é Arch Linux, pc-c é Fedora Linux 41/);
   assert.match(await par.getByTestId("compare-pacman").innerText(), /Pacman: 3 em comum/);
   assert.equal(await page.getByTestId("compare-par").nth(0).getByTestId("compare-so-diferente").count(), 0);
+  // O SO diferente já é uma divergência: o par não pode dizer "sem divergências" (nem "nas listas comparadas").
+  assert.equal(await par.getByTestId("compare-sem-divergencias").count(), 0);
+  await close();
+});
+
+test("par que só difere no SO não diz 'sem divergências'", async () => {
+  const data = compareFixture();
+  data.comparisons = [
+    {
+      a: "pc-a",
+      b: "pc-c",
+      os: { a: { name: "Arch Linux", version: null }, b: { name: "Fedora Linux", version: "41" } },
+      pacman: { status: "compared", only_a: [], only_b: [], common: 3 },
+      flatpak: { status: "compared", only_a: [], only_b: [], common: 0 },
+      dotfiles: { status: "compared", differ: [], same: 9 },
+    },
+  ];
+  const { page, close } = await openApp(browser, app, { handlers: handlers(JSON.stringify(data)) });
+  await abrirAba(page);
+  await page.getByTestId("compare-so-diferente").waitFor();
+  assert.equal(await page.getByTestId("compare-sem-divergencias").count(), 0);
   await close();
 });
 

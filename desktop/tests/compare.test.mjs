@@ -106,6 +106,18 @@ test("o `status` de cada lista só pode ser `compared` ou `not_comparable`", () 
   }
 });
 
+test("um `status` desconhecido é erro mesmo com os campos de outro status presentes (não adivinha qual era)", () => {
+  // Um objeto com `lacks` e status desconhecido não pode virar "não comparável", nem um com `only_a` virar "comparado".
+  for (const lista of ["pacman", "flatpak", "dotfiles"]) {
+    const comLacks = fixture();
+    comLacks.comparisons[0][lista] = { status: "outro", lacks: ["pc-a"] };
+    rejects(comLacks);
+    const completo = fixture();
+    completo.comparisons[0][lista] = { status: "outro", lacks: ["pc-a"], only_a: [], only_b: [], common: 1, differ: [], same: 1 };
+    rejects(completo);
+  }
+});
+
 test("as listas de itens e de `lacks` precisam ser listas de texto", () => {
   for (const valor of ["htop", null, 1, {}, [1], [null], ["ok", 2], [["aninhada"]]]) {
     for (const chave of ["only_a", "only_b"]) {
