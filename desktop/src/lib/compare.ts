@@ -92,7 +92,7 @@ function listComparison(value: unknown, path: string): ListComparison {
 
 function dotfileState(value: unknown, path: string): DotfileState | null {
   if (value === null) return null;
-  if (value === "linked" || value === "file" || value === "missing" || value === "other") return value;
+  if (typeof value === "string") return value as DotfileState;
   return fail(path, "`linked`, `file`, `missing`, `other` ou nulo");
 }
 
