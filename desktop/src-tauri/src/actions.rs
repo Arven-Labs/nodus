@@ -63,7 +63,7 @@ impl Action {
             "dotfiles_adopt" => Ok(Self::DotfilesAdopt(path)),
             "dotfiles_link" => Ok(Self::DotfilesLink(path)),
             "preset_unignore" => Ok(Self::PresetUnignore(path)),
-            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" | "dotfiles_link_all" | "snapshot" => {
+            "preset_apply" | "preset_adopt" | "workspace_unset" | "history_undo" | "dotfiles_link_all" => {
                 Err(CmdError::new("invalid_argument", format!("a ação {name:?} não recebe caminho")))
             }
             _ => Err(CmdError::new("not_allowed", format!("ação não permitida: {name:?}"))),
