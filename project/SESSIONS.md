@@ -2,14 +2,20 @@
 
 Mais recente no topo.
 
-### 2026-11-24 — Sessão 58, `repos sync`, PR 1 de 3: o core (P-20, ADR 0034)
+### 2026-11-24 — Sessão 58, `repos sync`, PRs 1 e 2 de 3: o core e a CLI com histórico v5 (P-20, ADR 0034)
 
+- **PR 2 (CLI, histórico v5, recusa do undo)**: `crates/nodus-cli/src/repos_sync.rs` (novo: `select_repos`, `run`, `undo_refusal`), `cli.rs` (`repos` ganha o subcomando `sync`), `main.rs` (`repos_sync_command`; `workspace_repos` extraído do `repos`, que o `sync` reaproveita; o `history undo` recusa linha de sync), `crates/nodus-core/src/history.rs` (v5, `Action::Sync`, `Manager::Repos`, `entry_from_sync`), `render.rs` (linha do histórico). ADR 0034 emenda 1.
+- **Testes**: esqueleto com `todo!()` e CI vermelho com 24 falhas; um teste meu estava errado (`repos --fetch sync` é a listagem da pasta `./sync`, não um conflito) e foi corrigido antes da implementação. Verde com 494 no CLI e 428 no core, incluindo 7 com `git` real. Doze mutações em PRs descartáveis (#250 a #262, fechados, branches apagadas), todas pegas; a primeira R2 não valeu (erro de compilação por variante sem uso) e foi refeita. Antes das mutações achei um buraco (`shell_quote` sem teste) e acrescentei o teste.
+- **Ajuste de plano**: o parser do Histórico da GUI é estrito, então uma linha v5 faz a aba Histórico dar erro. O PR 3 se divide: 3a (parser aceita `sync` e `repos`) logo depois deste, 3b (botão) só depois de o dono rodar no Arch real.
+- **Erros meus**: não rodei `cargo fmt` para reescrever (regra do `CLAUDE.md`), apliquei o formato com `Edit` e `Write`; o script de mutação passou a conferir o `fmt` antes de commitar.
+- **Não verificado**: o `repos sync` no Arch real (build é do dono); a aba Histórico com uma linha v5.
+- **Fica**: PR 3a e 3b; P-02, P-14, P-17.
+- **PR 1 (core, #239, mesclado)**, o que veio antes:
 - **Pedido**: "sim" ao plano do `repos sync` depois do spike. Plan mode; o dono escolheu um `[s/N]` para o plano todo e histórico v5 sem desfazer (PR 2). Três PRs em série: core, CLI com histórico, GUI.
 - **Feito (PR 1)**: `crates/nodus-core/src/sync.rs` (`plan_item`, `fast_forward`, `MERGE_ARGS`, `SyncItem`, `SyncDecision`, `SkipReason`), `run_git` e `git_error` de `repos.rs` viraram `pub(crate)`. Nenhuma mudança na CLI, no histórico nem na GUI. Decisão minha, fora do plano escrito: o `status` leva `--untracked-files=normal`, para `status.showUntrackedFiles=no` na config do repositório não esconder arquivo novo.
 - **Testes**: primeiro, esqueleto com `todo!()` e CI vermelho com 15 falhas (só o teste de JSON passou); depois verde (422 no core). Nove mutações em PRs descartáveis (#240 a #248, fechados, branches apagadas), todas pegas por testes: gate invertido (11), `--ff` em vez de `--ff-only` (1), árvore suja avança (1), divergido avança (2), sem `--no-verify-signatures` (1), gate sem `to_ascii_lowercase` (1), `status` sem `--untracked-files=normal` (1), config ilegível libera (1), `status` falho libera (1). **A primeira S7 não valeu**: o trecho mutado cabia em uma linha e o CI parou no `fmt --check`, sem rodar teste; refeita no formato do `rustfmt` e pega por 1 teste.
 - **Conferido**: `medir.sh` de novo (0 de 13 disparos, 10 controles) e a lista de isolamento do Rust igual à do script.
-- **Não verificado**: tudo contra `git` real (os testes do core usam runner falso; o teste de ponta a ponta com binário e `git` reais é do PR 2).
-- **Fica**: PR 2 (CLI, histórico v5, recusa do undo, emenda 1 do ADR 0034), PR 3 (GUI, só depois de você rodar o `repos sync` no Arch real); P-02, P-14, P-17.
+- **Não verificado (no PR 1)**: tudo contra `git` real; o PR 2 acrescentou 7 testes com `git` real.
 
 ### 2026-11-24 — Sessão 57, spike P-20: `repos sync` seguro (só docs e script, ADR 0034)
 
