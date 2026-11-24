@@ -7,8 +7,8 @@
 
 import { array, count, field, nullableText, object, ParseError, text } from "./parse.ts";
 
-export type HistoryAction = "install" | "remove" | "adopt" | "link";
-export type HistoryManager = "pacman" | "flatpak" | "dotfiles";
+export type HistoryAction = "install" | "remove" | "adopt" | "link" | "sync";
+export type HistoryManager = "pacman" | "flatpak" | "dotfiles" | "repos";
 export type HistoryResult = { status: "ok" } | { status: "failed"; code: number | null };
 
 export interface HistoryEntry {
@@ -25,7 +25,7 @@ export interface HistoryEntry {
   /** Número da entrada que esta reversão desfaz; `null` fora das reversões. */
   undoes: number | null;
   manager: HistoryManager;
-  /** Pasta-fonte, só nas entradas de dotfile. */
+  /** Pasta-fonte nas entradas de dotfile; o repositório nas de `repos sync` (nesta, `requested` é o commit de antes e `installed` o de depois). */
   dir: string | null;
 }
 
@@ -43,13 +43,13 @@ export function parseHistory(jsonText: string): HistoryEntry[] {
 }
 
 function action(value: unknown, at: string): HistoryAction {
-  if (value === "install" || value === "remove" || value === "adopt" || value === "link") return value;
-  throw new HistoryError(`campo \`${at}action\`: esperava "install", "remove", "adopt" ou "link"`);
+  if (value === "install" || value === "remove" || value === "adopt" || value === "link" || value === "sync") return value;
+  throw new HistoryError(`campo \`${at}action\`: esperava "install", "remove", "adopt", "link" ou "sync"`);
 }
 
 function manager(value: unknown, at: string): HistoryManager {
-  if (value === "pacman" || value === "flatpak" || value === "dotfiles") return value;
-  throw new HistoryError(`campo \`${at}manager\`: esperava "pacman", "flatpak" ou "dotfiles"`);
+  if (value === "pacman" || value === "flatpak" || value === "dotfiles" || value === "repos") return value;
+  throw new HistoryError(`campo \`${at}manager\`: esperava "pacman", "flatpak", "dotfiles" ou "repos"`);
 }
 
 function result(value: unknown, at: string): HistoryResult {

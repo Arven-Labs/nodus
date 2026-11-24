@@ -399,6 +399,7 @@ const ACTION_LABEL: Record<HistoryEntry["action"], string> = {
   remove: "remoção",
   adopt: "dotfile adotado",
   link: "dotfile ligado",
+  sync: "repositório avançado",
 };
 
 function resultText(result: HistoryEntry["result"]): string {
@@ -408,13 +409,16 @@ function resultText(result: HistoryEntry["result"]): string {
 
 function HistoryItem({ entry, n, canUndo, onRefresh }: { entry: HistoryEntry; n: number; canUndo: boolean; onRefresh: () => void }) {
   const undoes = entry.undoes === null ? "" : ` · desfez #${entry.undoes}`;
-  const where = entry.dir === null ? "" : ` · pasta-fonte ${entry.dir}`;
+  // `dir` é a pasta-fonte nos dotfiles e o repositório no `repos sync`; neste, a lista pedida é o commit de antes e a instalada, o de depois.
+  const isSync = entry.action === "sync";
+  const where = entry.dir === null ? "" : ` · ${isSync ? "repositório" : "pasta-fonte"} ${entry.dir}`;
+  const requested = isSync ? `${entry.requested.join(", ")} -> ${entry.installed.join(", ")}` : entry.requested.join(", ");
   return (
     <li data-testid="history-entry">
       <strong>{`#${n}`}</strong>
       {` ${ACTION_LABEL[entry.action]} · ${resultText(entry.result)}${undoes}`}
       <div className="detail">{`${formatUtc(entry.atUnix)} · ${entry.manager}${where}`}</div>
-      <div className="detail">{entry.requested.join(", ")}</div>
+      <div className="detail">{requested}</div>
       <div className="detail">{entry.command.join(" ")}</div>
       {canUndo && (
         <TerminalAction
