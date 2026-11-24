@@ -159,7 +159,7 @@ fn has_filter_command(runner: &dyn CommandRunner, repo: &str) -> Result<bool, St
         repo,
         &["config", "--list", "--includes", "--name-only"],
     )
-    .map_err(|e| git_error(&e))?;
+    .unwrap_or_default();
     Ok(saida.lines().any(|nome| {
         let nome = nome.trim().to_ascii_lowercase();
         nome.starts_with("filter.")
