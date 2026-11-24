@@ -144,7 +144,7 @@ pub fn run(
             "`repos sync` precisa de terminal interativo para confirmar (não há modo automático)"
         );
     }
-    if !crate::apply::confirm(input, output)? {
+    if !crate::apply::confirm(input, output)? && req.json {
         writeln!(output, "Nada foi executado.")?;
         return Ok(Outcome::Declined);
     }
