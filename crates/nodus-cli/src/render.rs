@@ -582,7 +582,8 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
             // Comentário no fim da linha: o TOML continua válido ao colar.
             let omitted = if names.len() > EXCEPTION_LIST_LIMIT {
                 let n = names.len() - EXCEPTION_LIST_LIMIT;
-                format!("  # +{n} omitidos (lista completa acima)")
+                let _ = n;
+                String::new()
             } else {
                 String::new()
             };
