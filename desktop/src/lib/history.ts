@@ -109,7 +109,8 @@ export function canUndo(entries: HistoryEntry[], n: number): boolean {
   if (entry === undefined || entry.undoes !== null) return false;
   const reversible =
     ((entry.manager === "pacman" || entry.manager === "flatpak") && entry.action === "install") ||
-    (entry.manager === "dotfiles" && (entry.action === "adopt" || entry.action === "link"));
+    (entry.manager === "dotfiles" && (entry.action === "adopt" || entry.action === "link")) ||
+    entry.manager === "repos";
   return reversible && !entries.some((other) => other.undoes === n && other.result.status === "ok");
 }
 
