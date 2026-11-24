@@ -77,7 +77,9 @@ pub enum Command {
         action: Option<DotfilesAction>,
     },
     /// Lista os repositórios Git filhos diretos de uma pasta e o estado de cada um (somente leitura).
-    /// Sem pasta: a de workspace (NODUS_WORKSPACE, ou a detectada; ver `workspace`).
+    /// Sem pasta: a de workspace (NODUS_WORKSPACE, ou a detectada; ver `workspace`). `sync` avança
+    /// os repositórios que só estão atrás do upstream (`merge --ff-only`, com plano e confirmação).
+    #[command(args_conflicts_with_subcommands = true)]
     Repos {
         /// Pasta cujos filhos diretos são examinados.
         dir: Option<PathBuf>,
@@ -87,6 +89,8 @@ pub enum Command {
         /// Emite JSON em vez de texto.
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        action: Option<ReposAction>,
     },
     /// Mostra qual é a pasta de workspace (só lê). Sem argumento: a variável NODUS_WORKSPACE, a
     /// pasta gravada com `workspace set`, ou a detecção entre pastas conhecidas sob o HOME (a com
@@ -105,6 +109,25 @@ pub enum Command {
     Preset {
         #[command(subcommand)]
         action: PresetAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ReposAction {
+    /// Faz `fetch` do `origin` de cada repositório, mostra o plano (quais avançam e por que os
+    /// outros ficam de fora) e, com a sua confirmação, roda `git merge --ff-only` nos que só estão
+    /// atrás do upstream. Nunca faz pull, reset, rebase, troca de branch nem resolve conflito; um
+    /// repositório com alteração local, divergido ou com filtro na config fica de fora (ADR 0034).
+    /// Não há desfazer: o histórico guarda o commit de antes.
+    Sync {
+        /// Pasta cujos filhos diretos são sincronizados (padrão: a de workspace).
+        dir: Option<PathBuf>,
+        /// Só este repositório (nome da pasta); pode repetir. Sem isso, todos os filhos diretos.
+        #[arg(long = "only", value_name = "NOME")]
+        only: Vec<String>,
+        /// Só mostra o plano em JSON e não executa nada.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -523,10 +546,16 @@ mod tests {
     fn repos_sem_pasta_e_aceito() {
         let cli = Cli::try_parse_from(["nodus", "repos"]).unwrap();
         match cli.command {
-            Command::Repos { dir, fetch, json } => {
+            Command::Repos {
+                dir,
+                fetch,
+                json,
+                action,
+            } => {
                 assert_eq!(dir, None);
                 assert!(!fetch);
                 assert!(!json);
+                assert!(action.is_none());
             }
             outro => panic!("comando errado: {outro:?}"),
         }
@@ -536,7 +565,9 @@ mod tests {
     fn repos_so_com_a_pasta_e_offline_em_texto() {
         let cli = Cli::try_parse_from(["nodus", "repos", "/ws"]).unwrap();
         match cli.command {
-            Command::Repos { dir, fetch, json } => {
+            Command::Repos {
+                dir, fetch, json, ..
+            } => {
                 assert_eq!(dir, Some(std::path::PathBuf::from("/ws")));
                 assert!(!fetch);
                 assert!(!json);
@@ -556,6 +587,51 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn repos_sync_sem_argumentos_usa_o_workspace_e_todos_os_repositorios() {
+        let cli = Cli::try_parse_from(["nodus", "repos", "sync"]).unwrap();
+        match cli.command {
+            Command::Repos {
+                action: Some(ReposAction::Sync { dir, only, json }),
+                ..
+            } => {
+                assert_eq!(dir, None);
+                assert!(only.is_empty());
+                assert!(!json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn repos_sync_com_pasta_only_repetido_e_json() {
+        let cli = Cli::try_parse_from([
+            "nodus", "repos", "sync", "/ws", "--only", "alfa", "--only", "beta", "--json",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Repos {
+                action: Some(ReposAction::Sync { dir, only, json }),
+                ..
+            } => {
+                assert_eq!(dir, Some(std::path::PathBuf::from("/ws")));
+                assert_eq!(only, ["alfa", "beta"]);
+                assert!(json);
+            }
+            outro => panic!("comando errado: {outro:?}"),
+        }
+    }
+
+    #[test]
+    fn repos_sync_nao_mistura_com_as_opcoes_da_listagem() {
+        // `--fetch` e a pasta da listagem não valem antes do `sync` (o sync sempre faz fetch).
+        let erro = Cli::try_parse_from(["nodus", "repos", "--fetch", "sync"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::ArgumentConflict);
+        let erro = Cli::try_parse_from(["nodus", "repos", "/ws", "sync"]).unwrap_err();
+        assert_eq!(erro.kind(), ErrorKind::ArgumentConflict);
+        assert!(Cli::try_parse_from(["nodus", "repos", "sync", "--fetch"]).is_err());
     }
 
     #[test]

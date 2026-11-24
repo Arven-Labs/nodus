@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use cli::{Cli, Command, DotfilesAction, HistoryAction, PresetAction, WorkspaceAction};
+use cli::{
+    Cli, Command, DotfilesAction, HistoryAction, PresetAction, ReposAction, WorkspaceAction,
+};
 use nodus_core::history::Manager;
 use nodus_core::runner::CommandRunner;
 
@@ -18,6 +20,7 @@ mod history;
 mod preset_file;
 mod process;
 mod render;
+mod repos_sync;
 mod snapshot;
 #[cfg(test)]
 mod testutil;
@@ -63,7 +66,17 @@ fn main() -> Result<()> {
             Some(DotfilesAction::Link { all: true, .. }) => dotfiles_link_all(),
             Some(DotfilesAction::Link { .. }) => unreachable!("o clap exige um caminho ou --all"),
         },
-        Command::Repos { dir, fetch, json } => repos(dir.as_deref(), fetch, json),
+        Command::Repos {
+            dir,
+            fetch,
+            json,
+            action,
+        } => match action {
+            None => repos(dir.as_deref(), fetch, json),
+            Some(ReposAction::Sync { dir, only, json }) => {
+                repos_sync_command(dir.as_deref(), &only, json)
+            }
+        },
         Command::Workspace { dir, json, action } => match action {
             None => workspace_command(dir.as_deref(), json),
             Some(WorkspaceAction::Set { dir }) => workspace_set(&dir),
@@ -266,6 +279,15 @@ fn history_undo(n: u32) -> Result<()> {
     use std::io::IsTerminal;
     let history_path = history_file()?;
     let entries = history::read(&history_path)?;
+    // O avanço de um repositório não tem desfazer (ADR 0034): recusa antes de qualquer outro caminho.
+    if let Some(entry) = usize::try_from(n)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|index| entries.get(index))
+        .filter(|entry| entry.manager == Manager::Repos)
+    {
+        anyhow::bail!("{}", repos_sync::undo_refusal(entry, n));
+    }
     // Dotfile não passa pelo pacman: desvia antes de consultá-lo (ADR 0023).
     let is_adoption = usize::try_from(n)
         .ok()
@@ -699,7 +721,8 @@ fn dotfiles_adopt(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn repos(dir: Option<&std::path::Path>, fetch: bool, json: bool) -> Result<()> {
+/// Os repositórios filhos diretos da pasta pedida, ou da de workspace (`repos` e `repos sync`).
+fn workspace_repos(dir: Option<&std::path::Path>) -> Result<Vec<discovery::RepoDir>> {
     let (dir, source) = workspace::pick_dir(
         dir,
         std::env::var("NODUS_WORKSPACE").ok().as_deref(),
@@ -710,7 +733,36 @@ fn repos(dir: Option<&std::path::Path>, fetch: bool, json: bool) -> Result<()> {
         // stderr: o stdout fica só com o resultado (`--json` continua JSON puro).
         eprintln!("Workspace: {} ({})", dir.display(), source.label());
     }
-    let found = discovery::find_repos(&dir).with_context(|| format!("lendo {}", dir.display()))?;
+    discovery::find_repos(&dir).with_context(|| format!("lendo {}", dir.display()))
+}
+
+fn repos_sync_command(dir: Option<&std::path::Path>, only: &[String], json: bool) -> Result<()> {
+    use std::io::IsTerminal;
+    let repos = repos_sync::select_repos(workspace_repos(dir)?, only)?;
+    let history_path = history_file()?;
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("o relógio do sistema está antes de 1970")?
+        .as_secs();
+    let stdin = std::io::stdin();
+    let request = repos_sync::Request {
+        repos: &repos,
+        interactive: stdin.is_terminal(),
+        json,
+        history_path: &history_path,
+        now_unix,
+    };
+    repos_sync::run(
+        &request,
+        &process::RealRunner,
+        &mut stdin.lock(),
+        &mut std::io::stdout(),
+    )?;
+    Ok(())
+}
+
+fn repos(dir: Option<&std::path::Path>, fetch: bool, json: bool) -> Result<()> {
+    let found = workspace_repos(dir)?;
     let mut statuses = Vec::with_capacity(found.len());
     for repo in &found {
         let path = repo

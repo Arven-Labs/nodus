@@ -140,6 +140,7 @@ pub fn apply_with_history(
                 Manager::Pacman => "sudo`/`pacman",
                 Manager::Flatpak => "flatpak",
                 Manager::Dotfiles => "dotfiles",
+                Manager::Repos => "git",
             };
             let what_happened = if run.is_err() {
                 format!("o `{program}` falhou e, além disso, não consegui")
@@ -155,6 +156,7 @@ pub fn apply_with_history(
                 }
                 // O `apply` só monta passos de pacman e Flatpak; dotfile tem comando próprio.
                 Manager::Dotfiles => bail!("o apply não instala dotfiles"),
+                Manager::Repos => bail!("o apply não avança repositórios"),
             };
             crate::history::append(history_path, &entry)
                 .with_context(|| format!("{what_happened} gravar o histórico"))?;

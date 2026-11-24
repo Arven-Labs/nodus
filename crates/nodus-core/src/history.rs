@@ -16,6 +16,11 @@ pub const ENTRY_VERSION: u32 = 3;
 /// continuam v3; um nodus antigo recusa a linha v4 (`UnsupportedVersion`), como no ADR 0014.
 pub const DOTFILES_ENTRY_VERSION: u32 = 4;
 
+/// Versão das entradas de `repos sync` (ADR 0034): `action = sync`, `manager = repos`, `dir` com o
+/// repositório, `requested` com o commit de antes e `installed` com o de depois. Um nodus antigo
+/// recusa a linha v5 (`UnsupportedVersion`).
+pub const SYNC_ENTRY_VERSION: u32 = 5;
+
 /// O que a entrada registra.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -28,6 +33,8 @@ pub enum Action {
     Adopt,
     /// `dotfiles link`: o arquivo da pasta-fonte ganhou um symlink no HOME (v4, ADR 0024).
     Link,
+    /// `repos sync`: um repositório avançou com `merge --ff-only` (v5, ADR 0034). Sem desfazer.
+    Sync,
 }
 
 /// Qual gerenciador a entrada registra. Define a regra de validação dos nomes (pacote do pacman ou
@@ -39,6 +46,8 @@ pub enum Manager {
     Flatpak,
     /// Só na v4: os nomes são caminhos de dotfile (regra de `dotfiles::validate_path`).
     Dotfiles,
+    /// Só na v5: os nomes são commits curtos em hexadecimal (`repos sync`, ADR 0034).
+    Repos,
 }
 
 /// Como a execução terminou, pelo status do processo. O que de fato mudou está em
@@ -204,6 +213,19 @@ pub fn entry_from_link(path: &str, dir: &str, command: &[String], at_unix: u64) 
     }
 }
 
+/// Entrada de um repositório que avançou (v5, ADR 0034). Só se grava depois de o `merge` terminar
+/// bem; falha antes dele não muda o repositório. `command` é o `git` que rodou, sem as variáveis e as
+/// opções de isolamento.
+pub fn entry_from_sync(
+    _dir: &str,
+    _before: &str,
+    _after: &str,
+    _command: &[String],
+    _at_unix: u64,
+) -> HistoryEntry {
+    todo!("entry_from_sync")
+}
+
 /// Entrada da reversão de uma adoção (v4, ADR 0023), gravada só depois de o symlink ser trocado
 /// pela cópia. `undoes` é o número da adoção desfeita; o caminho fica em `still_missing`, como o
 /// pacote removido no undo do pacman.
@@ -343,6 +365,7 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         Manager::Pacman => is_valid_pacman_name,
         Manager::Flatpak => is_valid_flatpak_id,
         Manager::Dotfiles => |path| crate::dotfiles::validate_path(path).is_ok(),
+        Manager::Repos => |_| false,
     };
     let names = entry
         .requested
@@ -756,7 +779,8 @@ mod tests {
 
     #[test]
     fn recusa_versao_diferente() {
-        for ruim in [0, 5, 99] {
+        // A 5 passou a existir (`repos sync`, ADR 0034).
+        for ruim in [0, 6, 99] {
             let linha =
                 linha_valida().replacen(r#""version":3"#, &format!(r#""version":{ruim}"#), 1);
             assert_eq!(
@@ -1336,5 +1360,108 @@ mod tests {
         assert_eq!(format_utc(951_782_400), "2000-02-29T00:00:00Z");
         assert_eq!(format_utc(4_102_444_799), "2099-12-31T23:59:59Z");
         assert_eq!(format_utc(4_102_444_800), "2100-01-01T00:00:00Z");
+    }
+
+    // --- v5: `repos sync` (ADR 0034) ---
+
+    fn avanco() -> HistoryEntry {
+        entry_from_sync(
+            "/home/u/ws/repo",
+            "1a2b3c4",
+            "def5678",
+            &v(&["git", "-C", "/home/u/ws/repo", "merge", "--ff-only", "@{u}"]),
+            1_700_000_200,
+        )
+    }
+
+    const LINHA_V5: &str = r#"{"version":5,"at_unix":1700000200,"command":["git","-C","/home/u/ws/repo","merge","--ff-only","@{u}"],"requested":["1a2b3c4"],"installed":["def5678"],"still_missing":[],"result":{"status":"ok"},"action":"sync","manager":"repos","dir":"/home/u/ws/repo"}"#;
+
+    #[test]
+    fn linha_de_sync_tem_o_formato_do_contrato() {
+        assert_eq!(to_line(&avanco()), LINHA_V5);
+    }
+
+    #[test]
+    fn ida_e_volta_de_sync() {
+        let e = avanco();
+        assert_eq!(e.version, 5);
+        assert_eq!(e.action, Action::Sync);
+        assert_eq!(e.manager, Manager::Repos);
+        assert_eq!(parse_line(LINHA_V5).unwrap(), e);
+        assert_eq!(parse_line(&to_line(&e)).unwrap(), e);
+    }
+
+    #[test]
+    fn recusa_sync_com_campo_fora_do_contrato() {
+        let casos = [
+            // outro gerenciador, `undoes`, sem `dir`, dir relativo ou com controle
+            (r#""manager":"repos""#, r#""manager":"pacman""#),
+            (r#""manager":"repos""#, r#""manager":"dotfiles""#),
+            (r#""action":"sync""#, r#""action":"sync","undoes":1"#),
+            (r#","dir":"/home/u/ws/repo""#, ""),
+            (r#""dir":"/home/u/ws/repo""#, r#""dir":"ws/repo""#),
+            (
+                r#""dir":"/home/u/ws/repo""#,
+                r#""dir":"/home/u/\u001b[31mx""#,
+            ),
+            // commits: vazio, não hexadecimal, opção do git, com escape, longo demais
+            (r#""requested":["1a2b3c4"]"#, r#""requested":[]"#),
+            (
+                r#""requested":["1a2b3c4"]"#,
+                r#""requested":["1a2b3c4","def5678"]"#,
+            ),
+            (r#""requested":["1a2b3c4"]"#, r#""requested":["zzzzzzz"]"#),
+            (r#""requested":["1a2b3c4"]"#, r#""requested":["--hard"]"#),
+            (
+                r#""installed":["def5678"]"#,
+                r#""installed":["def\u001b[31m"]"#,
+            ),
+            (r#""installed":["def5678"]"#, r#""installed":[]"#),
+            (
+                r#""installed":["def5678"]"#,
+                r#""installed":["def5678def5678def5678def5678def5678def5678def5678def5678def5678def5678"]"#,
+            ),
+            (r#""still_missing":[]"#, r#""still_missing":["def5678"]"#),
+            (
+                r#""result":{"status":"ok"}"#,
+                r#""result":{"status":"failed","code":1}"#,
+            ),
+        ];
+        for (de, para) in casos {
+            let linha = LINHA_V5.replacen(de, para, 1);
+            assert_ne!(linha, LINHA_V5, "o caso não mudou nada: {de}");
+            assert!(parse_line(&linha).is_err(), "devia recusar: {linha}");
+        }
+    }
+
+    #[test]
+    fn recusa_sync_ou_repos_fora_da_v5() {
+        // `sync` e `repos` só existem na v5; as outras versões não os aceitam.
+        for versao in [2, 3, 4] {
+            let linha = LINHA_V5.replacen(r#""version":5"#, &format!(r#""version":{versao}"#), 1);
+            assert!(parse_line(&linha).is_err(), "v{versao}: {linha}");
+        }
+        let v3_com_repos = r#"{"version":3,"at_unix":1,"command":["x"],"requested":["1a2b3c4"],"installed":["1a2b3c4"],"still_missing":[],"result":{"status":"ok"},"action":"install","manager":"repos"}"#;
+        assert!(
+            parse_line(v3_com_repos).is_err(),
+            "install com manager repos"
+        );
+    }
+
+    #[test]
+    fn v5_so_aceita_sync() {
+        for acao in ["install", "remove", "adopt", "link"] {
+            let linha =
+                LINHA_V5.replacen(r#""action":"sync""#, &format!(r#""action":"{acao}""#), 1);
+            assert!(parse_line(&linha).is_err(), "{acao}: {linha}");
+        }
+    }
+
+    #[test]
+    fn aceita_commit_curto_e_completo_em_hexadecimal() {
+        for commit in ["abcdef0", "ABCDEF0123", &"a".repeat(40), &"a".repeat(64)] {
+            let linha = LINHA_V5.replacen("1a2b3c4", commit, 1);
+            assert!(parse_line(&linha).is_ok(), "{commit}");
+        }
     }
 }
