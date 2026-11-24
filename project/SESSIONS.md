@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-24 — Sessão 54, aba Status mostra o trecho `[machines.<rótulo>]` (Fase 2, fatia 10, PR 2 de 2, ADR 0033 emenda 4, PR #222)
+
+- **Pedido**: "continua" (o PR 2 da fatia 10, depois do merge do #218). O plano da sessão 53 já cobria os dois PRs; nenhum desvio.
+- **Feito**: `desktop/src/lib/presetStatus.ts` (parser exige `exceptions`; `exceptionSnippet`), `desktop/src/App.tsx` (bloco `status-excecao` em `MachineStatusView`), fixture `preset_status.json`, `tests/preset_status.test.mjs` e `e2e/preset-status.test.mjs`, `desktop/README.md`, ADR 0033 emenda 4 (item 7). Nenhuma mudança na CLI nem no core.
+- **Testes**: primeiro, CI Desktop vermelho pelo motivo certo (`exceptionSnippet` não exportada); depois verde (frontend, e2e, Rust, cargo-deny). Três mutações em PRs descartáveis (#223 a #225, fechados, branches apagadas), todas pegas por teste no job do frontend: `add` e `skip` trocados (3), parser sem exigir `exceptions` (1), bloco sempre mostrado (1). Uma tentativa de mutação minha quebraria o `tsc` (`snippet` possivelmente nulo) e foi refeita para compilar. O job Rust do #223 travou no `apt` do runner (14 min) e cancelei o run; o log do frontend saiu mesmo assim.
+- **Não verificado**: a janela real; o `--json` e a aba com o `nodusctl` da `main` no Arch real (conferir com `cargo install --list`; o `--version` fica `0.1.0`).
+- **Fica**: o dono atualizar o `nodusctl` e abrir a GUI com um preset que tenha `[machines]`; P-02, P-14, P-17; dois snapshots de máquinas reais.
+
 ### 2026-11-23 — Sessão 53, `preset status --json` ganha `exceptions` (Fase 2, fatia 10, PR 1 de 2, ADR 0033 emenda 4, PR #218)
 
 - **Pedido**: "segue" e, das opções, "1" (o trecho `[machines.<rótulo>]` na aba Status da GUI). Escolha do dono entre campo aditivo no `--json`, GUI sem o trecho e GUI mostrando o texto: campo aditivo. Plan mode; aprovou o plano e a tabela de testes sem mudanças. Dois PRs em série (CLI, depois desktop), sem equipe.
