@@ -310,9 +310,7 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
                 "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager` nem `dir`",
             ));
         }
-        (3, Some(Action::Install), None, Some(manager), None)
-            if matches!(manager, Manager::Pacman | Manager::Flatpak) =>
-        {
+        (3, Some(Action::Install), None, Some(manager), None) if manager != Manager::Dotfiles => {
             (Action::Install, None, manager, None)
         }
         (3, Some(Action::Remove), Some(n), Some(manager), None)
