@@ -112,9 +112,7 @@ struct RawEntry {
 pub enum HistoryError {
     #[error("linha de histórico inválida: {0}")]
     Invalid(String),
-    #[error(
-        "versão {0} do histórico não é suportada (esta versão lê da 1 à {DOTFILES_ENTRY_VERSION})"
-    )]
+    #[error("versão {0} do histórico não é suportada (esta versão lê da 1 à {SYNC_ENTRY_VERSION})")]
     UnsupportedVersion(u32),
     #[error("nome de pacote inválido no histórico: {0:?}")]
     InvalidPackageName(String),
@@ -217,13 +215,31 @@ pub fn entry_from_link(path: &str, dir: &str, command: &[String], at_unix: u64) 
 /// bem; falha antes dele não muda o repositório. `command` é o `git` que rodou, sem as variáveis e as
 /// opções de isolamento.
 pub fn entry_from_sync(
-    _dir: &str,
-    _before: &str,
-    _after: &str,
-    _command: &[String],
-    _at_unix: u64,
+    dir: &str,
+    before: &str,
+    after: &str,
+    command: &[String],
+    at_unix: u64,
 ) -> HistoryEntry {
-    todo!("entry_from_sync")
+    HistoryEntry {
+        version: SYNC_ENTRY_VERSION,
+        at_unix,
+        command: command.to_vec(),
+        requested: vec![before.to_string()],
+        installed: vec![after.to_string()],
+        still_missing: vec![],
+        result: ExecResult::Ok,
+        action: Action::Sync,
+        undoes: None,
+        manager: Manager::Repos,
+        dir: Some(dir.to_string()),
+    }
+}
+
+/// Commit em hexadecimal, de 4 a 64 dígitos (SHA-1 e SHA-256, curto ou inteiro): vai para a tela e
+/// para um comando que o usuário pode colar, então nada de escape de terminal nem de opção do git.
+fn is_valid_commit(commit: &str) -> bool {
+    (4..=64).contains(&commit.len()) && commit.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// Entrada da reversão de uma adoção (v4, ADR 0023), gravada só depois de o symlink ser trocado
@@ -294,11 +310,13 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
                 "`install` não leva `undoes`; `remove` exige `undoes` a partir de 1; a versão 2 não tem `manager` nem `dir`",
             ));
         }
-        (3, Some(Action::Install), None, Some(manager), None) if manager != Manager::Dotfiles => {
+        (3, Some(Action::Install), None, Some(manager), None)
+            if matches!(manager, Manager::Pacman | Manager::Flatpak) =>
+        {
             (Action::Install, None, manager, None)
         }
         (3, Some(Action::Remove), Some(n), Some(manager), None)
-            if n >= 1 && manager != Manager::Dotfiles =>
+            if n >= 1 && matches!(manager, Manager::Pacman | Manager::Flatpak) =>
         {
             (Action::Remove, Some(n), manager, None)
         }
@@ -322,6 +340,15 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
         (4, ..) => {
             return Err(invalid(
                 "a versão 4 só tem `adopt` ou `link` (sem `undoes`) ou `remove` (com `undoes` a partir de 1), sempre com `manager` dotfiles e `dir`",
+            ));
+        }
+        (5, Some(Action::Sync), None, Some(Manager::Repos), Some(dir)) => {
+            check_dir(&dir)?;
+            (Action::Sync, None, Manager::Repos, Some(dir))
+        }
+        (5, ..) => {
+            return Err(invalid(
+                "a versão 5 só tem `sync` (sem `undoes`), com `manager` repos e `dir`",
             ));
         }
         (version, ..) => return Err(HistoryError::UnsupportedVersion(version)),
@@ -360,12 +387,22 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
             "a reversão de dotfile registra um caminho, em `still_missing`, sem `installed` e com resultado ok",
         ));
     }
+    if entry.action == Action::Sync
+        && (entry.requested.len() != 1
+            || entry.installed.len() != 1
+            || !entry.still_missing.is_empty()
+            || entry.result != ExecResult::Ok)
+    {
+        return Err(invalid(
+            "`sync` registra o commit de antes em `requested` e o de depois em `installed`, sem `still_missing` e com resultado ok",
+        ));
+    }
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.
     let is_valid_name: fn(&str) -> bool = match entry.manager {
         Manager::Pacman => is_valid_pacman_name,
         Manager::Flatpak => is_valid_flatpak_id,
         Manager::Dotfiles => |path| crate::dotfiles::validate_path(path).is_ok(),
-        Manager::Repos => |_| false,
+        Manager::Repos => is_valid_commit,
     };
     let names = entry
         .requested

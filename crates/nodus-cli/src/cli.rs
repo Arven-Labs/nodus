@@ -626,12 +626,19 @@ mod tests {
 
     #[test]
     fn repos_sync_nao_mistura_com_as_opcoes_da_listagem() {
-        // `--fetch` e a pasta da listagem não valem antes do `sync` (o sync sempre faz fetch).
-        let erro = Cli::try_parse_from(["nodus", "repos", "--fetch", "sync"]).unwrap_err();
-        assert_eq!(erro.kind(), ErrorKind::ArgumentConflict);
-        let erro = Cli::try_parse_from(["nodus", "repos", "/ws", "sync"]).unwrap_err();
-        assert_eq!(erro.kind(), ErrorKind::ArgumentConflict);
+        // O `sync` sempre faz fetch e não tem a opção; a pasta vem depois dele, nunca antes.
         assert!(Cli::try_parse_from(["nodus", "repos", "sync", "--fetch"]).is_err());
+        assert!(Cli::try_parse_from(["nodus", "repos", "/ws", "sync"]).is_err());
+        // Depois de uma opção da listagem, `sync` é só o nome de uma pasta (a listagem de sempre).
+        let cli = Cli::try_parse_from(["nodus", "repos", "--fetch", "sync"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Repos {
+                fetch: true,
+                action: None,
+                ..
+            }
+        ));
     }
 
     #[test]

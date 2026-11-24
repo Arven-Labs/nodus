@@ -231,6 +231,15 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
                     entry.requested.join(", ")
                 );
             }
+            (Action::Sync, _) => {
+                let dir = entry.dir.as_deref().unwrap_or("?");
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  repositório avançado: {dir}  {} -> {}  (sem desfazer)",
+                    entry.requested.join(", "),
+                    entry.installed.join(", ")
+                );
+            }
             _ => {
                 let manager = match entry.manager {
                     Manager::Pacman => "",

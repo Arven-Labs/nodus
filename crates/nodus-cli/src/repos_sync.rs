@@ -2,12 +2,14 @@
 //! --ff-only` só nos que só estão atrás do upstream. A decisão de cada repositório (o gate de filtro,
 //! a árvore suja, o divergido) está em `nodus_core::sync`; aqui ficam o plano na tela, a pergunta, a
 //! execução em ordem e o histórico (uma linha v5 por repositório que avançou).
-#![allow(dead_code)]
 
 use crate::discovery::RepoDir;
-use anyhow::Result;
-use nodus_core::history::HistoryEntry;
+use anyhow::{Context, Result, bail};
+use nodus_core::history::{HistoryEntry, entry_from_sync};
+use nodus_core::repos::inspect_repo;
 use nodus_core::runner::CommandRunner;
+use nodus_core::sync::{MERGE_ARGS, SkipReason, SyncDecision, SyncItem, fast_forward, plan_item};
+use std::fmt::Write as _;
 use std::io::{BufRead, Write};
 use std::path::Path;
 
@@ -37,24 +39,172 @@ pub enum Outcome {
 
 /// Os repositórios pedidos com `--only`: cada nome tem de ser idêntico ao de um filho direto listado
 /// na hora (padrão do ADR 0028); nome desconhecido é erro **antes** de qualquer comando.
-pub fn select_repos(_all: Vec<RepoDir>, _only: &[String]) -> Result<Vec<RepoDir>> {
-    todo!("select_repos")
+pub fn select_repos(all: Vec<RepoDir>, only: &[String]) -> Result<Vec<RepoDir>> {
+    if only.is_empty() {
+        return Ok(all);
+    }
+    for name in only {
+        if !all.iter().any(|repo| &repo.name == name) {
+            bail!("repositório {name:?} não encontrado entre os filhos diretos da pasta");
+        }
+    }
+    Ok(all
+        .into_iter()
+        .filter(|repo| only.contains(&repo.name))
+        .collect())
 }
 
-/// Plano, confirmação, avanço e histórico.
+/// O `git` que o `merge` roda, como o histórico o guarda (sem as variáveis e as opções de
+/// isolamento, que são do nodus e não do comando).
+fn merge_command(path: &str) -> Vec<String> {
+    let mut command = vec!["git".to_string(), "-C".to_string(), path.to_string()];
+    command.extend(MERGE_ARGS.iter().map(|arg| arg.to_string()));
+    command
+}
+
+fn describe(decision: &SyncDecision) -> String {
+    match decision {
+        SyncDecision::Advance { behind } => {
+            let plural = if *behind == 1 { "" } else { "s" };
+            format!("avança {behind} commit{plural}")
+        }
+        SyncDecision::UpToDate => "em dia".to_string(),
+        SyncDecision::Ahead { ahead } => format!("à frente do upstream em {ahead} (nada a puxar)"),
+        SyncDecision::Skip { reason } => format!("fica de fora: {}", describe_skip(reason)),
+    }
+}
+
+fn describe_skip(reason: &SkipReason) -> String {
+    match reason {
+        SkipReason::Error { message } => format!("erro ({message})"),
+        SkipReason::FetchFailed { message } => format!("o fetch falhou ({message})"),
+        SkipReason::Filter => {
+            "a config tem filtro (`filter.*`): não verificável, o nodus não olha esse repositório"
+                .to_string()
+        }
+        SkipReason::Unreadable { message } => format!("não consegui ler o estado ({message})"),
+        SkipReason::DetachedHead => "HEAD solto".to_string(),
+        SkipReason::NoUpstream => "a branch não tem upstream".to_string(),
+        SkipReason::UpstreamGone => "o upstream sumiu".to_string(),
+        SkipReason::Diverged { ahead, behind } => {
+            format!("divergiu ({ahead} à frente, {behind} atrás): resolva à mão")
+        }
+        SkipReason::DirtyTree => "alterações locais na árvore".to_string(),
+    }
+}
+
+fn render_plan(items: &[SyncItem]) -> String {
+    let mut out = format!("Repositórios ({}):\n", items.len());
+    for item in items {
+        let branch = item.branch.as_deref().unwrap_or("-");
+        let _ = writeln!(
+            out,
+            "  {}  {branch}  {}",
+            item.name,
+            describe(&item.decision)
+        );
+    }
+    out
+}
+
+/// Plano, confirmação, avanço e histórico. Cada repositório é lido e classificado (com `fetch`); só
+/// os classificados como `avança` recebem o `merge --ff-only`, depois de **um** `[s/N]` para o plano
+/// todo. A falha de um avanço interrompe os seguintes e diz o que já avançou. O histórico ganha uma
+/// linha v5 por repositório que avançou, gravada logo depois do avanço.
 pub fn run(
-    _req: &Request<'_>,
-    _runner: &dyn CommandRunner,
-    _input: &mut impl BufRead,
-    _output: &mut impl Write,
+    req: &Request<'_>,
+    runner: &dyn CommandRunner,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
 ) -> Result<Outcome> {
-    todo!("run")
+    let mut items = Vec::with_capacity(req.repos.len());
+    for repo in req.repos {
+        let path = repo
+            .path
+            .to_str()
+            .with_context(|| format!("caminho fora de UTF-8: {}", repo.path.display()))?;
+        let status = inspect_repo(runner, &repo.name, path, true);
+        items.push(plan_item(runner, &status));
+    }
+    if req.json {
+        writeln!(output, "{}", serde_json::to_string_pretty(&items)?)?;
+        return Ok(Outcome::PlanOnly);
+    }
+    write!(output, "{}", render_plan(&items))?;
+    let to_advance: Vec<&SyncItem> = items
+        .iter()
+        .filter(|item| matches!(item.decision, SyncDecision::Advance { .. }))
+        .collect();
+    if to_advance.is_empty() {
+        writeln!(output, "Nada a avançar.")?;
+        return Ok(Outcome::NothingToDo);
+    }
+    if !req.interactive {
+        bail!(
+            "`repos sync` precisa de terminal interativo para confirmar (não há modo automático)"
+        );
+    }
+    if !crate::apply::confirm(input, output)? {
+        writeln!(output, "Nada foi executado.")?;
+        return Ok(Outcome::Declined);
+    }
+    let mut advanced: Vec<&str> = Vec::new();
+    for item in to_advance {
+        let done = match fast_forward(runner, item) {
+            Ok(done) => done,
+            Err(erro) => {
+                let already = if advanced.is_empty() {
+                    "Nenhum repositório avançou antes.".to_string()
+                } else {
+                    format!("Já avançaram: {}.", advanced.join(", "))
+                };
+                bail!("o avanço de {} falhou: {erro}. {already}", item.name);
+            }
+        };
+        let before = done.before.as_deref().with_context(|| {
+            format!(
+                "{} avançou para {}, mas não sei o commit de antes para o histórico",
+                item.name, done.after
+            )
+        })?;
+        writeln!(output, "  {}: {before} -> {}", item.name, done.after)?;
+        let entry = entry_from_sync(
+            &item.path,
+            before,
+            &done.after,
+            &merge_command(&item.path),
+            req.now_unix,
+        );
+        crate::history::append(req.history_path, &entry).with_context(|| {
+            format!("{} avançou, mas não consegui gravar o histórico", item.name)
+        })?;
+        advanced.push(&item.name);
+    }
+    writeln!(output, "Avançaram {} repositório(s).", advanced.len())?;
+    Ok(Outcome::Advanced(advanced.len()))
+}
+
+/// Cita para o shell só se precisar (o comando é para o dono colar; o nodus não o executa).
+fn shell_quote(text: &str) -> String {
+    let plain = !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/_.,:+@%-".contains(c));
+    if plain {
+        text.to_string()
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
 }
 
 /// A recusa do `history undo` numa linha de `repos sync`: o avanço não tem desfazer seguro (voltaria
 /// com `reset --hard`, que apaga trabalho local). Diz o que fazer à mão; nada é executado.
-pub fn undo_refusal(_entry: &HistoryEntry, _n: u32) -> String {
-    todo!("undo_refusal")
+pub fn undo_refusal(entry: &HistoryEntry, n: u32) -> String {
+    let dir = shell_quote(entry.dir.as_deref().unwrap_or("?"));
+    let before = entry.requested.first().map_or("?", String::as_str);
+    format!(
+        "a entrada [{n}] é de `repos sync` e não tem desfazer: voltar exigiria `git reset --hard`, que apaga trabalho local. O repositório estava em {before}. Se quiser voltar mesmo assim, rode por sua conta (confira antes se não há nada a perder):\n  git -C {dir} reset --hard {before}\n(nada foi executado pelo nodus.)"
+    )
 }
 
 #[cfg(test)]
