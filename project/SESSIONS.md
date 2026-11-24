@@ -2,6 +2,14 @@
 
 Mais recente no topo.
 
+### 2026-11-24 — Sessão 56, trecho `[machines.<rótulo>]` do `preset status` corta em 20 nomes (Fase 2, fatia 11, PR 1 de 2, ADR 0033 emenda 5, PR #228)
+
+- **Pedido**: `/projeto nodus`, "equipe, mas o que você recomenda de código?", depois "item 1, manda bala". Conferi o código e o ADR 0031 antes de recomendar: o recorte "snapshot e compare por git" está feito, não há tarefa paralelizável, então foi sessão individual. O item era o achado de uso da sessão 55. Plan mode; o dono escolheu comentário TOML e limite 20.
+- **Feito**: `EXCEPTION_LIST_LIMIT` e `exceptions_section` em `crates/nodus-cli/src/render.rs`, sete testes novos, ADR 0033 emenda 5. `status_section`, `exceptions_for` e `--json` não mudaram.
+- **Testes**: primeiro, CI vermelho pelo motivo certo (4 falhas de corte; 3 guardas passaram); depois verde. Quatro mutações em PRs descartáveis (#229 a #232, fechados, branches apagadas), todas compilaram, passaram o clippy e foram pegas por testes. A mutação B foi refeita: a primeira (`n * 0`) cairia no `erasing_op` do clippy sem rodar teste.
+- **Não verificado**: a saída no Arch real com preset pequeno (build é do dono); a GUI.
+- **Fica**: PR 2 (`exceptionSnippet` na GUI, depois do merge deste); P-02, P-14, P-17; snapshot da segunda máquina real; o `archlinux.json` regravado.
+
 ### 2026-11-24 — Sessão 55, verificação da fatia 5 (`NODUS_MACHINE`) na janela real e do `add_*` em dia (Fase 2, só docs)
 
 - **Pedido**: `/projeto nodus`, "equipe de preferência, mas o que fazemos de código?". Conferi o código e o ADR 0031 antes de recomendar (as sessões 52 a 54 mostraram o custo de recomendar pelo roadmap): não há tarefa de código que se divida em paralelo (as fatias são sequenciais; Windows e Core ficaram para depois pelo ADR 0031). O dono aceitou a verificação no PC como o trabalho da sessão; nenhuma equipe, nenhum código.
