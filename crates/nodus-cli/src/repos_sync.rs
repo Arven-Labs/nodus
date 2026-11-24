@@ -50,7 +50,7 @@ pub fn select_repos(all: Vec<RepoDir>, only: &[String]) -> Result<Vec<RepoDir>> 
     }
     Ok(all
         .into_iter()
-        .filter(|repo| only.contains(&repo.name))
+        .filter(|repo| !only.contains(&repo.name))
         .collect())
 }
 
