@@ -161,7 +161,7 @@ fn has_filter_command(runner: &dyn CommandRunner, repo: &str) -> Result<bool, St
     )
     .map_err(|e| git_error(&e))?;
     Ok(saida.lines().any(|nome| {
-        let nome = nome.trim().to_ascii_lowercase();
+        let nome = nome.trim().to_string();
         nome.starts_with("filter.")
             && ["clean", "smudge", "process"]
                 .iter()
