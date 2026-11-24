@@ -43,11 +43,6 @@ pub fn select_repos(all: Vec<RepoDir>, only: &[String]) -> Result<Vec<RepoDir>> 
     if only.is_empty() {
         return Ok(all);
     }
-    for name in only {
-        if !all.iter().any(|repo| &repo.name == name) {
-            bail!("repositório {name:?} não encontrado entre os filhos diretos da pasta");
-        }
-    }
     Ok(all
         .into_iter()
         .filter(|repo| only.contains(&repo.name))
