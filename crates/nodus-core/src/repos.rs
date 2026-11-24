@@ -105,7 +105,7 @@ pub fn isolated_git_args(repo: &str, git_args: &[&str]) -> Vec<String> {
     args
 }
 
-fn run_git(
+pub(crate) fn run_git(
     runner: &dyn CommandRunner,
     repo: &str,
     git_args: &[&str],
@@ -116,7 +116,7 @@ fn run_git(
 }
 
 /// Mensagem sem o nome do programa auxiliar (`env`): o usuário pensa em `git`.
-fn git_error(erro: &RunnerError) -> String {
+pub(crate) fn git_error(erro: &RunnerError) -> String {
     match erro {
         RunnerError::Failed { code, .. } => format!("git terminou com erro (código {code:?})"),
         outro => outro.to_string(),
