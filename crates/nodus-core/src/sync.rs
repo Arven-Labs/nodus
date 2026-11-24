@@ -20,7 +20,7 @@ pub const MERGE_ARGS: [&str; 9] = [
     "merge",
     "--ff-only",
     "--no-edit",
-    "--no-verify-signatures",
+    "--no-stat",
     "@{u}",
 ];
 
