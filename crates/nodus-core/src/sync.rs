@@ -172,12 +172,7 @@ fn has_filter_command(runner: &dyn CommandRunner, repo: &str) -> Result<bool, St
 /// `status --porcelain` vazio. `--untracked-files=normal` impede que `status.showUntrackedFiles=no`
 /// na config do repositório esconda arquivo novo.
 fn is_clean(runner: &dyn CommandRunner, repo: &str) -> Result<bool, String> {
-    let saida = run_git(
-        runner,
-        repo,
-        &["status", "--porcelain"],
-    )
-    .map_err(|e| git_error(&e))?;
+    let saida = run_git(runner, repo, &["status", "--porcelain"]).map_err(|e| git_error(&e))?;
     Ok(saida.trim().is_empty())
 }
 
