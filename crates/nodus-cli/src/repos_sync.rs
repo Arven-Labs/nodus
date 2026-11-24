@@ -201,7 +201,7 @@ fn shell_quote(text: &str) -> String {
 /// com `reset --hard`, que apaga trabalho local). Diz o que fazer à mão; nada é executado.
 pub fn undo_refusal(entry: &HistoryEntry, n: u32) -> String {
     let dir = shell_quote(entry.dir.as_deref().unwrap_or("?"));
-    let before = entry.requested.first().map_or("?", String::as_str);
+    let before = entry.installed.first().map_or("?", String::as_str);
     format!(
         "a entrada [{n}] é de `repos sync` e não tem desfazer: voltar exigiria `git reset --hard`, que apaga trabalho local. O repositório estava em {before}. Se quiser voltar mesmo assim, rode por sua conta (confira antes se não há nada a perder):\n  git -C {dir} reset --hard {before}\n(nada foi executado pelo nodus.)"
     )
