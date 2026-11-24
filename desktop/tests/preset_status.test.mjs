@@ -193,3 +193,43 @@ test("sem nenhuma exceção não há trecho", () => {
   assert.equal(exceptionSnippet("notebook", semExcecao), null);
   assert.equal(exceptionSnippet("notebook", { ...semExcecao, tableExists: true }), null);
 });
+
+// Limite de 20 nomes por lista (ADR 0033, emenda 5): mesmo texto que os testes `trecho_*` do render.rs no terminal.
+const pkgs = (n) => Array.from({ length: n }, (_, i) => `pkg${String(i + 1).padStart(2, "0")}`);
+const aspas = (nomes) => nomes.map((nome) => `"${nome}"`).join(", ");
+const comAdd = (pacman, tableExists = false) => ({ ...semExcecao, tableExists, add: { pacman, flatpak: [] } });
+
+test("trecho sem tabela com 25 nomes: corta em 20 e fecha a linha com comentário TOML", () => {
+  const trecho = exceptionSnippet("notebook", comAdd(pkgs(25)));
+  assert.equal(trecho.body, `[machines.notebook]\nadd_pacman = [${aspas(pkgs(20))}]  # +5 omitidos (lista completa acima)`);
+  assert.doesNotMatch(trecho.body, /"pkg21"/);
+});
+
+test("trecho com tabela existente e 25 nomes: 20 linhas e o comentário depois", () => {
+  const trecho = exceptionSnippet("notebook", comAdd(pkgs(25), true));
+  const linhas = pkgs(20).map((nome) => `  "${nome}",`).join("\n");
+  assert.equal(trecho.body, `em \`add_pacman = [...]\`:\n${linhas}\n  # ... +5 omitidos (lista completa acima)`);
+  assert.doesNotMatch(trecho.body, /"pkg21"/);
+});
+
+test("exatamente 20 nomes não tem comentário", () => {
+  assert.equal(exceptionSnippet("notebook", comAdd(pkgs(20))).body, `[machines.notebook]\nadd_pacman = [${aspas(pkgs(20))}]`);
+  assert.doesNotMatch(exceptionSnippet("notebook", comAdd(pkgs(20), true)).body, /omitidos/);
+});
+
+test("21 nomes omitem um", () => {
+  assert.match(exceptionSnippet("notebook", comAdd(pkgs(21))).body, /\]  # \+1 omitidos \(lista completa acima\)$/);
+  assert.match(exceptionSnippet("notebook", comAdd(pkgs(21), true)).body, /\n {2}# \.\.\. \+1 omitidos \(lista completa acima\)$/);
+});
+
+test("só a lista grande é cortada; a pequena sai inteira", () => {
+  const trecho = exceptionSnippet("notebook", { ...comAdd(pkgs(25)), skip: { pacman: ["a1", "a2", "a3"], flatpak: [] } });
+  assert.match(trecho.body, /\nskip_pacman = \["a1", "a2", "a3"\]$/);
+  assert.equal(trecho.body.match(/omitidos/g).length, 1);
+});
+
+test("o parser continua entregando os 25 nomes (o corte é só do trecho)", () => {
+  const data = fixture();
+  data.machines[0].exceptions.add.pacman = pkgs(25);
+  assert.equal(parse(data).machines[0].exceptions.add.pacman.length, 25);
+});
