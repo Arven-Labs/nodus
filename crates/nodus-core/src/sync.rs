@@ -143,7 +143,7 @@ fn decide(runner: &dyn CommandRunner, status: &RepoStatus) -> SyncDecision {
         (ahead, 0) => SyncDecision::Ahead { ahead },
         (0, behind) => match is_clean(runner, &status.path) {
             Ok(true) => SyncDecision::Advance { behind },
-            Ok(false) => skip(SkipReason::DirtyTree),
+            Ok(false) => SyncDecision::Advance { behind },
             Err(message) => skip(SkipReason::Unreadable { message }),
         },
         (ahead, behind) => skip(SkipReason::Diverged { ahead, behind }),
