@@ -18,6 +18,8 @@ npm install
 NODUSCTL=../target/release/nodusctl npm run tauri dev
 ```
 
+**Aba Status e `exceptions`** (ADR 0033, emenda 4): por máquina, a aba mostra o trecho `[machines.<rótulo>]` para colar no preset (o mesmo que `nodusctl preset status` imprime no terminal; só leitura, sem botão). Ela lê o campo `exceptions` do `--json`, que o `nodusctl` só tem a partir do PR #218: com um `nodusctl` mais antigo a aba dá erro citando `machines[0].exceptions`. Confira o binário instalado com `cargo install --list`.
+
 **`NODUS_MACHINE`** (opcional, lida só no Rust): o rótulo da máquina para as exceções `[machines.<rótulo>]` do preset (ADR 0033). Se definida, vira `--machine <rótulo>` em `preset plan` e `preset suggest` (abas Preset e Sugestões), nos botões "Instalar no terminal" (`preset apply`) e "Adotar no terminal" (`preset adopt`) e na releitura do "Voltar a sugerir". Sem ela, a CLI usa o hostname (só se o preset tem `[machines]`). Use quando o hostname tiver maiúsculas ou outro caractere fora de `[a-z0-9._-]`: a CLI erra pedindo `--machine` e a janela não tem como passá-lo. Regra do valor: 1 a 63 caracteres de `[a-z0-9._-]`, começando por letra ou dígito; valor ruim (inclusive vazio) é erro nas abas e ações que a usam, e não derruba as outras (Status e Inventário, por exemplo). Exemplo: `NODUS_PRESET=/home/eu/preset.toml NODUS_MACHINE=notebook NODUSCTL=../target/release/nodusctl npm run tauri dev`.
 
 Antes do primeiro `npm install`, rode `scripts/disk-report.sh` na raiz do workspace (`node_modules` e `src-tauri/target` pesam centenas de MB).

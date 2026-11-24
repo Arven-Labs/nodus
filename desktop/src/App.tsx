@@ -7,7 +7,7 @@ import { canUndo, formatUtc, type HistoryEntry, parseHistory } from "./lib/histo
 import { parseInventory } from "./lib/inventory";
 import { ParseError } from "./lib/parse";
 import { parsePresetPlan } from "./lib/preset";
-import { type MachineStatus, parsePresetStatus } from "./lib/presetStatus";
+import { exceptionSnippet, type MachineStatus, parsePresetStatus } from "./lib/presetStatus";
 import { parsePresetSuggest } from "./lib/presetSuggest";
 import { parseRepos, type Repo } from "./lib/repos";
 import { parseUpdates, type Updates } from "./lib/updates";
@@ -713,6 +713,7 @@ function MachineStatusView({ m }: { m: MachineStatus }) {
   // "Não comparável" não é diferença: a máquina não tem a capacidade, então a lista não conta nem contra nem a favor.
   const inSync = lists.every(({ list }) => list.kind === "not_comparable" || (list.missing.length === 0 && list.extra.length === 0));
   const notComparable = lists.some(({ list }) => list.kind === "not_comparable");
+  const snippet = exceptionSnippet(m.machine, m.exceptions);
   return (
     <div data-testid="status-maquina">
       <h2>{`${m.machine} (${m.os.name}${m.os.version ? ` ${m.os.version}` : ""})`}</h2>
@@ -737,6 +738,12 @@ function MachineStatusView({ m }: { m: MachineStatus }) {
             )}
           </div>
         ),
+      )}
+      {snippet && (
+        <div data-testid="status-excecao">
+          <p data-testid="status-excecao-intro">{snippet.intro}</p>
+          <pre data-testid="status-excecao-trecho">{snippet.body}</pre>
+        </div>
       )}
     </div>
   );
