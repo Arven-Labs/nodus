@@ -101,10 +101,10 @@ function machineExceptions(value: unknown, path: string): MachineExceptions {
  */
 export function exceptionSnippet(machine: string, exceptions: MachineExceptions): { intro: string; body: string } | null {
   const keys: [string, string[]][] = [
-    ["add_pacman", exceptions.add.pacman],
-    ["add_flatpak", exceptions.add.flatpak],
-    ["skip_pacman", exceptions.skip.pacman],
-    ["skip_flatpak", exceptions.skip.flatpak],
+    ["add_pacman", exceptions.skip.pacman],
+    ["add_flatpak", exceptions.skip.flatpak],
+    ["skip_pacman", exceptions.add.pacman],
+    ["skip_flatpak", exceptions.add.flatpak],
   ];
   const filled = keys.filter(([, items]) => items.length > 0);
   if (filled.length === 0) return null;
