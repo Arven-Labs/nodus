@@ -132,7 +132,7 @@ export function exceptionSnippet(machine: string, exceptions: MachineExceptions)
       `[machines.${machine}]`,
       ...filled.map(([key, items]) => {
         const omitted = items.length > EXCEPTION_LIST_LIMIT ? `  # +${items.length - EXCEPTION_LIST_LIMIT} omitidos (lista completa acima)` : "";
-        return `${key} = [${items.slice(0, EXCEPTION_LIST_LIMIT).map((name) => `"${name}"`).join(", ")}]${omitted}`;
+        return `${key} = [${items.slice(0, EXCEPTION_LIST_LIMIT + 1).map((name) => `"${name}"`).join(", ")}]${omitted}`;
       }),
     ].join("\n"),
   };
