@@ -170,8 +170,8 @@ pub fn run(
         writeln!(output, "  {}: {before} -> {}", item.name, done.after)?;
         let entry = entry_from_sync(
             &item.path,
-            before,
             &done.after,
+            before,
             &merge_command(&item.path),
             req.now_unix,
         );
