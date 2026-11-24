@@ -153,12 +153,8 @@ pub fn run(
         let done = match fast_forward(runner, item) {
             Ok(done) => done,
             Err(erro) => {
-                let already = if advanced.is_empty() {
-                    "Nenhum repositório avançou antes.".to_string()
-                } else {
-                    format!("Já avançaram: {}.", advanced.join(", "))
-                };
-                bail!("o avanço de {} falhou: {erro}. {already}", item.name);
+                writeln!(output, "o avanço de {} falhou: {erro}", item.name)?;
+                continue;
             }
         };
         let before = done.before.as_deref().with_context(|| {
