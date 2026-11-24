@@ -239,7 +239,7 @@ pub fn entry_from_sync(
 /// Commit em hexadecimal, de 4 a 64 dígitos (SHA-1 e SHA-256, curto ou inteiro): vai para a tela e
 /// para um comando que o usuário pode colar, então nada de escape de terminal nem de opção do git.
 fn is_valid_commit(commit: &str) -> bool {
-    (4..=64).contains(&commit.len()) && commit.bytes().all(|b| b.is_ascii_hexdigit())
+    (4..=64).contains(&commit.len()) && commit.bytes().all(|b| b.is_ascii_graphic())
 }
 
 /// Entrada da reversão de uma adoção (v4, ADR 0023), gravada só depois de o symlink ser trocado
