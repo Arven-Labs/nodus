@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-24 — Sessão 58, `repos sync`, PR 1 de 3: o core (P-20, ADR 0034)
+
+- **Pedido**: "sim" ao plano do `repos sync` depois do spike. Plan mode; o dono escolheu um `[s/N]` para o plano todo e histórico v5 sem desfazer (PR 2). Três PRs em série: core, CLI com histórico, GUI.
+- **Feito (PR 1)**: `crates/nodus-core/src/sync.rs` (`plan_item`, `fast_forward`, `MERGE_ARGS`, `SyncItem`, `SyncDecision`, `SkipReason`), `run_git` e `git_error` de `repos.rs` viraram `pub(crate)`. Nenhuma mudança na CLI, no histórico nem na GUI. Decisão minha, fora do plano escrito: o `status` leva `--untracked-files=normal`, para `status.showUntrackedFiles=no` na config do repositório não esconder arquivo novo.
+- **Testes**: primeiro, esqueleto com `todo!()` e CI vermelho com 15 falhas (só o teste de JSON passou); depois verde (422 no core). Nove mutações em PRs descartáveis (#240 a #248, fechados, branches apagadas), todas pegas por testes: gate invertido (11), `--ff` em vez de `--ff-only` (1), árvore suja avança (1), divergido avança (2), sem `--no-verify-signatures` (1), gate sem `to_ascii_lowercase` (1), `status` sem `--untracked-files=normal` (1), config ilegível libera (1), `status` falho libera (1). **A primeira S7 não valeu**: o trecho mutado cabia em uma linha e o CI parou no `fmt --check`, sem rodar teste; refeita no formato do `rustfmt` e pega por 1 teste.
+- **Conferido**: `medir.sh` de novo (0 de 13 disparos, 10 controles) e a lista de isolamento do Rust igual à do script.
+- **Não verificado**: tudo contra `git` real (os testes do core usam runner falso; o teste de ponta a ponta com binário e `git` reais é do PR 2).
+- **Fica**: PR 2 (CLI, histórico v5, recusa do undo, emenda 1 do ADR 0034), PR 3 (GUI, só depois de você rodar o `repos sync` no Arch real); P-02, P-14, P-17.
+
 ### 2026-11-24 — Sessão 57, spike P-20: `repos sync` seguro (só docs e script, ADR 0034)
 
 - **Pedido**: "o que fazemos agora? quero código". Conferi o código e o SPEC antes de recomendar: o recorte da Fase 2 está feito; a lacuna real é o `repos sync` (SPEC §6.6), que o ADR 0009 deixou bloqueado por segurança (o `status` executa o filtro `clean`). Equipe descartada (spike é medição sequencial); plan mode; o dono escolheu rodar o `medir.sh` na VM (bash + git em `mktemp`, não é teste nem build).
