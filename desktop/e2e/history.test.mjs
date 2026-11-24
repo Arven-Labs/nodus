@@ -80,6 +80,36 @@ test("cada ação tem o seu texto, com o que foi pedido e a data em UTC", async 
   await close();
 });
 
+test("o avanço de repositório (`repos sync`) aparece com os dois commits, o repositório e sem botão de desfazer", async () => {
+  const dados = historyFixture();
+  dados.push({
+    version: 5,
+    at_unix: 1700000200,
+    command: ["git", "-C", "/home/exemplo/ws/repo", "merge", "--ff-only", "@{u}"],
+    requested: ["1a2b3c4"],
+    installed: ["def5678"],
+    still_missing: [],
+    result: { status: "ok" },
+    action: "sync",
+    manager: "repos",
+    dir: "/home/exemplo/ws/repo",
+  });
+  const { page, errors, close } = await openApp(browser, app, { handlers: handlers(JSON.stringify(dados)) });
+  await abrirAba(page);
+  await page.getByTestId("history-list").waitFor();
+  const itens = page.getByTestId("history-entry");
+  assert.equal(await itens.count(), 6);
+  const sync = await itens.nth(0).innerText();
+  assert.match(sync, /#6\b/);
+  assert.match(sync, /repositório avançado/i);
+  assert.match(sync, /1a2b3c4 -> def5678/);
+  assert.match(sync, /\/home\/exemplo\/ws\/repo/);
+  assert.doesNotMatch(sync, /pasta-fonte/, "o `dir` do sync é um repositório, não a pasta-fonte de dotfiles");
+  assert.equal(await itens.nth(0).getByTestId("history-desfazer").count(), 0, "sem desfazer");
+  assert.deepEqual(errors, []);
+  await close();
+});
+
 test("resultado: ok, falhou com código e falhou sem código", async () => {
   const { page, close } = await openApp(browser, app, { handlers: handlers() });
   await abrirAba(page);

@@ -121,6 +121,55 @@ test("canUndo: Flatpak já desfeito com sucesso perde o botão; reversão que fa
   assert.equal(canUndo([entry({}), flatpakRemove(1, { status: "failed", code: 1 })], 1), true);
 });
 
+// `repos sync` (ADR 0034, v5): `action = sync`, `manager = repos`, `dir` é o repositório, `requested` o commit de antes e `installed` o de depois.
+const syncJson = (over = {}) => ({
+  version: 5,
+  at_unix: 1700000200,
+  command: ["git", "-C", "/home/exemplo/ws/repo", "merge", "--ff-only", "@{u}"],
+  requested: ["1a2b3c4"],
+  installed: ["def5678"],
+  still_missing: [],
+  result: { status: "ok" },
+  action: "sync",
+  manager: "repos",
+  dir: "/home/exemplo/ws/repo",
+  ...over,
+});
+
+test("linha v5 de `repos sync`: ação, gerenciador e repositório são lidos", () => {
+  const data = fixture();
+  data.push(syncJson());
+  const e = parse(data)[5];
+  assert.equal(e.action, "sync");
+  assert.equal(e.manager, "repos");
+  assert.equal(e.version, 5);
+  assert.equal(e.dir, "/home/exemplo/ws/repo");
+  assert.deepEqual(e.requested, ["1a2b3c4"]);
+  assert.deepEqual(e.installed, ["def5678"]);
+  assert.equal(e.undoes, null);
+});
+
+test("`sync` e `repos` isolados continuam sendo valores desconhecidos de outro campo", () => {
+  // O parser aceita os valores novos, mas não vira permissivo: o resto segue estrito.
+  for (const [campo, valor] of [["action", "syncs"], ["manager", "repo"], ["manager", "Repos"], ["action", "SYNC"]]) {
+    const data = fixture();
+    data.push(syncJson({ [campo]: valor }));
+    assert.throws(() => parse(data), (e) => e.name === "HistoryError" && e.message.includes(campo), `${campo}=${valor}`);
+  }
+});
+
+test("canUndo: o avanço de repositório nunca tem o botão (a CLI recusa: não há desfazer)", () => {
+  const entries = parse([syncJson()]);
+  assert.equal(canUndo(entries, 1), false);
+  assert.equal(canUndo(parse([syncJson({ result: { status: "failed", code: 1 } })]), 1), false);
+});
+
+test("canUndo: o avanço não afeta o botão das outras entradas", () => {
+  const entries = parse([JSON.parse(JSON.stringify(fixture()[0])), syncJson()]);
+  assert.equal(canUndo(entries, 1), true);
+  assert.equal(canUndo(entries, 2), false);
+});
+
 test("canUndo: reversão Flatpak nunca tem o botão; as outras regras seguem", () => {
   assert.equal(canUndo([entry({}), flatpakRemove(1)], 2), false);
   assert.equal(canUndo([entry({ manager: "pacman" })], 1), true);
