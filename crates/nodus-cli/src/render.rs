@@ -530,6 +530,11 @@ fn status_section(out: &mut String, title: &str, machine: &str, list: &StatusLis
     }
 }
 
+/// Nomes por lista no trecho; o excedente vira comentário (as listas acima e o `--json` ficam
+/// completos). A GUI repete o valor em `exceptionSnippet` (`desktop/src/lib/presetStatus.ts`):
+/// mudou aqui, mude lá.
+const EXCEPTION_LIST_LIMIT: usize = 20;
+
 /// O trecho da exceção sugerida para a máquina (nada é escrito). Sem tabela, mostra a tabela
 /// inteira para colar; com tabela, diz em qual lista acrescentar, porque repetir a chave seria
 /// TOML inválido.
@@ -551,8 +556,15 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
         );
         for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
             let _ = writeln!(out, "    em `{key} = [...]`:");
-            for name in *names {
+            for name in names.iter().take(EXCEPTION_LIST_LIMIT) {
                 let _ = writeln!(out, "      \"{name}\",");
+            }
+            if names.len() > EXCEPTION_LIST_LIMIT {
+                let _ = writeln!(
+                    out,
+                    "      # ... +{} omitidos (lista completa acima)",
+                    names.len() - EXCEPTION_LIST_LIMIT
+                );
             }
         }
     } else {
@@ -562,8 +574,19 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
         );
         let _ = writeln!(out, "    [machines.{machine}]");
         for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
-            let quoted: Vec<String> = names.iter().map(|name| format!("\"{name}\"")).collect();
-            let _ = writeln!(out, "    {key} = [{}]", quoted.join(", "));
+            let quoted: Vec<String> = names
+                .iter()
+                .take(EXCEPTION_LIST_LIMIT)
+                .map(|name| format!("\"{name}\""))
+                .collect();
+            // Comentário no fim da linha: o TOML continua válido ao colar.
+            let omitted = if names.len() > EXCEPTION_LIST_LIMIT {
+                let n = names.len() - EXCEPTION_LIST_LIMIT;
+                format!("  # +{n} omitidos (lista completa acima)")
+            } else {
+                String::new()
+            };
+            let _ = writeln!(out, "    {key} = [{}]{omitted}", quoted.join(", "));
         }
     }
 }
@@ -2205,6 +2228,111 @@ notebook (Arch Linux):
         assert!(
             texto.contains("\n    add_pacman = [\"steam\"]\n"),
             "{texto}"
+        );
+    }
+
+    // --- limite de 20 nomes por lista no trecho (ADR 0033, emenda 5) ---
+
+    /// `pkg01`, `pkg02`, ... (ordem alfabética igual à numérica).
+    fn pkgs(n: usize) -> Vec<String> {
+        (1..=n).map(|i| format!("pkg{i:02}")).collect()
+    }
+
+    /// Texto do `status` de uma máquina `notebook` com `n` pacotes instalados fora do preset
+    /// (`git` é o único do preset), e as `tabelas` dadas.
+    fn texto_com_extras(n: usize, tabelas: &str) -> String {
+        let p = preset_com_tabelas(&["git"], &[], tabelas);
+        let mut instalados = vec!["git".to_string()];
+        instalados.extend(pkgs(n));
+        let refs: Vec<&str> = instalados.iter().map(String::as_str).collect();
+        let s = snapshot_de("notebook", "Arch Linux", &refs, Some(&[]));
+        render_status(&p, &[estado(&p, &s)], &[])
+    }
+
+    fn linha_add_pacman_ate(n: usize) -> String {
+        let nomes: Vec<String> = pkgs(n).iter().map(|nome| format!("\"{nome}\"")).collect();
+        format!("    add_pacman = [{}]", nomes.join(", "))
+    }
+
+    #[test]
+    fn trecho_sem_tabela_corta_em_20_e_fecha_com_comentario_toml() {
+        let texto = texto_com_extras(25, "");
+        let esperado = format!(
+            "{}  # +5 omitidos (lista completa acima)\n",
+            linha_add_pacman_ate(20)
+        );
+        assert!(texto.contains(&esperado), "{texto}");
+        assert!(!texto.contains("\"pkg21\""), "{texto}");
+    }
+
+    #[test]
+    fn trecho_com_tabela_existente_corta_em_20_e_poe_o_comentario_depois() {
+        let texto = texto_com_extras(25, "\n[machines.notebook]\nskip_pacman = []\n");
+        let esperado = "      \"pkg20\",\n      # ... +5 omitidos (lista completa acima)\n";
+        assert!(texto.contains(esperado), "{texto}");
+        assert!(!texto.contains("\"pkg21\""), "{texto}");
+    }
+
+    #[test]
+    fn trecho_com_exatamente_20_nao_tem_comentario() {
+        let texto = texto_com_extras(20, "");
+        assert!(
+            texto.contains(&format!("{}\n", linha_add_pacman_ate(20))),
+            "{texto}"
+        );
+        assert!(!texto.contains("omitidos"), "{texto}");
+    }
+
+    #[test]
+    fn trecho_com_21_omite_um() {
+        let texto = texto_com_extras(21, "");
+        let esperado = format!(
+            "{}  # +1 omitidos (lista completa acima)\n",
+            linha_add_pacman_ate(20)
+        );
+        assert!(texto.contains(&esperado), "{texto}");
+    }
+
+    #[test]
+    fn trecho_corta_so_a_lista_grande_e_deixa_a_pequena_inteira() {
+        // 25 de fora do preset (add) e 3 do preset que faltam (skip).
+        let p = preset_de(&["a1", "a2", "a3"], &[]);
+        let instalados = pkgs(25);
+        let refs: Vec<&str> = instalados.iter().map(String::as_str).collect();
+        let s = snapshot_de("notebook", "Arch Linux", &refs, Some(&[]));
+        let texto = render_status(&p, &[estado(&p, &s)], &[]);
+        assert!(texto.contains("+5 omitidos"), "{texto}");
+        assert!(
+            texto.contains("\n    skip_pacman = [\"a1\", \"a2\", \"a3\"]\n"),
+            "{texto}"
+        );
+    }
+
+    #[test]
+    fn listas_acima_do_trecho_continuam_completas_com_25() {
+        let texto = texto_com_extras(25, "");
+        for nome in pkgs(25) {
+            assert!(
+                texto.contains(&format!("\n      {nome}\n")),
+                "{nome}: {texto}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_continua_com_os_25_nomes() {
+        let p = preset_de(&["git"], &[]);
+        let mut instalados = vec!["git".to_string()];
+        instalados.extend(pkgs(25));
+        let refs: Vec<&str> = instalados.iter().map(String::as_str).collect();
+        let s = snapshot_de("notebook", "Arch Linux", &refs, Some(&[]));
+        let json = status_json(&p, &[estado(&p, &s)], &[]).unwrap();
+        assert_eq!(
+            json["machines"][0]["exceptions"]["add"]["pacman"]
+                .as_array()
+                .unwrap()
+                .len(),
+            25
         );
     }
 
