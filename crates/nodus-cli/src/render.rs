@@ -231,11 +231,21 @@ pub fn render_history(entries: &[HistoryEntry]) -> String {
                     entry.requested.join(", ")
                 );
             }
+            (Action::Sync, _) => {
+                let dir = entry.dir.as_deref().unwrap_or("?");
+                let _ = writeln!(
+                    out,
+                    "[{n}] {when}  {result}  repositório avançado: {dir}  {} -> {}  (sem desfazer)",
+                    entry.requested.join(", "),
+                    entry.installed.join(", ")
+                );
+            }
             _ => {
                 let manager = match entry.manager {
                     Manager::Pacman => "",
                     Manager::Flatpak => "  flatpak",
                     Manager::Dotfiles => "  dotfiles",
+                    Manager::Repos => "  repos",
                 };
                 let _ = writeln!(
                     out,
@@ -1344,6 +1354,26 @@ Informe a pasta: `nodusctl workspace <pasta>` ou a variável NODUS_WORKSPACE.\n"
         );
         let pacman = execucao(1_700_000_000, &["sl"], &["sl"], &[], ExecResult::Ok);
         assert!(!render_history(&[pacman]).contains("flatpak"));
+    }
+
+    #[test]
+    fn historico_mostra_o_avanco_de_repositorio_com_commits_e_sem_desfazer() {
+        let avanco = nodus_core::history::entry_from_sync(
+            "/home/u/ws/repo",
+            "1a2b3c4",
+            "def5678",
+            &["git".to_string()],
+            1_700_000_000,
+        );
+        let saida = render_history(&[avanco]);
+        assert!(
+            saida.contains(
+                "[1] 2023-11-14T22:13:20Z  ok  repositório avançado: /home/u/ws/repo  1a2b3c4 -> def5678  (sem desfazer)\n"
+            ),
+            "{saida}"
+        );
+        // Não usa o formato de pacotes.
+        assert!(!saida.contains("pedidos 1, instalados"), "{saida}");
     }
 
     #[test]
