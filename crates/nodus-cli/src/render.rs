@@ -530,6 +530,11 @@ fn status_section(out: &mut String, title: &str, machine: &str, list: &StatusLis
     }
 }
 
+/// Nomes por lista no trecho; o excedente vira comentário (as listas acima e o `--json` ficam
+/// completos). A GUI repete o valor em `exceptionSnippet` (`desktop/src/lib/presetStatus.ts`):
+/// mudou aqui, mude lá.
+const EXCEPTION_LIST_LIMIT: usize = 20;
+
 /// O trecho da exceção sugerida para a máquina (nada é escrito). Sem tabela, mostra a tabela
 /// inteira para colar; com tabela, diz em qual lista acrescentar, porque repetir a chave seria
 /// TOML inválido.
@@ -551,8 +556,15 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
         );
         for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
             let _ = writeln!(out, "    em `{key} = [...]`:");
-            for name in *names {
+            for name in names.iter().take(EXCEPTION_LIST_LIMIT) {
                 let _ = writeln!(out, "      \"{name}\",");
+            }
+            if names.len() > EXCEPTION_LIST_LIMIT {
+                let _ = writeln!(
+                    out,
+                    "      # ... +{} omitidos (lista completa acima)",
+                    names.len() - EXCEPTION_LIST_LIMIT
+                );
             }
         }
     } else {
@@ -562,8 +574,19 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
         );
         let _ = writeln!(out, "    [machines.{machine}]");
         for (key, names) in keys.iter().filter(|(_, names)| !names.is_empty()) {
-            let quoted: Vec<String> = names.iter().map(|name| format!("\"{name}\"")).collect();
-            let _ = writeln!(out, "    {key} = [{}]", quoted.join(", "));
+            let quoted: Vec<String> = names
+                .iter()
+                .take(EXCEPTION_LIST_LIMIT)
+                .map(|name| format!("\"{name}\""))
+                .collect();
+            // Comentário no fim da linha: o TOML continua válido ao colar.
+            let omitted = if names.len() > EXCEPTION_LIST_LIMIT {
+                let n = names.len() - EXCEPTION_LIST_LIMIT;
+                format!("  # +{n} omitidos (lista completa acima)")
+            } else {
+                String::new()
+            };
+            let _ = writeln!(out, "    {key} = [{}]{omitted}", quoted.join(", "));
         }
     }
 }
