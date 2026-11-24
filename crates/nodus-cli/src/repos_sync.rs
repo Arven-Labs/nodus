@@ -621,6 +621,31 @@ mod tests {
             assert!(texto.contains(esperado), "falta {esperado:?}: {texto}");
         }
     }
+
+    #[test]
+    fn o_comando_de_voltar_cita_o_caminho_so_quando_precisa() {
+        let com_espaco = nodus_core::history::entry_from_sync(
+            "/home/u/meu ws/repo",
+            "1a2b3c4",
+            "def5678",
+            &["git".to_string()],
+            1,
+        );
+        assert!(
+            undo_refusal(&com_espaco, 1)
+                .contains("git -C '/home/u/meu ws/repo' reset --hard 1a2b3c4"),
+        );
+        let com_aspas = nodus_core::history::entry_from_sync(
+            "/home/u/it's",
+            "1a2b3c4",
+            "def5678",
+            &["git".to_string()],
+            1,
+        );
+        assert!(
+            undo_refusal(&com_aspas, 1).contains(r"git -C '/home/u/it'\''s' reset --hard 1a2b3c4")
+        );
+    }
 }
 
 /// O `sync` contra `git` de verdade, em repositórios temporários: gate, árvore suja, divergência e
