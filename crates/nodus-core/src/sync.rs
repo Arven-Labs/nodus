@@ -177,7 +177,7 @@ fn is_clean(runner: &dyn CommandRunner, repo: &str) -> Result<bool, String> {
         repo,
         &["status", "--porcelain", "--untracked-files=normal"],
     )
-    .map_err(|e| git_error(&e))?;
+    .unwrap_or_default();
     Ok(saida.trim().is_empty())
 }
 
