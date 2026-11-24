@@ -139,7 +139,7 @@ pub fn run(
         writeln!(output, "Nada a avançar.")?;
         return Ok(Outcome::NothingToDo);
     }
-    if !req.interactive {
+    if !req.interactive && req.json {
         bail!(
             "`repos sync` precisa de terminal interativo para confirmar (não há modo automático)"
         );
