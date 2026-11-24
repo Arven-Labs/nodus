@@ -94,6 +94,14 @@ function machineExceptions(value: unknown, path: string): MachineExceptions {
   };
 }
 
+/** Nomes por lista no trecho (ADR 0033, emenda 5); o mesmo valor de `EXCEPTION_LIST_LIMIT` em `crates/nodus-cli/src/render.rs`: mudou lá, mude aqui. */
+const EXCEPTION_LIST_LIMIT = 20;
+
+/** A linha de comentário da forma com tabela existente, ou nada se a lista cabe no limite. */
+function omittedLine(items: string[]): string[] {
+  return items.length > EXCEPTION_LIST_LIMIT ? [`  # ... +${items.length - EXCEPTION_LIST_LIMIT} omitidos (lista completa acima)`] : [];
+}
+
 /**
  * O trecho para colar no preset, como o `exceptions_section` de `crates/nodus-cli/src/render.rs` o imprime no terminal: sem a
  * tabela da máquina, a tabela inteira; com ela, só diz em qual lista acrescentar (repetir a chave seria TOML inválido).
@@ -111,12 +119,22 @@ export function exceptionSnippet(machine: string, exceptions: MachineExceptions)
   if (exceptions.tableExists) {
     return {
       intro: `A tabela [machines.${machine}] já existe. Para registrar a exceção, acrescente (nada foi alterado):`,
-      body: filled.map(([key, items]) => [`em \`${key} = [...]\`:`, ...items.map((name) => `  "${name}",`)].join("\n")).join("\n"),
+      body: filled
+        .map(([key, items]) =>
+          [`em \`${key} = [...]\`:`, ...items.slice(0, EXCEPTION_LIST_LIMIT).map((name) => `  "${name}",`), ...omittedLine(items)].join("\n"),
+        )
+        .join("\n"),
     };
   }
   return {
     intro: "Para registrar como exceção desta máquina, cole no preset (nada foi alterado):",
-    body: [`[machines.${machine}]`, ...filled.map(([key, items]) => `${key} = [${items.map((name) => `"${name}"`).join(", ")}]`)].join("\n"),
+    body: [
+      `[machines.${machine}]`,
+      ...filled.map(([key, items]) => {
+        const omitted = items.length > EXCEPTION_LIST_LIMIT ? `  # +${items.length - EXCEPTION_LIST_LIMIT} omitidos (lista completa acima)` : "";
+        return `${key} = [${items.slice(0, EXCEPTION_LIST_LIMIT).map((name) => `"${name}"`).join(", ")}]${omitted}`;
+      }),
+    ].join("\n"),
   };
 }
 

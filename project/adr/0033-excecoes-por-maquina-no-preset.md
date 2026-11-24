@@ -78,7 +78,8 @@ Achado de uso da sessão 55: com preset pequeno, `add_pacman` despejava centenas
 3. O PR 2 repete o valor em `exceptionSnippet` (`desktop/src/lib/presetStatus.ts`), porque a GUI só consome JSON; o texto do comentário é o mesmo nos dois lados.
 4. Descartado: mostrar só a contagem acima do limite (o trecho deixaria de ser colável); limite por flag ou no `config.toml` (YAGNI); cortar no `--json`.
 5. Testes primeiro: CI vermelho com 4 falhas (corte nas duas formas, 21 itens, lista grande ao lado de lista pequena), 3 guardas verdes (exatamente 20, listas acima completas, `--json` com os 25). Mutações pegas por testes (PRs #229 a #232, fechados): `>=` no corte (1), sem comentário na forma sem tabela (3), conta errada do omitido (1), `--json` cortado (1).
-6. **Não verificado:** a saída no Arch real com preset pequeno; a GUI (PR 2).
+6. **PR 2 (desktop, PR #233):** `exceptionSnippet` aplica o mesmo limite e os mesmos textos (`  # ... +N omitidos (lista completa acima)` na forma com tabela; `  # +N omitidos (lista completa acima)` no fim da linha na forma sem tabela); `README.md` do desktop cita o corte. Testes primeiro: CI vermelho com 4 falhas, depois verde. Mutações pegas por testes (PRs #234 a #237, fechados): `>=` na forma sem tabela (1), comentário que nunca aparece na forma com tabela (2), conta errada (2), 21 nomes em vez de 20 (1).
+7. **Não verificado:** a saída no Arch real com preset pequeno; a aba Status na janela real com mais de 20 nomes.
 
 ## Lacunas
 - **Verificado no Arch real em 2026-11-22** (binário da `main` em `ed0451b`, hostname `archlinux`): `plan` pelo hostname e com `--machine`, `--json`, rótulo inválido, typo em `skip` (erro, saída 1), `apply` respondendo `n`, `adopt` num preset com tabelas (só a linha de `pacman` mudou) e `status` com e sem a exceção (0 contra 1 ocorrência de `"sl"`).

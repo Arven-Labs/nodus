@@ -2,7 +2,10 @@
 
 Mais recente no topo.
 
-### 2026-11-24 — Sessão 56, trecho `[machines.<rótulo>]` do `preset status` corta em 20 nomes (Fase 2, fatia 11, PR 1 de 2, ADR 0033 emenda 5, PR #228)
+### 2026-11-24 — Sessão 56, trecho `[machines.<rótulo>]` do `preset status` corta em 20 nomes (Fase 2, fatia 11, PRs #228 e #233, ADR 0033 emenda 5)
+
+- **PR 2 (desktop, #233)**: `exceptionSnippet` em `desktop/src/lib/presetStatus.ts` com o mesmo limite e os mesmos textos; `desktop/README.md`; seis testes em `desktop/tests/preset_status.test.mjs`. CI vermelho (4 falhas) e depois verde. Quatro mutações em PRs descartáveis (#234 a #237, fechados, branches apagadas), todas passaram no `tsc` e foram pegas por testes. **Não visto** na janela real com mais de 20 nomes.
+- **PR 1 (CLI, #228, mesclado)**: abaixo.
 
 - **Pedido**: `/projeto nodus`, "equipe, mas o que você recomenda de código?", depois "item 1, manda bala". Conferi o código e o ADR 0031 antes de recomendar: o recorte "snapshot e compare por git" está feito, não há tarefa paralelizável, então foi sessão individual. O item era o achado de uso da sessão 55. Plan mode; o dono escolheu comentário TOML e limite 20.
 - **Feito**: `EXCEPTION_LIST_LIMIT` e `exceptions_section` em `crates/nodus-cli/src/render.rs`, sete testes novos, ADR 0033 emenda 5. `status_section`, `exceptions_for` e `--json` não mudaram.
