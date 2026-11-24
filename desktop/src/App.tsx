@@ -739,10 +739,10 @@ function MachineStatusView({ m }: { m: MachineStatus }) {
           </div>
         ),
       )}
-      {snippet && (
+      {(
         <div data-testid="status-excecao">
-          <p data-testid="status-excecao-intro">{snippet.intro}</p>
-          <pre data-testid="status-excecao-trecho">{snippet.body}</pre>
+          <p data-testid="status-excecao-intro">{snippet?.intro ?? ""}</p>
+          <pre data-testid="status-excecao-trecho">{snippet?.body ?? ""}</pre>
         </div>
       )}
     </div>
