@@ -175,7 +175,7 @@ fn is_clean(runner: &dyn CommandRunner, repo: &str) -> Result<bool, String> {
     let saida = run_git(
         runner,
         repo,
-        &["status", "--porcelain", "--untracked-files=normal"],
+        &["status", "--porcelain"],
     )
     .map_err(|e| git_error(&e))?;
     Ok(saida.trim().is_empty())
