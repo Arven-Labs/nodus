@@ -146,7 +146,6 @@ pub fn run(
     }
     if !crate::apply::confirm(input, output)? {
         writeln!(output, "Nada foi executado.")?;
-        return Ok(Outcome::Declined);
     }
     let mut advanced: Vec<&str> = Vec::new();
     for item in to_advance {
