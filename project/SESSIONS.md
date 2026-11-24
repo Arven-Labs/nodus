@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-24 — Sessão 55, verificação da fatia 5 (`NODUS_MACHINE`) na janela real e do `add_*` em dia (Fase 2, só docs)
+
+- **Pedido**: `/projeto nodus`, "equipe de preferência, mas o que fazemos de código?". Conferi o código e o ADR 0031 antes de recomendar (as sessões 52 a 54 mostraram o custo de recomendar pelo roadmap): não há tarefa de código que se divida em paralelo (as fatias são sequenciais; Windows e Core ficaram para depois pelo ADR 0031). O dono aceitou a verificação no PC como o trabalho da sessão; nenhuma equipe, nenhum código.
+- **Verificado no Arch real e na janela (PC do dono, 2026-11-24)**: `nodusctl` e `desktop/` em `77d7e8d` (conferido por `git log` no `~/nodus-build`; desse commit até a `main` só entraram docs), preset de teste em `/tmp` (`[machines.archlinux]` pulando `steam`). `preset plan` pela CLI com `--machine archlinux` e `--machine outra-maquina` bate com o ADR 0033. Na janela, fatia 5: `NODUS_MACHINE=archlinux` (igual ao hostname, não prova a variável), `outra-maquina` (Preset "1 já presentes", `steam` fora das Sugestões: prova) e `Maiusculas` (erro de valor ruim em Preset e Sugestões; Status e Inventário abrem). `status` com `add_pacman = ["git"]`: `Pacman: 1 em dia`, "fora do preset" 208 para 207, `git` fora do trecho.
+- **Erro meu, corrigido na hora**: o primeiro roteiro usou `NODUS_MACHINE=archlinux`, igual ao hostname, o que não distingue "a GUI passou a flag" de "a CLI caiu no hostname"; a rodada com `outra-maquina` resolveu. Também escrevi caminhos da VM (`workspace/nodus`) em comandos para o PC do dono, onde o repo é `~/nodus-build`.
+- **Achado de uso (não é bug)**: com um preset pequeno, o trecho do `preset status` despeja centenas de nomes em `add_pacman`. Com preset real tende a encolher; se não encolher, vale limitar ou resumir (decisão do dono, sem escopo).
+- **Não verificado**: botões "Instalar no terminal" e "Adotar no terminal" com `--machine`; `NODUS_MACHINE=` vazia na janela; hostname com maiúsculas (o hostname deste PC é `archlinux`); `compare` entre duas máquinas reais (falta o snapshot da outra máquina).
+- **Fica**: P-02, P-14, P-17; o `~/dotfiles/.nodus/snapshots/archlinux.json` regravado na sessão 54 (o dono decide se commita); snapshot da segunda máquina.
+
 ### 2026-11-24 — Sessão 54, aba Status mostra o trecho `[machines.<rótulo>]` (Fase 2, fatia 10, PR 2 de 2, ADR 0033 emenda 4, PR #222)
 
 - **Pedido**: "continua" (o PR 2 da fatia 10, depois do merge do #218). O plano da sessão 53 já cobria os dois PRs; nenhum desvio.
