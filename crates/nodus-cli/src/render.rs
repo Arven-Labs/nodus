@@ -563,7 +563,7 @@ fn exceptions_section(out: &mut String, exceptions: &MachineExceptions) {
                 let _ = writeln!(
                     out,
                     "      # ... +{} omitidos (lista completa acima)",
-                    names.len() - EXCEPTION_LIST_LIMIT
+                    names.len()
                 );
             }
         }
