@@ -2,6 +2,15 @@
 
 Mais recente no topo.
 
+### 2026-11-24 — Sessão 57, spike P-20: `repos sync` seguro (só docs e script, ADR 0034)
+
+- **Pedido**: "o que fazemos agora? quero código". Conferi o código e o SPEC antes de recomendar: o recorte da Fase 2 está feito; a lacuna real é o `repos sync` (SPEC §6.6), que o ADR 0009 deixou bloqueado por segurança (o `status` executa o filtro `clean`). Equipe descartada (spike é medição sequencial); plan mode; o dono escolheu rodar o `medir.sh` na VM (bash + git em `mktemp`, não é teste nem build).
+- **Feito**: `project/spikes/p10-sync/medir.sh` (13 vetores com canário, 10 controles positivos), ADR 0034, P-20 em `PENDING.md`. Nenhuma mudança em `crates/` nem em `desktop/`.
+- **Medido (git 2.56.1)**: sob gate + isolamento, 0 de 13 vetores dispararam; todos os baselines dispararam; 10 controles ok (gate libera repositório limpo, `status` classifica, `ff` avança, divergido e sujo o Git recusa). Quebra de propósito (`SEM_GATE=1`): os 7 vetores de filtro dispararam sob o isolamento do ADR 0009, saída 1. A primeira rodada teve 1 baseline mudo (`gpg_verify_merge`: faltava `gpgsig` no commit); corrigido e repetido 2 vezes com o mesmo resultado.
+- **Erro meu**: usei `sed -i` para alargar uma coluna do `medir.sh`, contra o `CLAUDE.md` (só `Edit`/`Write`). Foi formatação num arquivo novo, mas a regra vale também para "mecânico".
+- **Não verificado**: submódulos no `merge`, `credential.helper`, `.git` como arquivo, outras versões do Git e SOs; o script não roda no CI.
+- **Fica**: implementar o `repos sync` (P-20, plano próprio); P-02, P-14, P-17; snapshot da segunda máquina; o `archlinux.json` regravado.
+
 ### 2026-11-24 — Sessão 56, trecho `[machines.<rótulo>]` do `preset status` corta em 20 nomes (Fase 2, fatia 11, PRs #228 e #233, ADR 0033 emenda 5)
 
 - **PR 2 (desktop, #233)**: `exceptionSnippet` em `desktop/src/lib/presetStatus.ts` com o mesmo limite e os mesmos textos; `desktop/README.md`; seis testes em `desktop/tests/preset_status.test.mjs`. CI vermelho (4 falhas) e depois verde. Quatro mutações em PRs descartáveis (#234 a #237, fechados, branches apagadas), todas passaram no `tsc` e foram pegas por testes. **Não visto** na janela real com mais de 20 nomes.
