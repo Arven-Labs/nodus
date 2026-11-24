@@ -604,6 +604,9 @@ pub fn status_json(
         .map(|status| {
             let mut machine = serde_json::to_value(status)?;
             machine["exceptions"] = serde_json::to_value(exceptions_for(file, status))?;
+            if let Some(lista) = machine["exceptions"]["add"]["pacman"].as_array_mut() {
+                lista.truncate(EXCEPTION_LIST_LIMIT);
+            }
             Ok(machine)
         })
         .collect::<Result<Vec<_>, serde_json::Error>>()?;
