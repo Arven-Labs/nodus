@@ -412,7 +412,7 @@ function HistoryItem({ entry, n, canUndo, onRefresh }: { entry: HistoryEntry; n:
   // `dir` é a pasta-fonte nos dotfiles e o repositório no `repos sync`; neste, a lista pedida é o commit de antes e a instalada, o de depois.
   const isSync = entry.action === "sync";
   const where = entry.dir === null ? "" : ` · ${isSync ? "repositório" : "pasta-fonte"} ${entry.dir}`;
-  const requested = isSync ? `${entry.requested.join(", ")} -> ${entry.installed.join(", ")}` : entry.requested.join(", ");
+  const requested = isSync ? entry.requested.join(", ") : entry.requested.join(", ");
   return (
     <li data-testid="history-entry">
       <strong>{`#${n}`}</strong>
