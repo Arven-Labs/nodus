@@ -343,7 +343,6 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
             ));
         }
         (5, Some(Action::Sync), None, Some(Manager::Repos), Some(dir)) => {
-            check_dir(&dir)?;
             (Action::Sync, None, Manager::Repos, Some(dir))
         }
         (5, ..) => {
