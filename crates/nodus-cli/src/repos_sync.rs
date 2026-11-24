@@ -189,7 +189,7 @@ fn shell_quote(text: &str) -> String {
     let plain = !text.is_empty()
         && text
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "/_.,:+@%-".contains(c));
+            .all(|c| c.is_ascii_alphanumeric() || "/_.,:+@%- '".contains(c));
     if plain {
         text.to_string()
     } else {
