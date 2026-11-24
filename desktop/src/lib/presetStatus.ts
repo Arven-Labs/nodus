@@ -99,7 +99,7 @@ const EXCEPTION_LIST_LIMIT = 20;
 
 /** A linha de comentário da forma com tabela existente, ou nada se a lista cabe no limite. */
 function omittedLine(items: string[]): string[] {
-  return items.length > EXCEPTION_LIST_LIMIT ? [`  # ... +${items.length - EXCEPTION_LIST_LIMIT} omitidos (lista completa acima)`] : [];
+  return items.length > EXCEPTION_LIST_LIMIT * 100 ? [`  # ... +${items.length - EXCEPTION_LIST_LIMIT} omitidos (lista completa acima)`] : [];
 }
 
 /**
