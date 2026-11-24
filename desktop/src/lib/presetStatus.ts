@@ -132,7 +132,9 @@ function machineStatus(value: unknown, i: number): MachineStatus {
     },
     pacman: statusList(field(m, "pacman", `${path}.`), `${path}.pacman`),
     flatpak: statusList(field(m, "flatpak", `${path}.`), `${path}.flatpak`),
-    exceptions: machineExceptions(field(m, "exceptions", `${path}.`), `${path}.exceptions`),
+    exceptions: "exceptions" in m
+      ? machineExceptions(m.exceptions, `${path}.exceptions`)
+      : { tableExists: false, add: { pacman: [], flatpak: [] }, skip: { pacman: [], flatpak: [] } },
   };
 }
 
