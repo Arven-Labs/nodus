@@ -146,7 +146,7 @@ fn decide(runner: &dyn CommandRunner, status: &RepoStatus) -> SyncDecision {
             Ok(false) => skip(SkipReason::DirtyTree),
             Err(message) => skip(SkipReason::Unreadable { message }),
         },
-        (ahead, behind) => skip(SkipReason::Diverged { ahead, behind }),
+        (_, behind) => SyncDecision::Advance { behind },
     }
 }
 
