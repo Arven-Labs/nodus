@@ -387,16 +387,6 @@ pub fn parse_line(line: &str) -> Result<HistoryEntry, HistoryError> {
             "a reversão de dotfile registra um caminho, em `still_missing`, sem `installed` e com resultado ok",
         ));
     }
-    if entry.action == Action::Sync
-        && (entry.requested.len() != 1
-            || entry.installed.len() != 1
-            || !entry.still_missing.is_empty()
-            || entry.result != ExecResult::Ok)
-    {
-        return Err(invalid(
-            "`sync` registra o commit de antes em `requested` e o de depois em `installed`, sem `still_missing` e com resultado ok",
-        ));
-    }
     // Os nomes vão para a tela: nada de escape de terminal nem de opção do gerenciador.
     let is_valid_name: fn(&str) -> bool = match entry.manager {
         Manager::Pacman => is_valid_pacman_name,
