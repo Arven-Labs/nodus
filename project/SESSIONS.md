@@ -10,7 +10,7 @@ Mais recente no topo.
 - **Erros meus**: não rodei `cargo fmt` para reescrever (regra do `CLAUDE.md`), apliquei o formato com `Edit` e `Write`; o script de mutação passou a conferir o `fmt` antes de commitar.
 - **Não verificado**: o `repos sync` no Arch real (build é do dono); a aba Histórico com uma linha v5.
 - **PR 3a (GUI, #263)**: a aba Histórico aceita `sync` e `repos` (`desktop/src/lib/history.ts`, `App.tsx`, testes unitários e e2e). CI vermelho (4 falhas) e depois verde (111 e 234). Quatro mutações em PRs descartáveis (#264 a #267, fechados), todas pegas. Entra antes de o dono rodar o `repos sync`, para a aba não dar erro.
-- **Fica**: PR 3b (botão "Sincronizar no terminal", só depois de o dono rodar o `repos sync` no Arch real); P-02, P-14, P-17.
+- **Fica**: PR 3b (botão "Sincronizar no terminal", só depois de o dono rodar o `repos sync` no Arch real); P-02, P-14, P-17. O PR 3a foi mesclado (#263, `4ded619`). O dono disse que não pode fazer a verificação no Arch agora ("registra como pendência"): ficou na P-20 como pendência do dono e como bloqueio do 3b.
 - **PR 1 (core, #239, mesclado)**, o que veio antes:
 - **Pedido**: "sim" ao plano do `repos sync` depois do spike. Plan mode; o dono escolheu um `[s/N]` para o plano todo e histórico v5 sem desfazer (PR 2). Três PRs em série: core, CLI com histórico, GUI.
 - **Feito (PR 1)**: `crates/nodus-core/src/sync.rs` (`plan_item`, `fast_forward`, `MERGE_ARGS`, `SyncItem`, `SyncDecision`, `SkipReason`), `run_git` e `git_error` de `repos.rs` viraram `pub(crate)`. Nenhuma mudança na CLI, no histórico nem na GUI. Decisão minha, fora do plano escrito: o `status` leva `--untracked-files=normal`, para `status.showUntrackedFiles=no` na config do repositório não esconder arquivo novo.
