@@ -6,18 +6,33 @@
 // motivos vêm de arquivos e do sistema: dado externo, tratado só como texto. Campo ausente ou de tipo errado falha alto, com o
 // caminho do campo.
 
-import { array, count, field, nullableText, object, ParseError, fail, text } from "./parse.ts";
+import { array, bool, count, field, nullableText, object, ParseError, fail, text } from "./parse.ts";
 
 export type StatusList =
   | { kind: "compared"; missing: string[]; extra: string[]; inSync: number }
   /** A máquina não tem a capacidade (`lacks` traz o rótulo dela): não é "diferente". */
   | { kind: "not_comparable"; lacks: string[] };
 
+/** Itens por gerenciador: o que a máquina acrescenta (`add`) ou pula (`skip`) em relação ao preset. */
+export interface ExceptionItems {
+  pacman: string[];
+  flatpak: string[];
+}
+
+/** O que `[machines.<rótulo>]` precisaria para a máquina ficar em dia (ADR 0033, emenda 4). Só sugestão: nada é escrito. */
+export interface MachineExceptions {
+  /** A tabela da máquina já existe no preset: o trecho manda acrescentar nas listas dela. */
+  tableExists: boolean;
+  add: ExceptionItems;
+  skip: ExceptionItems;
+}
+
 export interface MachineStatus {
   machine: string;
   os: { name: string; version: string | null };
   pacman: StatusList;
   flatpak: StatusList;
+  exceptions: MachineExceptions;
 }
 
 export interface Unreadable {
@@ -62,6 +77,49 @@ function statusList(value: unknown, path: string): StatusList {
   return fail(`${path}.status`, "`compared` ou `not_comparable`");
 }
 
+function exceptionItems(value: unknown, path: string): ExceptionItems {
+  const items = object(value, path);
+  return {
+    pacman: names(items, "pacman", `${path}.`),
+    flatpak: names(items, "flatpak", `${path}.`),
+  };
+}
+
+function machineExceptions(value: unknown, path: string): MachineExceptions {
+  const e = object(value, path);
+  return {
+    tableExists: bool(field(e, "table_exists", `${path}.`), `${path}.table_exists`),
+    add: exceptionItems(field(e, "add", `${path}.`), `${path}.add`),
+    skip: exceptionItems(field(e, "skip", `${path}.`), `${path}.skip`),
+  };
+}
+
+/**
+ * O trecho para colar no preset, como o `exceptions_section` de `crates/nodus-cli/src/render.rs` o imprime no terminal: sem a
+ * tabela da máquina, a tabela inteira; com ela, só diz em qual lista acrescentar (repetir a chave seria TOML inválido).
+ * `null` quando não há exceção. Só leitura: a tela mostra, o dono cola.
+ */
+export function exceptionSnippet(machine: string, exceptions: MachineExceptions): { intro: string; body: string } | null {
+  const keys: [string, string[]][] = [
+    ["add_pacman", exceptions.add.pacman],
+    ["add_flatpak", exceptions.add.flatpak],
+    ["skip_pacman", exceptions.skip.pacman],
+    ["skip_flatpak", exceptions.skip.flatpak],
+  ];
+  const filled = keys.filter(([, items]) => items.length > 0);
+  if (filled.length === 0) return null;
+  if (exceptions.tableExists) {
+    return {
+      intro: `A tabela [machines.${machine}] já existe. Para registrar a exceção, acrescente (nada foi alterado):`,
+      body: filled.map(([key, items]) => [`em \`${key} = [...]\`:`, ...items.map((name) => `  "${name}",`)].join("\n")).join("\n"),
+    };
+  }
+  return {
+    intro: "Para registrar como exceção desta máquina, cole no preset (nada foi alterado):",
+    body: [`[machines.${machine}]`, ...filled.map(([key, items]) => `${key} = [${items.map((name) => `"${name}"`).join(", ")}]`)].join("\n"),
+  };
+}
+
 function machineStatus(value: unknown, i: number): MachineStatus {
   const path = `machines[${i}]`;
   const m = object(value, path);
@@ -74,6 +132,7 @@ function machineStatus(value: unknown, i: number): MachineStatus {
     },
     pacman: statusList(field(m, "pacman", `${path}.`), `${path}.pacman`),
     flatpak: statusList(field(m, "flatpak", `${path}.`), `${path}.flatpak`),
+    exceptions: machineExceptions(field(m, "exceptions", `${path}.`), `${path}.exceptions`),
   };
 }
 
