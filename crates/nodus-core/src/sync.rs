@@ -124,8 +124,8 @@ fn decide(runner: &dyn CommandRunner, status: &RepoStatus) -> SyncDecision {
     }
     // O gate vem antes de qualquer `status` ou `merge`: são eles que aplicam filtro.
     match has_filter_command(runner, &status.path) {
-        Ok(false) => {}
-        Ok(true) => return skip(SkipReason::Filter),
+        Ok(true) => {}
+        Ok(false) => return skip(SkipReason::Filter),
         Err(message) => return skip(SkipReason::Unreadable { message }),
     }
     if status.branch.is_none() {
