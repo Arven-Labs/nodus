@@ -5,7 +5,7 @@
 //! smudge,process}`; o `status` e o `merge` só rodam depois dele, isolados como no ADR 0009. O avanço
 //! é só `--ff-only`: nunca `pull`, `reset`, `rebase`, troca de branch nem resolução de conflito.
 
-use crate::repos::{FetchResult, RepoStatus};
+use crate::repos::{FetchResult, RepoStatus, git_error, run_git};
 use crate::runner::CommandRunner;
 use serde::Serialize;
 
@@ -89,18 +89,117 @@ pub struct Advanced {
 
 /// Classifica um repositório já inspecionado (com `fetch`). Só roda `git` depois de o estado, o
 /// `fetch` e a contagem pedirem; o gate vem antes de qualquer `status` ou `merge`.
-pub fn plan_item(_runner: &dyn CommandRunner, _status: &RepoStatus) -> SyncItem {
-    todo!("plan_item")
+pub fn plan_item(runner: &dyn CommandRunner, status: &RepoStatus) -> SyncItem {
+    SyncItem {
+        name: status.name.clone(),
+        path: status.path.clone(),
+        branch: status.branch.clone(),
+        commit: status.commit.clone(),
+        decision: decide(runner, status),
+    }
+}
+
+fn skip(reason: SkipReason) -> SyncDecision {
+    SyncDecision::Skip { reason }
+}
+
+fn decide(runner: &dyn CommandRunner, status: &RepoStatus) -> SyncDecision {
+    if let Some(message) = &status.error {
+        return skip(SkipReason::Error {
+            message: message.clone(),
+        });
+    }
+    match &status.fetch {
+        Some(FetchResult::Done) => {}
+        Some(FetchResult::Failed(message)) => {
+            return skip(SkipReason::FetchFailed {
+                message: message.clone(),
+            });
+        }
+        None => {
+            return skip(SkipReason::FetchFailed {
+                message: "o fetch não foi feito".to_string(),
+            });
+        }
+    }
+    // O gate vem antes de qualquer `status` ou `merge`: são eles que aplicam filtro.
+    match has_filter_command(runner, &status.path) {
+        Ok(false) => {}
+        Ok(true) => return skip(SkipReason::Filter),
+        Err(message) => return skip(SkipReason::Unreadable { message }),
+    }
+    if status.branch.is_none() {
+        return skip(SkipReason::DetachedHead);
+    }
+    if status.upstream_gone {
+        return skip(SkipReason::UpstreamGone);
+    }
+    let (Some(_), Some(ahead), Some(behind)) = (&status.upstream, status.ahead, status.behind)
+    else {
+        return skip(SkipReason::NoUpstream);
+    };
+    match (ahead, behind) {
+        (0, 0) => SyncDecision::UpToDate,
+        (ahead, 0) => SyncDecision::Ahead { ahead },
+        (0, behind) => match is_clean(runner, &status.path) {
+            Ok(true) => SyncDecision::Advance { behind },
+            Ok(false) => skip(SkipReason::DirtyTree),
+            Err(message) => skip(SkipReason::Unreadable { message }),
+        },
+        (ahead, behind) => skip(SkipReason::Diverged { ahead, behind }),
+    }
+}
+
+/// `true` se a config que o Git leria (inclusive `include` e `includeIf`) define comando de filtro.
+/// Só os nomes das chaves são lidos, e a comparação não diferencia maiúsculas (seção e variável do
+/// Git não diferenciam). Falha ao ler a config é erro: o chamador recusa o repositório.
+fn has_filter_command(runner: &dyn CommandRunner, repo: &str) -> Result<bool, String> {
+    let saida = run_git(
+        runner,
+        repo,
+        &["config", "--list", "--includes", "--name-only"],
+    )
+    .map_err(|e| git_error(&e))?;
+    Ok(saida.lines().any(|nome| {
+        let nome = nome.trim().to_ascii_lowercase();
+        nome.starts_with("filter.")
+            && ["clean", "smudge", "process"]
+                .iter()
+                .any(|var| nome.ends_with(&format!(".{var}")))
+    }))
+}
+
+/// `status --porcelain` vazio. `--untracked-files=normal` impede que `status.showUntrackedFiles=no`
+/// na config do repositório esconda arquivo novo.
+fn is_clean(runner: &dyn CommandRunner, repo: &str) -> Result<bool, String> {
+    let saida = run_git(
+        runner,
+        repo,
+        &["status", "--porcelain", "--untracked-files=normal"],
+    )
+    .map_err(|e| git_error(&e))?;
+    Ok(saida.trim().is_empty())
 }
 
 /// Avança um repositório classificado como `Advance`; recusa qualquer outro (defesa em
 /// profundidade). `Err` é a mensagem para o usuário, sem o nome do programa auxiliar.
-pub fn fast_forward(_runner: &dyn CommandRunner, _item: &SyncItem) -> Result<Advanced, String> {
-    todo!("fast_forward")
+pub fn fast_forward(runner: &dyn CommandRunner, item: &SyncItem) -> Result<Advanced, String> {
+    if !matches!(item.decision, SyncDecision::Advance { .. }) {
+        return Err(format!("{} não foi planejado para avançar", item.name));
+    }
+    run_git(runner, &item.path, &MERGE_ARGS).map_err(|e| git_error(&e))?;
+    let after = run_git(runner, &item.path, &["rev-parse", "--short", "HEAD"])
+        .map_err(|e| git_error(&e))?
+        .trim()
+        .to_string();
+    if after.is_empty() || after.chars().any(char::is_control) {
+        return Err("commit inválido depois do avanço".to_string());
+    }
+    Ok(Advanced {
+        before: item.commit.clone(),
+        after,
+    })
 }
-
-#[allow(dead_code)]
-fn _usa_fetch_result(_: &FetchResult) {}
 
 #[cfg(test)]
 mod tests {
